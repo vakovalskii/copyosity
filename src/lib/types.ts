@@ -11,6 +11,7 @@ export interface ClipboardEntry {
   created_at: string;
   is_pinned: boolean;
   collection_id: number | null;
+  tags: string[];
 }
 
 export interface Collection {
@@ -18,4 +19,9 @@ export interface Collection {
   name: string;
   color: string | null;
   sort_order: number;
+}
+
+export interface AppSettings {
+  ollama_model: string;
+  retention_days: number;
 }

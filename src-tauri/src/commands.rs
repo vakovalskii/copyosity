@@ -1,4 +1,4 @@
-use crate::db::{ClipboardEntry, Collection, Database};
+use crate::db::{AppSettings, ClipboardEntry, Collection, Database};
 use arboard::Clipboard;
 use std::sync::Arc;
 use tauri::{Manager, State};
@@ -65,6 +65,30 @@ pub fn delete_collection(db: State<'_, Arc<Database>>, id: i64) -> Result<(), St
 #[tauri::command]
 pub fn clear_history(db: State<'_, Arc<Database>>) -> Result<(), String> {
     db.clear_history().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_app_settings(db: State<'_, Arc<Database>>) -> Result<AppSettings, String> {
+    db.get_app_settings().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_app_settings(
+    db: State<'_, Arc<Database>>,
+    ollama_model: Option<String>,
+    retention_days: Option<i64>,
+) -> Result<AppSettings, String> {
+    let settings = db
+        .update_app_settings(ollama_model.as_deref(), retention_days)
+        .map_err(|e| e.to_string())?;
+
+    // Keep the active process aligned with the saved model so new tagging uses it immediately.
+    std::env::set_var("COPYOSITY_OLLAMA_MODEL", &settings.ollama_model);
+
+    db.cleanup_old_entries(settings.retention_days)
+        .map_err(|e| e.to_string())?;
+
+    Ok(settings)
 }
 
 #[tauri::command]

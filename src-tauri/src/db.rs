@@ -4,6 +4,12 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AppSettings {
+    pub ollama_model: String,
+    pub retention_days: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ClipboardEntry {
     pub id: i64,
     pub content_type: String, // "text", "image", "file"
@@ -17,6 +23,8 @@ pub struct ClipboardEntry {
     pub created_at: String,
     pub is_pinned: bool,
     pub collection_id: Option<i64>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -74,13 +82,84 @@ impl Database {
                 value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS clipboard_tags (
+                entry_id INTEGER NOT NULL REFERENCES clipboard_entries(id) ON DELETE CASCADE,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (entry_id, tag)
+            );
+
+            CREATE TABLE IF NOT EXISTS clipboard_tag_state (
+                entry_id INTEGER PRIMARY KEY REFERENCES clipboard_entries(id) ON DELETE CASCADE,
+                status TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS excluded_apps (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bundle_id TEXT NOT NULL UNIQUE
             );
+
+            CREATE INDEX IF NOT EXISTS idx_clipboard_tags_entry ON clipboard_tags(entry_id);
+            CREATE INDEX IF NOT EXISTS idx_clipboard_tags_tag ON clipboard_tags(tag);
+            CREATE INDEX IF NOT EXISTS idx_clipboard_tag_state_status ON clipboard_tag_state(status);
         ")?;
 
         Ok(Self { conn: Mutex::new(conn) })
+    }
+
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        )
+        .map(Some)
+        .or_else(|err| match err {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            _ => Err(err),
+        })
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_app_settings(&self) -> Result<AppSettings, rusqlite::Error> {
+        let ollama_model = self
+            .get_setting("ollama_model")?
+            .unwrap_or_else(|| "qwen3:4b-instruct-2507-q4_K_M".to_string());
+        let retention_days = self
+            .get_setting("retention_days")?
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|days| matches!(*days, 1 | 7 | 30 | 180))
+            .unwrap_or(30);
+
+        Ok(AppSettings {
+            ollama_model,
+            retention_days,
+        })
+    }
+
+    pub fn update_app_settings(
+        &self,
+        ollama_model: Option<&str>,
+        retention_days: Option<i64>,
+    ) -> Result<AppSettings, rusqlite::Error> {
+        if let Some(model) = ollama_model {
+            self.set_setting("ollama_model", model.trim())?;
+        }
+
+        if let Some(days) = retention_days {
+            self.set_setting("retention_days", &days.to_string())?;
+        }
+
+        self.get_app_settings()
     }
 
     pub fn insert_entry(&self, entry: &ClipboardEntry) -> Result<i64, rusqlite::Error> {
@@ -127,7 +206,8 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let mut sql = String::from(
-            "SELECT id, content_type, text_content, NULL as image_data, COALESCE(image_thumb, image_data) as image_thumb, source_app, NULL as source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id
+            "SELECT id, content_type, text_content, NULL as image_data, COALESCE(image_thumb, image_data) as image_thumb, source_app, NULL as source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id,
+             COALESCE((SELECT GROUP_CONCAT(tag, '|') FROM clipboard_tags WHERE entry_id = clipboard_entries.id), '') as tags
              FROM clipboard_entries WHERE 1=1"
         );
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -167,6 +247,12 @@ impl Database {
                 created_at: row.get(9)?,
                 is_pinned: row.get::<_, i32>(10)? != 0,
                 collection_id: row.get(11)?,
+                tags: row
+                    .get::<_, String>(12)?
+                    .split('|')
+                    .filter(|tag| !tag.is_empty())
+                    .map(|tag| tag.to_string())
+                    .collect(),
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -231,6 +317,101 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM clipboard_entries WHERE is_pinned = 0", [])?;
         Ok(())
+    }
+
+    pub fn set_entry_tags(&self, entry_id: i64, tags: &[String]) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM clipboard_tags WHERE entry_id = ?1", params![entry_id])?;
+
+        for tag in tags {
+            tx.execute(
+                "INSERT OR IGNORE INTO clipboard_tags (entry_id, tag) VALUES (?1, ?2)",
+                params![entry_id, tag],
+            )?;
+        }
+
+        tx.execute(
+            "INSERT INTO clipboard_tag_state (entry_id, status) VALUES (?1, 'done')
+             ON CONFLICT(entry_id) DO UPDATE SET status = excluded.status",
+            params![entry_id],
+        )?;
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn set_entry_tag_state(&self, entry_id: i64, status: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO clipboard_tag_state (entry_id, status) VALUES (?1, ?2)
+             ON CONFLICT(entry_id) DO UPDATE SET status = excluded.status",
+            params![entry_id, status],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_untagged_text_entries(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<(i64, String)>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT clipboard_entries.id, clipboard_entries.text_content
+             FROM clipboard_entries
+             LEFT JOIN clipboard_tags ON clipboard_tags.entry_id = clipboard_entries.id
+             LEFT JOIN clipboard_tag_state ON clipboard_tag_state.entry_id = clipboard_entries.id
+             WHERE clipboard_entries.content_type = 'text'
+               AND clipboard_entries.text_content IS NOT NULL
+               AND TRIM(clipboard_entries.text_content) != ''
+               AND clipboard_tags.entry_id IS NULL
+               AND clipboard_tag_state.entry_id IS NULL
+             ORDER BY clipboard_entries.created_at DESC
+             LIMIT ?1",
+        )?;
+
+        let entries = stmt
+            .query_map(params![limit], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(entries)
+    }
+
+    pub fn get_text_entries_for_retag(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<(i64, String, Vec<String>)>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT clipboard_entries.id,
+                    clipboard_entries.text_content,
+                    COALESCE((SELECT GROUP_CONCAT(tag, '|')
+                              FROM clipboard_tags
+                              WHERE entry_id = clipboard_entries.id), '') AS tags
+             FROM clipboard_entries
+             WHERE clipboard_entries.content_type = 'text'
+               AND clipboard_entries.text_content IS NOT NULL
+               AND TRIM(clipboard_entries.text_content) != ''
+             ORDER BY clipboard_entries.created_at DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+
+        let entries = stmt
+            .query_map(params![limit, offset], |row| {
+                let tags = row.get::<_, String>(2)?;
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    tags.split('|')
+                        .filter(|tag| !tag.is_empty())
+                        .map(|tag| tag.to_string())
+                        .collect(),
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(entries)
     }
 
     #[allow(dead_code)]

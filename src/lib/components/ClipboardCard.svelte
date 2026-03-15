@@ -85,6 +85,7 @@
   let textKind = $derived(detectTextKind(entry.text_content));
   let typeLabel = $derived(entry.content_type === "text" ? textKind : entry.content_type === "image" ? "Image" : "File");
   let charLabel = $derived(entry.char_count ? `${entry.char_count.toLocaleString()} characters` : "");
+  let tags = $derived(entry.tags ?? []);
 </script>
 
 <div
@@ -128,9 +129,18 @@
   </div>
 
   <div class="card-footer">
-    {#if entry.source_app}
-      <span class="source-app">{entry.source_app}</span>
-    {/if}
+    <div class="footer-meta">
+      {#if entry.source_app}
+        <span class="source-app">{entry.source_app}</span>
+      {/if}
+      {#if tags.length > 0}
+        <div class="tags">
+          {#each tags.slice(0, 3) as tag}
+            <span class="tag-chip">{tag}</span>
+          {/each}
+        </div>
+      {/if}
+    </div>
     {#if charLabel}
       <span class="char-count">{charLabel}</span>
     {/if}
@@ -299,17 +309,44 @@
   .card-footer {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-end;
+    gap: 8px;
     flex-shrink: 0;
+  }
+
+  .footer-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
   }
 
   .source-app {
     font-size: 11px;
     color: #666;
-    max-width: 60%;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .tag-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: rgba(90, 138, 255, 0.14);
+    border: 1px solid rgba(120, 160, 255, 0.18);
+    color: #cdddff;
+    font-size: 10px;
+    line-height: 1;
+    text-transform: lowercase;
   }
 
   .char-count {

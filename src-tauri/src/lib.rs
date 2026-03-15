@@ -1,6 +1,7 @@
 mod clipboard_monitor;
 mod commands;
 mod db;
+mod ollama;
 
 use db::Database;
 use std::sync::Arc;
@@ -26,7 +27,7 @@ pub fn run() {
         .setup(|app| {
             let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
             let db = Arc::new(Database::new(app_dir).expect("Failed to initialize database"));
-            app.manage(db);
+            app.manage(db.clone());
 
             let tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -63,6 +64,12 @@ pub fn run() {
                 app.global_shortcut().is_registered(shortcut)
             );
 
+            let settings = db.get_app_settings().expect("Failed to load app settings");
+            std::env::set_var("COPYOSITY_OLLAMA_MODEL", &settings.ollama_model);
+            let _ = db.cleanup_old_entries(settings.retention_days);
+
+            ollama::ensure_runtime();
+            ollama::backfill_existing_tags(app.handle().clone(), db.clone());
             clipboard_monitor::start_clipboard_monitor(app.handle().clone());
 
             Ok(())
@@ -77,6 +84,8 @@ pub fn run() {
             commands::create_collection,
             commands::delete_collection,
             commands::clear_history,
+            commands::get_app_settings,
+            commands::update_app_settings,
             commands::paste_entry,
         ])
         .build(tauri::generate_context!())
@@ -87,11 +96,19 @@ pub fn run() {
             }
             tauri::RunEvent::WindowEvent { label, event, .. } => {
                 if label == "main" {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.hide();
+                    match event {
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            api.prevent_close();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.hide();
+                            }
                         }
+                        tauri::WindowEvent::Focused(false) => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.hide();
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -118,10 +135,10 @@ fn position_window_bottom(window: &tauri::WebviewWindow) {
     if let Ok(Some(monitor)) = window.current_monitor() {
         let work_area = monitor.work_area();
         let scale = monitor.scale_factor();
-        let bottom_padding = (8.0 * scale) as i32;
+        let bottom_padding = (28.0 * scale) as i32;
         let min_width = (900.0 * scale) as u32;
         let preferred_width = (1180.0 * scale) as u32;
-        let win_height = (380.0 * scale) as u32;
+        let win_height = (410.0 * scale) as u32;
         let win_width = preferred_width.min(work_area.size.width).max(min_width);
 
         let x = work_area.position.x + ((work_area.size.width as i32 - win_width as i32) / 2);

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ClipboardEntry, Collection } from "./types";
+import type { AppSettings, ClipboardEntry, Collection } from "./types";
 
 export async function getEntries(opts?: {
   limit?: number;
@@ -43,6 +43,20 @@ export async function deleteCollection(id: number): Promise<void> {
 
 export async function clearHistory(): Promise<void> {
   return invoke("clear_history");
+}
+
+export async function getAppSettings(): Promise<AppSettings> {
+  return invoke("get_app_settings");
+}
+
+export async function updateAppSettings(opts: {
+  ollama_model?: string | null;
+  retention_days?: number | null;
+}): Promise<AppSettings> {
+  return invoke("update_app_settings", {
+    ollamaModel: opts.ollama_model ?? null,
+    retentionDays: opts.retention_days ?? null,
+  });
 }
 
 export async function pasteEntry(text: string): Promise<void> {
