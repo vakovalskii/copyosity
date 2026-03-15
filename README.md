@@ -2,6 +2,9 @@
 
 Copyosity is a macOS clipboard history app built with SvelteKit, Tauri 2, Rust, and SQLite.
 
+[Demo video](https://github.com/vakovalskii/copyosity/releases/download/v0.1.0/Screen.Recording.2026-03-
+  15.at.01.03.35.compressed.mp4)
+
 ## Features
 
 - Global shortcut to open clipboard history
