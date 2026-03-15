@@ -3,8 +3,8 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import type { AppSettings, ClipboardEntry, Collection } from "$lib/types";
-  import { clearHistory, getAppSettings, getEntries, getCollections, updateAppSettings } from "$lib/api";
+  import type { AppSettings, ClipboardEntry, Collection, ModelCatalog, ModelOption } from "$lib/types";
+  import { clearHistory, getAppSettings, getEntries, getCollections, getModelCatalog, updateAppSettings } from "$lib/api";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
   import CollectionTabs from "$lib/components/CollectionTabs.svelte";
@@ -25,6 +25,12 @@
     ollama_model: "qwen3:4b-instruct-2507-q4_K_M",
     retention_days: 30,
   });
+  let modelCatalog = $state<ModelCatalog>({
+    total_memory_gb: 0,
+    recommended_memory_gb: 0,
+    options: [],
+  });
+  let selectedModelPreset = $state("__custom__");
   let savingSettings = $state(false);
   let settingsNotice = $state("");
   const retentionOptions = [
@@ -48,6 +54,14 @@
 
   async function loadSettings() {
     settings = await getAppSettings();
+    selectedModelPreset = settings.ollama_model;
+  }
+
+  async function loadModelCatalog() {
+    modelCatalog = await getModelCatalog();
+    if (!modelCatalog.options.some((option) => option.value === settings.ollama_model)) {
+      selectedModelPreset = "__custom__";
+    }
   }
 
   function showWindow() {
@@ -92,6 +106,7 @@
     loadEntries();
     loadCollections();
     loadSettings();
+    loadModelCatalog();
 
     // Tell Rust we're loaded — it will hide the off-screen warmup window
     invoke("frontend_ready");
@@ -189,10 +204,18 @@
 
     try {
       settings = await updateAppSettings(settings);
+      await loadModelCatalog();
       settingsNotice = "Saved";
       loadEntries();
     } finally {
       savingSettings = false;
+    }
+  }
+
+  function handleModelPresetChange(value: string) {
+    selectedModelPreset = value;
+    if (value !== "__custom__") {
+      settings.ollama_model = value;
     }
   }
 
@@ -224,6 +247,10 @@
     const tag = activeTag;
     return entries.filter((entry) => (entry.tags ?? []).includes(tag));
   });
+
+  let selectedModelMeta = $derived.by<ModelOption | null>(() => {
+    return modelCatalog.options.find((option) => option.value === settings.ollama_model) ?? null;
+  });
 </script>
 
 <div class="app" class:visible>
@@ -254,12 +281,37 @@
         <div class="settings-menu">
           <label class="settings-field">
             <span class="settings-label">Ollama model</span>
-            <input
-              class="settings-input"
-              type="text"
-              bind:value={settings.ollama_model}
-              placeholder="qwen3:4b-instruct-2507-q4_K_M"
-            />
+            <select
+              class="settings-select"
+              bind:value={selectedModelPreset}
+              onchange={(event) =>
+                handleModelPresetChange((event.currentTarget as HTMLSelectElement).value)}
+            >
+              {#each modelCatalog.options as option}
+                <option value={option.value}>
+                  {option.label} · ~{option.memory_gb.toFixed(1)} GB · {option.fits ? "fits" : "tight"}{option.installed ? " · installed" : ""}
+                </option>
+              {/each}
+              <option value="__custom__">Custom model</option>
+            </select>
+            {#if selectedModelPreset === "__custom__"}
+              <input
+                class="settings-input"
+                type="text"
+                bind:value={settings.ollama_model}
+                placeholder="qwen3:4b-instruct-2507-q4_K_M"
+              />
+            {/if}
+            <div class="settings-hint">
+              Machine RAM: {modelCatalog.total_memory_gb.toFixed(1)} GB. Recommended Ollama budget:
+              {modelCatalog.recommended_memory_gb.toFixed(1)} GB.
+            </div>
+            {#if selectedModelMeta}
+              <div class="settings-hint" class:fits={selectedModelMeta.fits} class:tight={!selectedModelMeta.fits}>
+                {selectedModelMeta.label} needs about {selectedModelMeta.memory_gb.toFixed(1)} GB and
+                {selectedModelMeta.fits ? " should fit this machine." : " may be too heavy for this machine."}
+              </div>
+            {/if}
           </label>
           <label class="settings-field">
             <span class="settings-label">History retention</span>
@@ -515,6 +567,20 @@
 
   .settings-input::placeholder {
     color: rgba(237, 240, 248, 0.35);
+  }
+
+  .settings-hint {
+    font-size: 11px;
+    line-height: 1.35;
+    color: #97a0b4;
+  }
+
+  .settings-hint.fits {
+    color: #8fd1a1;
+  }
+
+  .settings-hint.tight {
+    color: #e3b370;
   }
 
   .settings-save {

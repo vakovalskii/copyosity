@@ -85,6 +85,7 @@ pub fn run() {
             commands::delete_collection,
             commands::clear_history,
             commands::get_app_settings,
+            commands::get_model_catalog,
             commands::update_app_settings,
             commands::paste_entry,
         ])

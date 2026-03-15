@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
-use crate::db::Database;
+use crate::db::{Database, ModelCatalog, ModelOption};
 
 const DEFAULT_OLLAMA_CHAT_URL: &str = "http://127.0.0.1:11434/api/chat";
 const DEFAULT_OLLAMA_TAGS_URL: &str = "http://127.0.0.1:11434/api/tags";
@@ -138,6 +138,75 @@ fn pull_model(model: &str) {
         .stderr(Stdio::inherit())
         .status();
     log_debug(format!("pull result => {:?}", result));
+}
+
+fn total_memory_gb() -> f64 {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = Command::new("sysctl").args(["-n", "hw.memsize"]).output() {
+            if let Ok(raw) = String::from_utf8(output.stdout) {
+                if let Ok(bytes) = raw.trim().parse::<u64>() {
+                    return bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+            if let Some(line) = meminfo.lines().find(|line| line.starts_with("MemTotal:")) {
+                if let Some(kb) = line
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|value| value.parse::<u64>().ok())
+                {
+                    return kb as f64 / 1024.0 / 1024.0;
+                }
+            }
+        }
+    }
+
+    8.0
+}
+
+fn installed_models() -> Vec<String> {
+    match ollama_agent(1, 2).get(DEFAULT_OLLAMA_TAGS_URL).call() {
+        Ok(response) => match response.into_json::<OllamaTagsResponse>() {
+            Ok(tags) => tags.models.into_iter().map(|model| model.name).collect(),
+            Err(_) => Vec::new(),
+        },
+        Err(_) => Vec::new(),
+    }
+}
+
+pub fn model_catalog() -> ModelCatalog {
+    let total_memory_gb = total_memory_gb();
+    let recommended_memory_gb = ((total_memory_gb * 0.55) * 10.0).round() / 10.0;
+    let installed = installed_models();
+    let presets = [
+        ("qwen3:1.7b-instruct-q4_K_M", "Qwen3 1.7B Q4", 1.8_f64),
+        ("qwen3:4b-instruct-2507-q4_K_M", "Qwen3 4B Q4", 3.2_f64),
+        ("qwen3:4b-instruct-2507-fp16", "Qwen3 4B FP16", 8.5_f64),
+        ("qwen3:8b-instruct-q4_K_M", "Qwen3 8B Q4", 6.4_f64),
+    ];
+
+    let options = presets
+        .into_iter()
+        .map(|(value, label, memory_gb)| ModelOption {
+            value: value.to_string(),
+            label: label.to_string(),
+            memory_gb,
+            fits: memory_gb <= recommended_memory_gb,
+            installed: installed.iter().any(|name| name == value),
+        })
+        .collect();
+
+    ModelCatalog {
+        total_memory_gb: (total_memory_gb * 10.0).round() / 10.0,
+        recommended_memory_gb,
+        options,
+    }
 }
 
 pub fn ensure_runtime() {

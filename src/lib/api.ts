@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, ClipboardEntry, Collection } from "./types";
+import type { AppSettings, ClipboardEntry, Collection, ModelCatalog } from "./types";
 
 export async function getEntries(opts?: {
   limit?: number;
@@ -57,6 +57,10 @@ export async function updateAppSettings(opts: {
     ollamaModel: opts.ollama_model ?? null,
     retentionDays: opts.retention_days ?? null,
   });
+}
+
+export async function getModelCatalog(): Promise<ModelCatalog> {
+  return invoke("get_model_catalog");
 }
 
 export async function pasteEntry(text: string): Promise<void> {

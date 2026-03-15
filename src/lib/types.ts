@@ -25,3 +25,17 @@ export interface AppSettings {
   ollama_model: string;
   retention_days: number;
 }
+
+export interface ModelOption {
+  value: string;
+  label: string;
+  memory_gb: number;
+  fits: boolean;
+  installed: boolean;
+}
+
+export interface ModelCatalog {
+  total_memory_gb: number;
+  recommended_memory_gb: number;
+  options: ModelOption[];
+}

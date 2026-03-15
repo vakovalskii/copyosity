@@ -10,6 +10,22 @@ pub struct AppSettings {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModelOption {
+    pub value: String,
+    pub label: String,
+    pub memory_gb: f64,
+    pub fits: bool,
+    pub installed: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModelCatalog {
+    pub total_memory_gb: f64,
+    pub recommended_memory_gb: f64,
+    pub options: Vec<ModelOption>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ClipboardEntry {
     pub id: i64,
     pub content_type: String, // "text", "image", "file"

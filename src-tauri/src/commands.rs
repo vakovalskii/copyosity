@@ -1,4 +1,5 @@
-use crate::db::{AppSettings, ClipboardEntry, Collection, Database};
+use crate::db::{AppSettings, ClipboardEntry, Collection, Database, ModelCatalog};
+use crate::ollama;
 use arboard::Clipboard;
 use std::sync::Arc;
 use tauri::{Manager, State};
@@ -84,11 +85,17 @@ pub fn update_app_settings(
 
     // Keep the active process aligned with the saved model so new tagging uses it immediately.
     std::env::set_var("COPYOSITY_OLLAMA_MODEL", &settings.ollama_model);
+    ollama::ensure_runtime();
 
     db.cleanup_old_entries(settings.retention_days)
         .map_err(|e| e.to_string())?;
 
     Ok(settings)
+}
+
+#[tauri::command]
+pub fn get_model_catalog() -> Result<ModelCatalog, String> {
+    Ok(ollama::model_catalog())
 }
 
 #[tauri::command]
