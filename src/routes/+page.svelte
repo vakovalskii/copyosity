@@ -4,7 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import type { AppSettings, ClipboardEntry, Collection, ModelCatalog, ModelOption } from "$lib/types";
-  import { clearHistory, getAppSettings, getEntries, getCollections, getModelCatalog, updateAppSettings } from "$lib/api";
+  import { clearHistory, getAppSettings, getEntries, getCollections, getModelCatalog, hideMainWindow, updateAppSettings } from "$lib/api";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
   import CollectionTabs from "$lib/components/CollectionTabs.svelte";
@@ -99,7 +99,11 @@
     selectedIndex = -1;
     visible = false;
     clearTimeout(hideTimer);
-    await getCurrentWindow().hide();
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement) {
+      activeElement.blur();
+    }
+    await hideMainWindow();
   }
 
   onMount(() => {
@@ -125,6 +129,8 @@
 
     const handleKeydown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
         forceHideWindow();
         return;
       }
@@ -279,56 +285,82 @@
 
       {#if showSettings}
         <div class="settings-menu">
-          <label class="settings-field">
-            <span class="settings-label">Ollama model</span>
-            <select
-              class="settings-select"
-              bind:value={selectedModelPreset}
-              onchange={(event) =>
-                handleModelPresetChange((event.currentTarget as HTMLSelectElement).value)}
-            >
-              {#each modelCatalog.options as option}
-                <option value={option.value}>
-                  {option.label} · ~{option.memory_gb.toFixed(1)} GB · {option.fits ? "fits" : "tight"}{option.installed ? " · installed" : ""}
-                </option>
-              {/each}
-              <option value="__custom__">Custom model</option>
-            </select>
-            {#if selectedModelPreset === "__custom__"}
-              <input
-                class="settings-input"
-                type="text"
-                bind:value={settings.ollama_model}
-                placeholder="qwen3:4b-instruct-2507-q4_K_M"
-              />
-            {/if}
-            <div class="settings-hint">
-              Machine RAM: {modelCatalog.total_memory_gb.toFixed(1)} GB. Recommended Ollama budget:
-              {modelCatalog.recommended_memory_gb.toFixed(1)} GB.
+          <div class="settings-head">
+            <div>
+              <div class="settings-title">Settings</div>
+              <div class="settings-subtitle">Local AI and history behavior</div>
             </div>
-            {#if selectedModelMeta}
-              <div class="settings-hint" class:fits={selectedModelMeta.fits} class:tight={!selectedModelMeta.fits}>
-                {selectedModelMeta.label} needs about {selectedModelMeta.memory_gb.toFixed(1)} GB and
-                {selectedModelMeta.fits ? " should fit this machine." : " may be too heavy for this machine."}
+          </div>
+
+          <section class="settings-section">
+            <div class="settings-section-title">AI</div>
+            <label class="settings-field">
+              <span class="settings-label">Ollama model</span>
+              <select
+                class="settings-select"
+                bind:value={selectedModelPreset}
+                onchange={(event) =>
+                  handleModelPresetChange((event.currentTarget as HTMLSelectElement).value)}
+              >
+                {#each modelCatalog.options as option}
+                  <option value={option.value}>
+                    {option.label} · ~{option.memory_gb.toFixed(1)} GB · {option.fits ? "fits" : "tight"}{option.installed ? " · installed" : ""}
+                  </option>
+                {/each}
+                <option value="__custom__">Custom model</option>
+              </select>
+              {#if selectedModelPreset === "__custom__"}
+                <input
+                  class="settings-input"
+                  type="text"
+                  bind:value={settings.ollama_model}
+                  placeholder="qwen3:4b-instruct-2507-q4_K_M"
+                />
+              {/if}
+              <div class="settings-info-card">
+                <div class="settings-hint">
+                  Machine RAM: {modelCatalog.total_memory_gb.toFixed(1)} GB
+                </div>
+                <div class="settings-hint">
+                  Recommended Ollama budget: {modelCatalog.recommended_memory_gb.toFixed(1)} GB
+                </div>
+                {#if selectedModelMeta}
+                  <div class="settings-hint" class:fits={selectedModelMeta.fits} class:tight={!selectedModelMeta.fits}>
+                    {selectedModelMeta.label} needs about {selectedModelMeta.memory_gb.toFixed(1)} GB and
+                    {selectedModelMeta.fits ? " should fit this machine." : " may be too heavy for this machine."}
+                  </div>
+                {/if}
               </div>
+            </label>
+          </section>
+
+          <section class="settings-section">
+            <div class="settings-section-title">Storage</div>
+            <label class="settings-field">
+              <span class="settings-label">History retention</span>
+              <select class="settings-select" bind:value={settings.retention_days}>
+                {#each retentionOptions as option}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
+            </label>
+          </section>
+
+          <div class="settings-actions">
+            <button class="settings-save-btn" type="button" disabled={savingSettings} onclick={saveSettings}>
+              {savingSettings ? "Saving..." : "Save settings"}
+            </button>
+            {#if settingsNotice}
+              <div class="settings-note">{settingsNotice}</div>
             {/if}
-          </label>
-          <label class="settings-field">
-            <span class="settings-label">History retention</span>
-            <select class="settings-select" bind:value={settings.retention_days}>
-              {#each retentionOptions as option}
-                <option value={option.value}>{option.label}</option>
-              {/each}
-            </select>
-          </label>
-          <button class="settings-item settings-save" type="button" disabled={savingSettings} onclick={saveSettings}>
-            {savingSettings ? "Saving..." : "Save settings"}
-          </button>
-          {#if settingsNotice}
-            <div class="settings-note">{settingsNotice}</div>
-          {/if}
-          <button class="settings-item" type="button" onclick={loadCollections}>Refresh collections</button>
-          <button class="settings-item" type="button" onclick={handleClearHistory}>Clear unpinned history</button>
+          </div>
+
+          <div class="settings-divider"></div>
+
+          <div class="settings-secondary">
+            <button class="settings-item" type="button" onclick={loadCollections}>Refresh collections</button>
+            <button class="settings-item danger" type="button" onclick={handleClearHistory}>Clear unpinned history</button>
+          </div>
         </div>
       {/if}
     </div>
@@ -531,42 +563,152 @@
     position: absolute;
     top: calc(100% + 10px);
     right: 0;
-    min-width: 280px;
-    padding: 8px;
-    background: rgba(34, 34, 40, 0.78);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+    width: 360px;
+    max-height: min(520px, calc(100vh - 88px));
+    padding: 14px;
+    background:
+      linear-gradient(180deg, rgba(34, 35, 41, 0.94), rgba(25, 26, 31, 0.92));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 18px;
+    box-shadow:
+      0 22px 50px rgba(0, 0, 0, 0.42),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
     z-index: 10;
     animation: settings-pop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+  }
+
+  .settings-menu::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .settings-menu::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .settings-menu::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+  }
+
+  .settings-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .settings-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #f2f5fb;
+    letter-spacing: -0.02em;
+  }
+
+  .settings-subtitle {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #9097aa;
+  }
+
+  .settings-section {
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+  }
+
+  .settings-section + .settings-section {
+    margin-top: 10px;
+  }
+
+  .settings-section-title {
+    margin-bottom: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #8f97aa;
   }
 
   .settings-field {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 8px 6px 10px;
+    gap: 8px;
   }
 
   .settings-label {
-    font-size: 11px;
-    color: #b4b7c2;
+    font-size: 12px;
+    font-weight: 600;
+    color: #c6cada;
   }
 
   .settings-input,
   .settings-select {
     width: 100%;
-    padding: 10px 11px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 9px;
-    color: #edf0f8;
+    min-height: 42px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 11px;
+    color: #edf1f8;
     font: inherit;
     outline: none;
+    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .settings-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    padding-right: 42px;
+    background-image:
+      linear-gradient(45deg, transparent 50%, rgba(237, 241, 248, 0.9) 50%),
+      linear-gradient(135deg, rgba(237, 241, 248, 0.9) 50%, transparent 50%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+    background-position:
+      calc(100% - 18px) calc(50% - 2px),
+      calc(100% - 12px) calc(50% - 2px),
+      0 0;
+    background-size:
+      6px 6px,
+      6px 6px,
+      100% 100%;
+    background-repeat: no-repeat;
+    cursor: pointer;
+  }
+
+  .settings-select:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+
+  .settings-select option {
+    color: #edf1f8;
+    background: #23252c;
+  }
+
+  .settings-input:focus,
+  .settings-select:focus {
+    border-color: rgba(120, 160, 255, 0.4);
+    box-shadow: 0 0 0 3px rgba(94, 140, 255, 0.15);
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .settings-input::placeholder {
     color: rgba(237, 240, 248, 0.35);
+  }
+
+  .settings-info-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 11px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 11px;
   }
 
   .settings-hint {
@@ -583,37 +725,81 @@
     color: #e3b370;
   }
 
-  .settings-save {
-    margin-top: 4px;
-    background: rgba(94, 140, 255, 0.14);
-    border: 1px solid rgba(120, 160, 255, 0.24);
+  .settings-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 12px;
   }
 
-  .settings-save:disabled {
+  .settings-save-btn {
+    min-height: 42px;
+    padding: 0 16px;
+    background: linear-gradient(180deg, rgba(103, 145, 255, 0.95), rgba(75, 121, 244, 0.92));
+    border: 1px solid rgba(144, 177, 255, 0.35);
+    border-radius: 12px;
+    color: #f7f9ff;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+  }
+
+  .settings-save-btn:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.04);
+  }
+
+  .settings-save-btn:disabled {
     opacity: 0.6;
     cursor: default;
   }
 
   .settings-note {
-    padding: 6px 12px 8px;
+    padding: 0 2px;
     font-size: 11px;
     color: #91d6a6;
   }
 
+  .settings-divider {
+    height: 1px;
+    margin: 12px 0 10px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  }
+
+  .settings-secondary {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
   .settings-item {
     width: 100%;
+    min-height: 40px;
     padding: 10px 12px;
-    background: transparent;
-    border: none;
-    border-radius: 8px;
-    color: #e8e8e8;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    color: #dfe3ec;
     text-align: left;
     cursor: pointer;
     font: inherit;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   }
 
   .settings-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .settings-item.danger {
+    color: #f0c8c8;
+  }
+
+  .settings-item.danger:hover {
+    background: rgba(255, 107, 107, 0.08);
+    border-color: rgba(255, 107, 107, 0.14);
   }
 
   .grid-container {

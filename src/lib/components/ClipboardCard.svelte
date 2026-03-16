@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ClipboardEntry } from "$lib/types";
-  import { pasteEntry, deleteEntry, pinEntry } from "$lib/api";
+  import { pasteEntry, deleteEntry, pinEntry, retagEntry } from "$lib/api";
 
   let {
     entry,
@@ -8,12 +8,14 @@
     onpasted,
     ondeleted,
     onpinned,
+    onretagged,
   }: {
     entry: ClipboardEntry;
     selected?: boolean;
     onpasted?: () => void;
     ondeleted?: () => void;
     onpinned?: () => void;
+    onretagged?: () => void;
   } = $props();
 
   function timeAgo(dateStr: string): string {
@@ -81,6 +83,12 @@
     onpinned?.();
   }
 
+  async function handleRetag(e: MouseEvent) {
+    e.stopPropagation();
+    await retagEntry(entry.id);
+    onretagged?.();
+  }
+
   let preview = $derived(entry.text_content ? truncate(entry.text_content, 200) : "");
   let textKind = $derived(detectTextKind(entry.text_content));
   let typeLabel = $derived(entry.content_type === "text" ? textKind : entry.content_type === "image" ? "Image" : "File");
@@ -104,6 +112,11 @@
       <span class="time">{timeAgo(entry.created_at)}</span>
     </div>
     <div class="card-actions">
+      {#if entry.content_type === "text"}
+        <button class="action-btn" onclick={handleRetag} title="Retag">
+          ↻
+        </button>
+      {/if}
       <button class="action-btn" onclick={handlePin} title={entry.is_pinned ? "Unpin" : "Pin"}>
         {entry.is_pinned ? "★" : "☆"}
       </button>

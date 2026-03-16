@@ -2,7 +2,7 @@ use crate::db::{AppSettings, ClipboardEntry, Collection, Database, ModelCatalog}
 use crate::ollama;
 use arboard::Clipboard;
 use std::sync::Arc;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 #[tauri::command]
 pub fn get_entries(
@@ -69,6 +69,14 @@ pub fn clear_history(db: State<'_, Arc<Database>>) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_app_settings(db: State<'_, Arc<Database>>) -> Result<AppSettings, String> {
     db.get_app_settings().map_err(|e| e.to_string())
 }
@@ -96,6 +104,27 @@ pub fn update_app_settings(
 #[tauri::command]
 pub fn get_model_catalog() -> Result<ModelCatalog, String> {
     Ok(ollama::model_catalog())
+}
+
+#[tauri::command]
+pub fn retag_entry(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<Database>>,
+    entry_id: i64,
+) -> Result<(), String> {
+    let Some(text) = db.get_entry_text(entry_id).map_err(|e| e.to_string())? else {
+        return Ok(());
+    };
+
+    match ollama::tag_text(&text) {
+        Some(tags) => db.set_entry_tags(entry_id, &tags).map_err(|e| e.to_string())?,
+        None => db
+            .set_entry_tag_state(entry_id, "skipped")
+            .map_err(|e| e.to_string())?,
+    }
+
+    let _ = app.emit("entry-tagged", entry_id);
+    Ok(())
 }
 
 #[tauri::command]

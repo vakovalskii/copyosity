@@ -45,6 +45,10 @@ export async function clearHistory(): Promise<void> {
   return invoke("clear_history");
 }
 
+export async function hideMainWindow(): Promise<void> {
+  return invoke("hide_main_window");
+}
+
 export async function getAppSettings(): Promise<AppSettings> {
   return invoke("get_app_settings");
 }
@@ -61,6 +65,10 @@ export async function updateAppSettings(opts: {
 
 export async function getModelCatalog(): Promise<ModelCatalog> {
   return invoke("get_model_catalog");
+}
+
+export async function retagEntry(entryId: number): Promise<void> {
+  return invoke("retag_entry", { entryId });
 }
 
 export async function pasteEntry(text: string): Promise<void> {

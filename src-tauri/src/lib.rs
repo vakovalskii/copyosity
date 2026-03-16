@@ -84,9 +84,11 @@ pub fn run() {
             commands::create_collection,
             commands::delete_collection,
             commands::clear_history,
+            commands::hide_main_window,
             commands::get_app_settings,
             commands::get_model_catalog,
             commands::update_app_settings,
+            commands::retag_entry,
             commands::paste_entry,
         ])
         .build(tauri::generate_context!())

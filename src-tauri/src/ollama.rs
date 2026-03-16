@@ -276,18 +276,20 @@ pub fn backfill_existing_tags(app: AppHandle, db: Arc<Database>) {
 
             for (entry_id, text, tags) in batch {
                 if looks_like_opaque_code(&text) {
-                    if !tags.is_empty() {
-                        if let Err(err) = db.set_entry_tags(entry_id, &[]) {
+                    let next_tags = heuristic_tags(&text).unwrap_or_default();
+                    if tags != next_tags {
+                        if let Err(err) = db.set_entry_tags(entry_id, &next_tags) {
                             eprintln!(
-                                "copyosity[ollama]: failed to clear noisy tags for entry {}: {}",
+                                "copyosity[ollama]: failed to update heuristic tags for entry {}: {}",
                                 entry_id, err
                             );
                             continue;
                         }
-                        log_debug(format!("retag cleared entry_id={} opaque code", entry_id));
+                        log_debug(format!("retag heuristic entry_id={} tags={:?}", entry_id, next_tags));
                         let _ = app.emit("entry-tagged", entry_id);
+                    } else {
+                        let _ = db.set_entry_tag_state(entry_id, "done");
                     }
-                    let _ = db.set_entry_tag_state(entry_id, "skipped");
                     continue;
                 }
 
@@ -370,6 +372,36 @@ fn normalize_tags(tags: Vec<String>) -> Vec<String> {
     normalized
 }
 
+fn heuristic_tags(text: &str) -> Option<Vec<String>> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.contains(char::is_whitespace) {
+        return None;
+    }
+
+    let len = trimmed.chars().count();
+    let digits_only = trimmed.chars().all(|ch| ch.is_ascii_digit());
+    if digits_only && (4..=8).contains(&len) {
+        return Some(vec!["otp".to_string()]);
+    }
+
+    let ascii_only = trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '+' | '/' | '='));
+    let has_uppercase = trimmed.chars().any(|ch| ch.is_ascii_uppercase());
+    let has_digits = trimmed.chars().any(|ch| ch.is_ascii_digit());
+    let has_dash = trimmed.contains('-') || trimmed.contains('_');
+
+    if ascii_only && has_uppercase && has_digits && has_dash && (6..=20).contains(&len) {
+        return Some(vec!["code".to_string()]);
+    }
+
+    if ascii_only && has_digits && (trimmed.contains('+') || trimmed.contains('/') || trimmed.contains('=')) {
+        return Some(vec!["token".to_string()]);
+    }
+
+    None
+}
+
 fn looks_like_opaque_code(text: &str) -> bool {
     let trimmed = text.trim();
     if trimmed.is_empty() || trimmed.contains(char::is_whitespace) {
@@ -420,8 +452,12 @@ pub fn tag_text(text: &str) -> Option<Vec<String>> {
     }
 
     if looks_like_opaque_code(trimmed) {
-        log_debug(format!("skip tagging: opaque code-like text {:?}", trimmed));
-        return None;
+        let tags = heuristic_tags(trimmed);
+        log_debug(format!(
+            "heuristic tagging: opaque code-like text {:?} => {:?}",
+            trimmed, tags
+        ));
+        return tags;
     }
 
     let model = ollama_model();

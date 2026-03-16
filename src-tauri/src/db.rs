@@ -430,6 +430,24 @@ impl Database {
         Ok(entries)
     }
 
+    pub fn get_entry_text(&self, entry_id: i64) -> Result<Option<String>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT text_content
+             FROM clipboard_entries
+             WHERE id = ?1
+               AND content_type = 'text'
+               AND text_content IS NOT NULL",
+            params![entry_id],
+            |row| row.get(0),
+        )
+        .map(Some)
+        .or_else(|err| match err {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            _ => Err(err),
+        })
+    }
+
     #[allow(dead_code)]
     pub fn cleanup_old_entries(&self, max_age_days: i64) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
