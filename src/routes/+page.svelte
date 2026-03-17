@@ -24,7 +24,6 @@
   let gridEl: HTMLDivElement | undefined = $state();
   let visible = $state(false);
   let revealCycle = $state(0);
-  let hideTimer: ReturnType<typeof setTimeout> | undefined;
   const hiddenTopTags = new Set(["code", "otp", "token", "log"]);
 
   async function loadEntries() {
@@ -40,13 +39,14 @@
   }
 
   function showWindow() {
-    clearTimeout(hideTimer);
     window.getSelection()?.removeAllRanges();
     searchQuery = "";
     activeTag = null;
     selectedIndex = -1;
     loadEntries();
     revealCycle += 1;
+    // Reset scroll to start
+    if (gridEl) gridEl.scrollLeft = 0;
     // Start hidden, then animate in next frame
     visible = false;
     requestAnimationFrame(() => {
@@ -55,29 +55,19 @@
   }
 
   function animateOut() {
-    if (!visible) return;
+    visible = false;
     searchQuery = "";
     activeTag = null;
     selectedIndex = -1;
-    visible = false;
-    clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-      hideMainWindow();
-    }, 250);
+    hideMainWindow();
   }
 
-  async function forceHideWindow() {
+  function forceHideWindow() {
+    visible = false;
     searchQuery = "";
     activeTag = null;
     selectedIndex = -1;
-    visible = false;
-    clearTimeout(hideTimer);
-    const activeElement = document.activeElement;
-    if (activeElement instanceof HTMLElement) {
-      activeElement.blur();
-    }
-    // Small delay to let animation play
-    setTimeout(() => hideMainWindow(), 250);
+    hideMainWindow();
   }
 
   onMount(() => {
@@ -97,10 +87,6 @@
 
     const unlistenShow = listen("window-show", () => {
       showWindow();
-    });
-
-    const unlistenHide = listen("window-hide", () => {
-      animateOut();
     });
 
     const unlistenOpenSettings = listen("open-settings", () => {
@@ -139,11 +125,9 @@
     window.addEventListener("keydown", handleKeydown);
 
     return () => {
-      clearTimeout(hideTimer);
       unlistenClipboard.then((fn) => fn());
       unlistenTagged.then((fn) => fn());
       unlistenShow.then((fn) => fn());
-      unlistenHide.then((fn) => fn());
       unlistenOpenSettings.then((fn) => fn());
       window.removeEventListener("keydown", handleKeydown);
     };

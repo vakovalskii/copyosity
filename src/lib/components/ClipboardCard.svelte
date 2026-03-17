@@ -100,6 +100,14 @@
     }
   }
 
+  async function handleCopy(e: MouseEvent) {
+    e.stopPropagation();
+    if (copied) return;
+    await copyEntry(entry.id);
+    copied = true;
+    setTimeout(() => { copied = false; }, 800);
+  }
+
   async function handleDelete(e: MouseEvent) {
     e.stopPropagation();
     await deleteEntry(entry.id);
@@ -142,6 +150,9 @@
       <span class="time">{timeAgo(entry.created_at)}</span>
     </div>
     <div class="card-actions">
+      <button class="action-btn" onclick={handleCopy} title="Copy">
+        ⎘
+      </button>
       {#if entry.content_type === "text"}
         <button class="action-btn" onclick={handleRetag} title="Retag">
           ↻

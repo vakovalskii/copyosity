@@ -180,8 +180,7 @@ pub fn run() {
                         tauri::WindowEvent::Focused(false) => {
                             let elapsed = now_ms() - LAST_SHOW_MS.load(Ordering::Relaxed);
                             if elapsed > 500 {
-                                // Tell frontend to animate out, it will call hide_main_window when done
-                                let _ = app.emit("window-hide", ());
+                                hide_panel(app);
                             }
                         }
                         _ => {}
@@ -197,7 +196,7 @@ fn toggle_window(app: &tauri::AppHandle) {
     {
         if let Ok(panel) = app.get_webview_panel("main") {
             if panel.is_visible() {
-                let _ = app.emit("window-hide", ());
+                panel.hide();
             } else {
                 if let Some(window) = app.get_webview_window("main") {
                     position_window_bottom(&window);

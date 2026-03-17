@@ -1,4 +1,42 @@
 use crate::db::{AppSettings, ClipboardEntry, Collection, Database, ExcludedApp, ModelCatalog};
+
+#[cfg(target_os = "macos")]
+fn simulate_paste() {
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    unsafe {
+        // CoreGraphics FFI — CGEvent for Cmd+V
+        type CGEventSourceRef = *mut std::ffi::c_void;
+        type CGEventRef = *mut std::ffi::c_void;
+
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, keycode: u16, key_down: bool) -> CGEventRef;
+            fn CGEventSetFlags(event: CGEventRef, flags: u64);
+            fn CGEventPost(tap: u32, event: CGEventRef);
+            fn CFRelease(cf: *mut std::ffi::c_void);
+        }
+
+        const K_CG_EVENT_FLAG_COMMAND: u64 = 0x00100000;
+        const K_CG_HID_EVENT_TAP: u32 = 0;
+        const K_V_KEYCODE: u16 = 9;
+
+        let event_down = CGEventCreateKeyboardEvent(std::ptr::null_mut(), K_V_KEYCODE, true);
+        let event_up = CGEventCreateKeyboardEvent(std::ptr::null_mut(), K_V_KEYCODE, false);
+
+        if !event_down.is_null() && !event_up.is_null() {
+            CGEventSetFlags(event_down, K_CG_EVENT_FLAG_COMMAND);
+            CGEventSetFlags(event_up, K_CG_EVENT_FLAG_COMMAND);
+            CGEventPost(K_CG_HID_EVENT_TAP, event_down);
+            CGEventPost(K_CG_HID_EVENT_TAP, event_up);
+            CFRelease(event_down);
+            CFRelease(event_up);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn simulate_paste() {}
 use crate::ollama;
 use arboard::{Clipboard, ImageData};
 use base64::Engine;
@@ -73,9 +111,7 @@ pub fn clear_history(db: State<'_, Arc<Database>>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        window.hide().map_err(|e| e.to_string())?;
-    }
+    crate::hide_panel(&app);
     Ok(())
 }
 
@@ -265,20 +301,8 @@ pub fn activate_entry(app: tauri::AppHandle, db: State<'_, Arc<Database>>, entry
         _ => return Ok(()),
     }
 
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        use std::process::Command;
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        Command::new("osascript")
-            .arg("-e")
-            .arg("tell application \"System Events\" to keystroke \"v\" using command down")
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
+    crate::hide_panel(&app);
+    simulate_paste();
 
     Ok(())
 }
@@ -288,22 +312,8 @@ pub fn paste_entry(app: tauri::AppHandle, text: String) -> Result<(), String> {
     let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
     clipboard.set_text(&text).map_err(|e| e.to_string())?;
 
-    // Hide window first so paste goes to the right app
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
-    }
-
-    // Small delay then simulate Cmd+V / Ctrl+V
-    #[cfg(target_os = "macos")]
-    {
-        use std::process::Command;
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        Command::new("osascript")
-            .arg("-e")
-            .arg("tell application \"System Events\" to keystroke \"v\" using command down")
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
+    crate::hide_panel(&app);
+    simulate_paste();
 
     Ok(())
 }

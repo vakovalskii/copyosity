@@ -19,3 +19,4 @@ vite.config.ts.timestamp-*
 copyosity@0.1.0
 tauri
 icon.png.bak
+.last_notarization_id
