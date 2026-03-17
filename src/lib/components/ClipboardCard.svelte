@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ClipboardEntry } from "$lib/types";
-  import { pasteEntry, deleteEntry, pinEntry, retagEntry } from "$lib/api";
+  import { copyEntry, activateEntry, deleteEntry, pinEntry, retagEntry } from "$lib/api";
 
   let {
     entry,
@@ -64,9 +64,38 @@
     return "Text";
   }
 
-  async function handleClick() {
-    if (entry.text_content) {
-      await pasteEntry(entry.text_content);
+  let copied = $state(false);
+  let clickTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function handleClick() {
+    // Disambiguate single vs double click
+    if (clickTimer) {
+      clearTimeout(clickTimer);
+      clickTimer = undefined;
+      handleDoubleClick();
+      return;
+    }
+    clickTimer = setTimeout(() => {
+      clickTimer = undefined;
+      handleSingleClick();
+    }, 250);
+  }
+
+  async function handleSingleClick() {
+    if (copied) return;
+    if (entry.content_type === "text" || entry.content_type === "image") {
+      await copyEntry(entry.id);
+      copied = true;
+      setTimeout(() => {
+        copied = false;
+      }, 800);
+    }
+  }
+
+  async function handleDoubleClick() {
+    if (copied) return;
+    if (entry.content_type === "text" || entry.content_type === "image") {
+      await activateEntry(entry.id);
       onpasted?.();
     }
   }
@@ -100,8 +129,9 @@
   class="card"
   class:selected
   class:pinned={entry.is_pinned}
+  class:copied
   onclick={handleClick}
-  onkeydown={(e) => e.key === 'Enter' && handleClick()}
+  onkeydown={(e) => e.key === 'Enter' && handleDoubleClick()}
   role="button"
   tabindex="0"
   title={entry.text_content ?? ""}
@@ -158,10 +188,20 @@
       <span class="char-count">{charLabel}</span>
     {/if}
   </div>
+
+  {#if copied}
+    <div class="copied-overlay">
+      <svg class="copied-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+      <span>Copied</span>
+    </div>
+  {/if}
 </div>
 
 <style>
   .card {
+    position: relative;
     width: 220px;
     min-width: 220px;
     height: 280px;
@@ -365,5 +405,57 @@
   .char-count {
     font-size: 11px;
     color: #555;
+  }
+
+  .card.copied {
+    border-color: rgba(74, 222, 128, 0.5);
+    box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.2);
+  }
+
+  .copied-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: rgba(20, 20, 26, 0.88);
+    backdrop-filter: blur(6px);
+    border-radius: 14px;
+    color: #4ade80;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    animation: copied-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 5;
+  }
+
+  .copied-icon {
+    width: 32px;
+    height: 32px;
+    animation: check-draw 0.35s ease forwards;
+  }
+
+  @keyframes copied-pop {
+    from {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes check-draw {
+    from {
+      stroke-dasharray: 40;
+      stroke-dashoffset: 40;
+    }
+    to {
+      stroke-dasharray: 40;
+      stroke-dashoffset: 0;
+    }
   }
 </style>

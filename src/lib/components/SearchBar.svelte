@@ -24,6 +24,7 @@
     placeholder="Search clipboard history..."
     {value}
     oninput={handleInput}
+    tabindex="-1"
   />
 </div>
 

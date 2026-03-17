@@ -39,3 +39,8 @@ export interface ModelCatalog {
   recommended_memory_gb: number;
   options: ModelOption[];
 }
+
+export interface ExcludedApp {
+  id: number;
+  bundle_id: string;
+}

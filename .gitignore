@@ -16,3 +16,6 @@ vite.config.ts.timestamp-*
 *.app
 *.mov
 *.mp4
+copyosity@0.1.0
+tauri
+icon.png.bak

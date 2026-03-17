@@ -1,6 +1,9 @@
-use crate::db::{AppSettings, ClipboardEntry, Collection, Database, ModelCatalog};
+use crate::db::{AppSettings, ClipboardEntry, Collection, Database, ExcludedApp, ModelCatalog};
 use crate::ollama;
-use arboard::Clipboard;
+use arboard::{Clipboard, ImageData};
+use base64::Engine;
+use image::GenericImageView;
+use std::borrow::Cow;
 use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
 
@@ -77,6 +80,40 @@ pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    // If settings window already exists, just focus it
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    // Create a new settings window
+    let builder = tauri::WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        tauri::WebviewUrl::App("/settings".into()),
+    )
+    .title("Copyosity Settings")
+    .inner_size(480.0, 580.0)
+    .resizable(true)
+    .center();
+
+    #[cfg(target_os = "macos")]
+    let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay);
+
+    let _window = builder.build().map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn quit_app(app: tauri::AppHandle) -> Result<(), String> {
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_app_settings(db: State<'_, Arc<Database>>) -> Result<AppSettings, String> {
     db.get_app_settings().map_err(|e| e.to_string())
 }
@@ -92,7 +129,7 @@ pub fn update_app_settings(
         .map_err(|e| e.to_string())?;
 
     // Keep the active process aligned with the saved model so new tagging uses it immediately.
-    std::env::set_var("COPYOSITY_OLLAMA_MODEL", &settings.ollama_model);
+    ollama::set_active_model(&settings.ollama_model);
     ollama::ensure_runtime();
 
     db.cleanup_old_entries(settings.retention_days)
@@ -104,6 +141,32 @@ pub fn update_app_settings(
 #[tauri::command]
 pub fn get_model_catalog() -> Result<ModelCatalog, String> {
     Ok(ollama::model_catalog())
+}
+
+#[tauri::command]
+pub fn get_excluded_apps(db: State<'_, Arc<Database>>) -> Result<Vec<ExcludedApp>, String> {
+    db.get_excluded_apps().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_excluded_app(db: State<'_, Arc<Database>>, bundle_id: String) -> Result<(), String> {
+    db.add_excluded_app(&bundle_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_excluded_app(db: State<'_, Arc<Database>>, id: i64) -> Result<(), String> {
+    db.remove_excluded_app(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_frontmost_app_to_excluded(
+    db: State<'_, Arc<Database>>,
+) -> Result<Option<String>, String> {
+    let app_name = crate::clipboard_monitor::get_frontmost_app();
+    if let Some(app_name) = &app_name {
+        db.add_excluded_app(app_name).map_err(|e| e.to_string())?;
+    }
+    Ok(app_name)
 }
 
 #[tauri::command]
@@ -124,6 +187,99 @@ pub fn retag_entry(
     }
 
     let _ = app.emit("entry-tagged", entry_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn copy_entry(db: State<'_, Arc<Database>>, entry_id: i64) -> Result<(), String> {
+    let Some(entry) = db.get_entry_by_id(entry_id).map_err(|e| e.to_string())? else {
+        return Ok(());
+    };
+
+    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+
+    match entry.content_type.as_str() {
+        "text" => {
+            if let Some(text) = entry.text_content {
+                clipboard.set_text(text).map_err(|e| e.to_string())?;
+            }
+        }
+        "image" => {
+            let encoded = entry
+                .image_data
+                .or(entry.image_thumb)
+                .ok_or_else(|| "Image data is missing".to_string())?;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .map_err(|e| e.to_string())?;
+            let image = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
+            let rgba = image.to_rgba8();
+            let (width, height) = image.dimensions();
+            clipboard
+                .set_image(ImageData {
+                    width: width as usize,
+                    height: height as usize,
+                    bytes: Cow::Owned(rgba.into_raw()),
+                })
+                .map_err(|e| e.to_string())?;
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn activate_entry(app: tauri::AppHandle, db: State<'_, Arc<Database>>, entry_id: i64) -> Result<(), String> {
+    let Some(entry) = db.get_entry_by_id(entry_id).map_err(|e| e.to_string())? else {
+        return Ok(());
+    };
+
+    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+
+    match entry.content_type.as_str() {
+        "text" => {
+            if let Some(text) = entry.text_content {
+                clipboard.set_text(text).map_err(|e| e.to_string())?;
+            }
+        }
+        "image" => {
+            let encoded = entry
+                .image_data
+                .or(entry.image_thumb)
+                .ok_or_else(|| "Image data is missing".to_string())?;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .map_err(|e| e.to_string())?;
+            let image = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
+            let rgba = image.to_rgba8();
+            let (width, height) = image.dimensions();
+            clipboard
+                .set_image(ImageData {
+                    width: width as usize,
+                    height: height as usize,
+                    bytes: Cow::Owned(rgba.into_raw()),
+                })
+                .map_err(|e| e.to_string())?;
+        }
+        _ => return Ok(()),
+    }
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        Command::new("osascript")
+            .arg("-e")
+            .arg("tell application \"System Events\" to keystroke \"v\" using command down")
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -150,4 +306,24 @@ pub fn paste_entry(app: tauri::AppHandle, text: String) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn check_ollama_status() -> Result<ollama::OllamaStatus, String> {
+    Ok(ollama::check_status())
+}
+
+#[tauri::command]
+pub fn start_ollama_server() -> Result<bool, String> {
+    Ok(ollama::try_start_server())
+}
+
+#[tauri::command]
+pub fn pull_ollama_model() -> Result<bool, String> {
+    Ok(ollama::try_pull_model())
+}
+
+#[tauri::command]
+pub fn test_ollama_tagging() -> Result<Option<Vec<String>>, String> {
+    Ok(ollama::test_tagging())
 }
