@@ -145,8 +145,35 @@ fn ollama_available() -> bool {
     ok
 }
 
+/// Find ollama binary — .app bundles don't inherit shell PATH
+fn ollama_bin() -> &'static str {
+    static BIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    BIN.get_or_init(|| {
+        let candidates = [
+            "/usr/local/bin/ollama",
+            "/opt/homebrew/bin/ollama",
+            "/usr/bin/ollama",
+            "ollama", // fallback to PATH
+        ];
+        for path in candidates {
+            if Command::new(path)
+                .arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+            {
+                log_debug(format!("found ollama at: {}", path));
+                return path.to_string();
+            }
+        }
+        "ollama".to_string()
+    })
+}
+
 fn ollama_cli_available() -> bool {
-    let ok = Command::new("ollama")
+    let ok = Command::new(ollama_bin())
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -182,7 +209,7 @@ fn model_installed(model: &str) -> bool {
 
 fn spawn_ollama_serve() {
     log_debug("starting background `ollama serve`");
-    let _ = Command::new("ollama")
+    let _ = Command::new(ollama_bin())
         .arg("serve")
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -191,7 +218,7 @@ fn spawn_ollama_serve() {
 
 fn pull_model(model: &str) {
     log_debug(format!("pulling model {}", model));
-    let result = Command::new("ollama")
+    let result = Command::new(ollama_bin())
         .arg("pull")
         .arg(model)
         .stdout(Stdio::inherit())
