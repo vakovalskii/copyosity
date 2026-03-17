@@ -113,6 +113,8 @@
       settings = await updateAppSettings(settings);
       await loadModelCatalog();
       settingsNotice = "Saved";
+      // Refresh status with new model
+      await refreshOllamaStatus();
     } finally {
       savingSettings = false;
     }

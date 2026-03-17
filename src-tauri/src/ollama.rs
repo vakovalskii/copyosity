@@ -56,7 +56,33 @@ pub fn try_pull_model() -> bool {
 }
 
 pub fn test_tagging() -> Option<Vec<String>> {
-    tag_text("Meeting with John tomorrow at 3pm to discuss the new API design for user authentication")
+    // Use a longer timeout for test — model cold start can take 30+ seconds
+    let model = ollama_model();
+    let truncated = "Meeting with John tomorrow at 3pm to discuss the new API design for user authentication";
+
+    let request = OllamaChatRequest {
+        model: &model,
+        stream: false,
+        format: "json",
+        messages: vec![
+            OllamaMessage {
+                role: "system",
+                content: "You classify clipboard text. Return strict JSON only in the shape {\"tags\":[\"tag1\",\"tag2\"]}. Use 2 to 5 short lowercase tags.".to_string(),
+            },
+            OllamaMessage {
+                role: "user",
+                content: format!("Text:\n{}", truncated),
+            },
+        ],
+    };
+
+    // 60 second read timeout for cold model loading
+    let agent = ollama_agent(2, 60);
+    let response = agent.post(DEFAULT_OLLAMA_CHAT_URL).send_json(request).ok()?;
+    let chat: OllamaChatResponse = response.into_json().ok()?;
+    let parsed: TagResponse = serde_json::from_str(&chat.message.content).ok()?;
+    let tags = normalize_tags(parsed.tags);
+    if tags.is_empty() { None } else { Some(tags) }
 }
 
 const DEFAULT_OLLAMA_CHAT_URL: &str = "http://127.0.0.1:11434/api/chat";
