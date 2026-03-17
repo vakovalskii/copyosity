@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, ClipboardEntry, Collection, ModelCatalog } from "./types";
+import type { AppSettings, ClipboardEntry, Collection, ExcludedApp, ModelCatalog } from "./types";
 
 export async function getEntries(opts?: {
   limit?: number;
@@ -67,10 +67,65 @@ export async function getModelCatalog(): Promise<ModelCatalog> {
   return invoke("get_model_catalog");
 }
 
+export async function getExcludedApps(): Promise<ExcludedApp[]> {
+  return invoke("get_excluded_apps");
+}
+
+export async function addExcludedApp(bundleId: string): Promise<void> {
+  return invoke("add_excluded_app", { bundleId });
+}
+
+export async function removeExcludedApp(id: number): Promise<void> {
+  return invoke("remove_excluded_app", { id });
+}
+
+export async function addFrontmostAppToExcluded(): Promise<string | null> {
+  return invoke("add_frontmost_app_to_excluded");
+}
+
 export async function retagEntry(entryId: number): Promise<void> {
   return invoke("retag_entry", { entryId });
 }
 
+export async function copyEntry(entryId: number): Promise<void> {
+  return invoke("copy_entry", { entryId });
+}
+
+export async function activateEntry(entryId: number): Promise<void> {
+  return invoke("activate_entry", { entryId });
+}
+
+export async function openSettingsWindow(): Promise<void> {
+  return invoke("open_settings_window");
+}
+
+export async function quitApp(): Promise<void> {
+  return invoke("quit_app");
+}
+
 export async function pasteEntry(text: string): Promise<void> {
   return invoke("paste_entry", { text });
+}
+
+export interface OllamaStatus {
+  cli_installed: boolean;
+  server_running: boolean;
+  model_installed: boolean;
+  model_name: string;
+}
+
+export async function checkOllamaStatus(): Promise<OllamaStatus> {
+  return invoke("check_ollama_status");
+}
+
+export async function startOllamaServer(): Promise<boolean> {
+  return invoke("start_ollama_server");
+}
+
+export async function pullOllamaModel(): Promise<boolean> {
+  return invoke("pull_ollama_model");
+}
+
+export async function testOllamaTagging(): Promise<string[] | null> {
+  return invoke("test_ollama_tagging");
 }

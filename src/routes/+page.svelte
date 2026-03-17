@@ -3,8 +3,13 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import type { AppSettings, ClipboardEntry, Collection, ModelCatalog, ModelOption } from "$lib/types";
-  import { clearHistory, getAppSettings, getEntries, getCollections, getModelCatalog, hideMainWindow, updateAppSettings } from "$lib/api";
+  import type { ClipboardEntry, Collection } from "$lib/types";
+  import {
+    getEntries,
+    getCollections,
+    hideMainWindow,
+    openSettingsWindow,
+  } from "$lib/api";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
   import CollectionTabs from "$lib/components/CollectionTabs.svelte";
@@ -18,27 +23,9 @@
   let selectedIndex = $state(-1);
   let gridEl: HTMLDivElement | undefined = $state();
   let visible = $state(false);
-  let showSettings = $state(false);
   let revealCycle = $state(0);
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
-  let settings = $state<AppSettings>({
-    ollama_model: "qwen3:4b-instruct-2507-q4_K_M",
-    retention_days: 30,
-  });
-  let modelCatalog = $state<ModelCatalog>({
-    total_memory_gb: 0,
-    recommended_memory_gb: 0,
-    options: [],
-  });
-  let selectedModelPreset = $state("__custom__");
-  let savingSettings = $state(false);
-  let settingsNotice = $state("");
-  const retentionOptions = [
-    { label: "1 day", value: 1 },
-    { label: "1 week", value: 7 },
-    { label: "1 month", value: 30 },
-    { label: "6 months", value: 180 },
-  ];
+  const hiddenTopTags = new Set(["code", "otp", "token", "log"]);
 
   async function loadEntries() {
     entries = await getEntries({
@@ -52,48 +39,34 @@
     collections = await getCollections();
   }
 
-  async function loadSettings() {
-    settings = await getAppSettings();
-    selectedModelPreset = settings.ollama_model;
-  }
-
-  async function loadModelCatalog() {
-    modelCatalog = await getModelCatalog();
-    if (!modelCatalog.options.some((option) => option.value === settings.ollama_model)) {
-      selectedModelPreset = "__custom__";
-    }
-  }
-
   function showWindow() {
     clearTimeout(hideTimer);
+    window.getSelection()?.removeAllRanges();
     searchQuery = "";
     activeTag = null;
     selectedIndex = -1;
     loadEntries();
     revealCycle += 1;
+    // Start hidden, then animate in next frame
     visible = false;
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        visible = true;
-      });
+      visible = true;
     });
   }
 
-  async function hideWindow() {
-    showSettings = false;
+  function animateOut() {
+    if (!visible) return;
     searchQuery = "";
     activeTag = null;
     selectedIndex = -1;
     visible = false;
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(async () => {
-      await getCurrentWindow().hide();
-      await getCurrentWindow().setFocus().catch(() => undefined);
-    }, 240);
+    hideTimer = setTimeout(() => {
+      hideMainWindow();
+    }, 250);
   }
 
   async function forceHideWindow() {
-    showSettings = false;
     searchQuery = "";
     activeTag = null;
     selectedIndex = -1;
@@ -103,14 +76,13 @@
     if (activeElement instanceof HTMLElement) {
       activeElement.blur();
     }
-    await hideMainWindow();
+    // Small delay to let animation play
+    setTimeout(() => hideMainWindow(), 250);
   }
 
   onMount(() => {
     loadEntries();
     loadCollections();
-    loadSettings();
-    loadModelCatalog();
 
     // Tell Rust we're loaded — it will hide the off-screen warmup window
     invoke("frontend_ready");
@@ -125,6 +97,14 @@
 
     const unlistenShow = listen("window-show", () => {
       showWindow();
+    });
+
+    const unlistenHide = listen("window-hide", () => {
+      animateOut();
+    });
+
+    const unlistenOpenSettings = listen("open-settings", () => {
+      openSettingsWindow();
     });
 
     const handleKeydown = (e: KeyboardEvent) => {
@@ -150,7 +130,7 @@
         if (entry.text_content) {
           import("$lib/api").then(({ pasteEntry }) => {
             pasteEntry(entry.text_content!);
-            hideWindow();
+            animateOut();
           });
         }
       }
@@ -163,6 +143,8 @@
       unlistenClipboard.then((fn) => fn());
       unlistenTagged.then((fn) => fn());
       unlistenShow.then((fn) => fn());
+      unlistenHide.then((fn) => fn());
+      unlistenOpenSettings.then((fn) => fn());
       window.removeEventListener("keydown", handleKeydown);
     };
   });
@@ -194,35 +176,7 @@
   }
 
   function handlePasted() {
-    hideWindow();
-  }
-
-  async function handleClearHistory() {
-    await clearHistory();
-    showSettings = false;
-    selectedIndex = -1;
-    loadEntries();
-  }
-
-  async function saveSettings() {
-    savingSettings = true;
-    settingsNotice = "";
-
-    try {
-      settings = await updateAppSettings(settings);
-      await loadModelCatalog();
-      settingsNotice = "Saved";
-      loadEntries();
-    } finally {
-      savingSettings = false;
-    }
-  }
-
-  function handleModelPresetChange(value: string) {
-    selectedModelPreset = value;
-    if (value !== "__custom__") {
-      settings.ollama_model = value;
-    }
+    animateOut();
   }
 
   let debounceTimer: ReturnType<typeof setTimeout>;
@@ -236,6 +190,7 @@
 
     for (const entry of entries) {
       for (const tag of entry.tags ?? []) {
+        if (hiddenTopTags.has(tag)) continue;
         counts.set(tag, (counts.get(tag) ?? 0) + 1);
       }
     }
@@ -252,10 +207,6 @@
     if (!activeTag) return entries;
     const tag = activeTag;
     return entries.filter((entry) => (entry.tags ?? []).includes(tag));
-  });
-
-  let selectedModelMeta = $derived.by<ModelOption | null>(() => {
-    return modelCatalog.options.find((option) => option.value === settings.ollama_model) ?? null;
   });
 </script>
 
@@ -274,7 +225,7 @@
         class="settings-btn"
         type="button"
         aria-label="Open settings"
-        onclick={() => (showSettings = !showSettings)}
+        onclick={() => openSettingsWindow()}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path
@@ -282,87 +233,6 @@
           />
         </svg>
       </button>
-
-      {#if showSettings}
-        <div class="settings-menu">
-          <div class="settings-head">
-            <div>
-              <div class="settings-title">Settings</div>
-              <div class="settings-subtitle">Local AI and history behavior</div>
-            </div>
-          </div>
-
-          <section class="settings-section">
-            <div class="settings-section-title">AI</div>
-            <label class="settings-field">
-              <span class="settings-label">Ollama model</span>
-              <select
-                class="settings-select"
-                bind:value={selectedModelPreset}
-                onchange={(event) =>
-                  handleModelPresetChange((event.currentTarget as HTMLSelectElement).value)}
-              >
-                {#each modelCatalog.options as option}
-                  <option value={option.value}>
-                    {option.label} · ~{option.memory_gb.toFixed(1)} GB · {option.fits ? "fits" : "tight"}{option.installed ? " · installed" : ""}
-                  </option>
-                {/each}
-                <option value="__custom__">Custom model</option>
-              </select>
-              {#if selectedModelPreset === "__custom__"}
-                <input
-                  class="settings-input"
-                  type="text"
-                  bind:value={settings.ollama_model}
-                  placeholder="qwen3:4b-instruct-2507-q4_K_M"
-                />
-              {/if}
-              <div class="settings-info-card">
-                <div class="settings-hint">
-                  Machine RAM: {modelCatalog.total_memory_gb.toFixed(1)} GB
-                </div>
-                <div class="settings-hint">
-                  Recommended Ollama budget: {modelCatalog.recommended_memory_gb.toFixed(1)} GB
-                </div>
-                {#if selectedModelMeta}
-                  <div class="settings-hint" class:fits={selectedModelMeta.fits} class:tight={!selectedModelMeta.fits}>
-                    {selectedModelMeta.label} needs about {selectedModelMeta.memory_gb.toFixed(1)} GB and
-                    {selectedModelMeta.fits ? " should fit this machine." : " may be too heavy for this machine."}
-                  </div>
-                {/if}
-              </div>
-            </label>
-          </section>
-
-          <section class="settings-section">
-            <div class="settings-section-title">Storage</div>
-            <label class="settings-field">
-              <span class="settings-label">History retention</span>
-              <select class="settings-select" bind:value={settings.retention_days}>
-                {#each retentionOptions as option}
-                  <option value={option.value}>{option.label}</option>
-                {/each}
-              </select>
-            </label>
-          </section>
-
-          <div class="settings-actions">
-            <button class="settings-save-btn" type="button" disabled={savingSettings} onclick={saveSettings}>
-              {savingSettings ? "Saving..." : "Save settings"}
-            </button>
-            {#if settingsNotice}
-              <div class="settings-note">{settingsNotice}</div>
-            {/if}
-          </div>
-
-          <div class="settings-divider"></div>
-
-          <div class="settings-secondary">
-            <button class="settings-item" type="button" onclick={loadCollections}>Refresh collections</button>
-            <button class="settings-item danger" type="button" onclick={handleClearHistory}>Clear unpinned history</button>
-          </div>
-        </div>
-      {/if}
     </div>
   </header>
 
@@ -437,6 +307,11 @@
 
   :global(*) {
     box-sizing: border-box;
+    outline: none;
+  }
+
+  :global(::selection) {
+    background: transparent;
   }
 
   .app {
@@ -559,249 +434,6 @@
     fill: currentColor;
   }
 
-  .settings-menu {
-    position: absolute;
-    top: calc(100% + 10px);
-    right: 0;
-    width: 360px;
-    max-height: min(520px, calc(100vh - 88px));
-    padding: 14px;
-    background:
-      linear-gradient(180deg, rgba(34, 35, 41, 0.94), rgba(25, 26, 31, 0.92));
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 18px;
-    box-shadow:
-      0 22px 50px rgba(0, 0, 0, 0.42),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    z-index: 10;
-    animation: settings-pop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
-  }
-
-  .settings-menu::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  .settings-menu::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .settings-menu::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.14);
-    border-radius: 999px;
-  }
-
-  .settings-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-
-  .settings-title {
-    font-size: 17px;
-    font-weight: 700;
-    color: #f2f5fb;
-    letter-spacing: -0.02em;
-  }
-
-  .settings-subtitle {
-    margin-top: 4px;
-    font-size: 12px;
-    color: #9097aa;
-  }
-
-  .settings-section {
-    padding: 12px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 14px;
-  }
-
-  .settings-section + .settings-section {
-    margin-top: 10px;
-  }
-
-  .settings-section-title {
-    margin-bottom: 10px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #8f97aa;
-  }
-
-  .settings-field {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .settings-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: #c6cada;
-  }
-
-  .settings-input,
-  .settings-select {
-    width: 100%;
-    min-height: 42px;
-    padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.11);
-    border-radius: 11px;
-    color: #edf1f8;
-    font: inherit;
-    outline: none;
-    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
-  }
-
-  .settings-select {
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    padding-right: 42px;
-    background-image:
-      linear-gradient(45deg, transparent 50%, rgba(237, 241, 248, 0.9) 50%),
-      linear-gradient(135deg, rgba(237, 241, 248, 0.9) 50%, transparent 50%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
-    background-position:
-      calc(100% - 18px) calc(50% - 2px),
-      calc(100% - 12px) calc(50% - 2px),
-      0 0;
-    background-size:
-      6px 6px,
-      6px 6px,
-      100% 100%;
-    background-repeat: no-repeat;
-    cursor: pointer;
-  }
-
-  .settings-select:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.16);
-  }
-
-  .settings-select option {
-    color: #edf1f8;
-    background: #23252c;
-  }
-
-  .settings-input:focus,
-  .settings-select:focus {
-    border-color: rgba(120, 160, 255, 0.4);
-    box-shadow: 0 0 0 3px rgba(94, 140, 255, 0.15);
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .settings-input::placeholder {
-    color: rgba(237, 240, 248, 0.35);
-  }
-
-  .settings-info-card {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 10px 11px;
-    background: rgba(255, 255, 255, 0.035);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 11px;
-  }
-
-  .settings-hint {
-    font-size: 11px;
-    line-height: 1.35;
-    color: #97a0b4;
-  }
-
-  .settings-hint.fits {
-    color: #8fd1a1;
-  }
-
-  .settings-hint.tight {
-    color: #e3b370;
-  }
-
-  .settings-actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-top: 12px;
-  }
-
-  .settings-save-btn {
-    min-height: 42px;
-    padding: 0 16px;
-    background: linear-gradient(180deg, rgba(103, 145, 255, 0.95), rgba(75, 121, 244, 0.92));
-    border: 1px solid rgba(144, 177, 255, 0.35);
-    border-radius: 12px;
-    color: #f7f9ff;
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
-    transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
-  }
-
-  .settings-save-btn:hover {
-    transform: translateY(-1px);
-    filter: brightness(1.04);
-  }
-
-  .settings-save-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
-  .settings-note {
-    padding: 0 2px;
-    font-size: 11px;
-    color: #91d6a6;
-  }
-
-  .settings-divider {
-    height: 1px;
-    margin: 12px 0 10px;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
-  }
-
-  .settings-secondary {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .settings-item {
-    width: 100%;
-    min-height: 40px;
-    padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 10px;
-    color: #dfe3ec;
-    text-align: left;
-    cursor: pointer;
-    font: inherit;
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-  }
-
-  .settings-item:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .settings-item.danger {
-    color: #f0c8c8;
-  }
-
-  .settings-item.danger:hover {
-    background: rgba(255, 107, 107, 0.08);
-    border-color: rgba(255, 107, 107, 0.14);
-  }
-
   .grid-container {
     flex: 1;
     display: flex;
@@ -835,17 +467,6 @@
     from {
       opacity: 0;
       transform: translateY(20px) scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-
-  @keyframes settings-pop {
-    from {
-      opacity: 0;
-      transform: translateY(-8px) scale(0.96);
     }
     to {
       opacity: 1;

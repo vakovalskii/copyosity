@@ -7,9 +7,67 @@ use tauri::{AppHandle, Emitter};
 
 use crate::db::{Database, ModelCatalog, ModelOption};
 
+#[derive(Serialize, Clone)]
+pub struct OllamaStatus {
+    pub cli_installed: bool,
+    pub server_running: bool,
+    pub model_installed: bool,
+    pub model_name: String,
+}
+
+pub fn check_status() -> OllamaStatus {
+    let model = ollama_model();
+    let cli = ollama_cli_available();
+    let server = if cli { ollama_available() } else { false };
+    let has_model = if server { model_installed(&model) } else { false };
+
+    OllamaStatus {
+        cli_installed: cli,
+        server_running: server,
+        model_installed: has_model,
+        model_name: model,
+    }
+}
+
+pub fn try_start_server() -> bool {
+    if ollama_available() {
+        return true;
+    }
+    if !ollama_cli_available() {
+        return false;
+    }
+    spawn_ollama_serve();
+    for _ in 0..20 {
+        if ollama_available() {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+    false
+}
+
+pub fn try_pull_model() -> bool {
+    let model = ollama_model();
+    if !ollama_available() {
+        return false;
+    }
+    pull_model(&model);
+    model_installed(&model)
+}
+
+pub fn test_tagging() -> Option<Vec<String>> {
+    tag_text("Meeting with John tomorrow at 3pm to discuss the new API design for user authentication")
+}
+
 const DEFAULT_OLLAMA_CHAT_URL: &str = "http://127.0.0.1:11434/api/chat";
 const DEFAULT_OLLAMA_TAGS_URL: &str = "http://127.0.0.1:11434/api/tags";
 const DEFAULT_OLLAMA_MODEL: &str = "qwen3:4b-instruct-2507-q4_K_M";
+
+static ACTIVE_MODEL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn set_active_model(model: &str) {
+    *ACTIVE_MODEL.lock().unwrap() = Some(model.to_string());
+}
 
 #[derive(Serialize)]
 struct OllamaChatRequest<'a> {
@@ -51,8 +109,10 @@ struct OllamaModelTag {
 }
 
 fn ollama_model() -> String {
-    std::env::var("COPYOSITY_OLLAMA_MODEL")
-        .ok()
+    ACTIVE_MODEL
+        .lock()
+        .unwrap()
+        .clone()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_OLLAMA_MODEL.to_string())
 }
@@ -518,5 +578,125 @@ pub fn tag_text(text: &str) -> Option<Vec<String>> {
         None
     } else {
         Some(tags)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- normalize_tags ---
+
+    #[test]
+    fn normalize_lowercases_and_strips() {
+        let result = normalize_tags(vec!["  Rust ".to_string(), "CODE".to_string()]);
+        assert_eq!(result, vec!["rust", "code"]);
+    }
+
+    #[test]
+    fn normalize_deduplicates() {
+        let result = normalize_tags(vec!["rust".to_string(), "Rust".to_string(), "RUST".to_string()]);
+        assert_eq!(result, vec!["rust"]);
+    }
+
+    #[test]
+    fn normalize_limits_to_5() {
+        let tags: Vec<String> = (0..10).map(|i| format!("tag{}", i)).collect();
+        let result = normalize_tags(tags);
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn normalize_skips_empty_and_long() {
+        let result = normalize_tags(vec![
+            "".to_string(),
+            "a".to_string(),
+            "x".repeat(25), // too long
+        ]);
+        assert_eq!(result, vec!["a"]);
+    }
+
+    #[test]
+    fn normalize_strips_special_chars() {
+        let result = normalize_tags(vec!["hello world!".to_string()]);
+        assert_eq!(result, vec!["helloworld"]);
+    }
+
+    // --- heuristic_tags ---
+
+    #[test]
+    fn heuristic_otp_4_digits() {
+        assert_eq!(heuristic_tags("1234"), Some(vec!["otp".to_string()]));
+    }
+
+    #[test]
+    fn heuristic_otp_6_digits() {
+        assert_eq!(heuristic_tags("482917"), Some(vec!["otp".to_string()]));
+    }
+
+    #[test]
+    fn heuristic_not_otp_too_long() {
+        assert_eq!(heuristic_tags("123456789"), None);
+    }
+
+    #[test]
+    fn heuristic_code_pattern() {
+        assert_eq!(heuristic_tags("AB3-XY7_Z"), Some(vec!["code".to_string()]));
+    }
+
+    #[test]
+    fn heuristic_token_with_base64() {
+        assert_eq!(heuristic_tags("abc123+def/ghi="), Some(vec!["token".to_string()]));
+    }
+
+    #[test]
+    fn heuristic_none_for_words() {
+        assert_eq!(heuristic_tags("hello world"), None);
+    }
+
+    #[test]
+    fn heuristic_none_for_empty() {
+        assert_eq!(heuristic_tags(""), None);
+    }
+
+    // --- looks_like_opaque_code ---
+
+    #[test]
+    fn opaque_code_numeric() {
+        assert!(looks_like_opaque_code("482917"));
+    }
+
+    #[test]
+    fn opaque_code_mixed() {
+        assert!(looks_like_opaque_code("A3B7C9"));
+    }
+
+    #[test]
+    fn opaque_not_words() {
+        assert!(!looks_like_opaque_code("hello world"));
+    }
+
+    #[test]
+    fn opaque_not_long_text() {
+        assert!(!looks_like_opaque_code(&"x".repeat(33)));
+    }
+
+    #[test]
+    fn opaque_not_empty() {
+        assert!(!looks_like_opaque_code(""));
+    }
+
+    #[test]
+    fn opaque_not_lowercase_only() {
+        assert!(!looks_like_opaque_code("abcdef"));
+    }
+
+    // --- check_status (unit, no Ollama needed) ---
+
+    #[test]
+    fn check_status_returns_struct() {
+        let status = check_status();
+        // Just verify it returns without panic and model name is populated
+        assert!(!status.model_name.is_empty());
     }
 }

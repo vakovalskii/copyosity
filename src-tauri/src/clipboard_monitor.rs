@@ -48,6 +48,16 @@ pub fn start_clipboard_monitor(app: AppHandle) {
 
                 let source_app = get_frontmost_app();
 
+                // Skip changes from our own app (user copied from Copyosity)
+                if let Some(app_name) = &source_app {
+                    if app_name == "Copyosity" {
+                        continue;
+                    }
+                    if db.is_app_excluded(app_name).unwrap_or(false) {
+                        continue;
+                    }
+                }
+
                 let entry = ClipboardEntry {
                     id: 0,
                     content_type: "text".to_string(),
@@ -64,21 +74,25 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                     tags: Vec::new(),
                 };
 
-                if let Ok(id) = db.insert_entry(&entry) {
+                if let Ok((id, is_new)) = db.insert_entry(&entry) {
                     let mut saved = entry.clone();
                     saved.id = id;
                     let _ = app.emit("clipboard-changed", &saved);
-                    let db = db.clone();
-                    let app = app.clone();
-                    std::thread::spawn(move || {
-                        if let Some(tags) = ollama::tag_text(&text) {
-                            if db.set_entry_tags(id, &tags).is_ok() {
-                                let _ = app.emit("entry-tagged", id);
+
+                    // Only tag genuinely new entries
+                    if is_new {
+                        let db = db.clone();
+                        let app = app.clone();
+                        std::thread::spawn(move || {
+                            if let Some(tags) = ollama::tag_text(&text) {
+                                if db.set_entry_tags(id, &tags).is_ok() {
+                                    let _ = app.emit("entry-tagged", id);
+                                }
+                            } else {
+                                let _ = db.set_entry_tag_state(id, "skipped");
                             }
-                        } else {
-                            let _ = db.set_entry_tag_state(id, "skipped");
-                        }
-                    });
+                        });
+                    }
                 }
                 continue;
             }
@@ -95,6 +109,14 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                 last_hash = hash.clone();
 
                 let source_app = get_frontmost_app();
+                if let Some(app_name) = &source_app {
+                    if app_name == "Copyosity" {
+                        continue;
+                    }
+                    if db.is_app_excluded(app_name).unwrap_or(false) {
+                        continue;
+                    }
+                }
                 let Some(image_thumb_b64) =
                     encode_thumb_from_rgba(&img.bytes, img.width, img.height)
                 else {
@@ -117,7 +139,7 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                     tags: Vec::new(),
                 };
 
-                if let Ok(id) = db.insert_entry(&entry) {
+                if let Ok((id, _is_new)) = db.insert_entry(&entry) {
                     let mut saved = entry.clone();
                     saved.id = id;
                     saved.image_data = None;
@@ -138,7 +160,7 @@ fn fast_hash(data: &[u8]) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn get_frontmost_app() -> Option<String> {
+pub fn get_frontmost_app() -> Option<String> {
     use std::process::Command;
     // Use much faster NSWorkspace via swift instead of osascript
     let output = Command::new("lsappinfo")
