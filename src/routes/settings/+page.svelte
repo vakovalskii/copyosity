@@ -92,8 +92,11 @@
   }
 
   async function handleTestTagging() {
+    // Auto-save model before testing so test uses the selected model
     taggingLoading = true;
+    taggingResult = undefined;
     try {
+      await updateAppSettings(settings);
       taggingResult = await testOllamaTagging();
     } finally {
       taggingLoading = false;
@@ -202,7 +205,7 @@
           </span>
           {#if ollamaStatus.cli_installed && !ollamaStatus.server_running}
             <button class="status-action" type="button" disabled={ollamaLoading} onclick={handleStartServer}>
-              {ollamaLoading ? "Starting..." : "Start"}
+              {#if ollamaLoading}<span class="spinner"></span> Starting...{:else}Start{/if}
             </button>
           {/if}
         </div>
@@ -223,7 +226,7 @@
           </span>
           {#if ollamaStatus.server_running && !ollamaStatus.model_installed}
             <button class="status-action" type="button" disabled={ollamaLoading} onclick={handlePullModel}>
-              {ollamaLoading ? "Pulling..." : "Download"}
+              {#if ollamaLoading}<span class="spinner"></span> Pulling...{:else}Download{/if}
             </button>
           {/if}
         </div>
@@ -255,11 +258,19 @@
           </span>
           {#if ollamaStatus.model_installed}
             <button class="status-action" type="button" disabled={taggingLoading} onclick={handleTestTagging}>
-              {taggingLoading ? "Testing..." : "Test"}
+              {#if taggingLoading}
+                <span class="spinner"></span> Testing...
+              {:else}
+                Test
+              {/if}
             </button>
           {/if}
         </div>
-        {#if taggingResult !== undefined && taggingResult !== null}
+        {#if taggingLoading}
+          <div class="status-hint">
+            Saving model and sending test request... This can take up to 60 seconds on first run while the model loads into memory.
+          </div>
+        {:else if taggingResult !== undefined && taggingResult !== null}
           <div class="status-hint ok">
             Test result: {taggingResult.join(", ")}
           </div>
@@ -814,5 +825,20 @@
 
   .link-btn:hover {
     color: #a8c4ff;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #c4d4ff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    vertical-align: middle;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 </style>
