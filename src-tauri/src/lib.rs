@@ -66,6 +66,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 use tauri_nspanel::panel::NSWindowStyleMask;
+                use tauri_nspanel::CollectionBehavior;
 
                 let window = app.get_webview_window("main").unwrap();
                 let panel = window.to_panel::<CopyosityPanel>().expect("Failed to convert window to panel");
@@ -76,6 +77,13 @@ pub fn run() {
                     NSWindowStyleMask::Borderless
                         | NSWindowStyleMask::NonactivatingPanel
                         | NSWindowStyleMask::Resizable,
+                );
+                // Show on all spaces including over fullscreen apps
+                panel.set_collection_behavior(
+                    CollectionBehavior::new()
+                        .can_join_all_spaces()
+                        .full_screen_auxiliary()
+                        .into(),
                 );
             }
 
