@@ -32,6 +32,7 @@
   let excludedAppInput = $state("");
   let savingSettings = $state(false);
   let settingsNotice = $state("");
+  let savedModel = $state("");
 
   let ollamaStatus = $state<OllamaStatus | null>(null);
   let ollamaLoading = $state(false);
@@ -48,6 +49,7 @@
   async function loadSettings() {
     settings = await getAppSettings();
     selectedModelPreset = settings.ollama_model;
+    savedModel = settings.ollama_model;
   }
 
   async function loadModelCatalog() {
@@ -92,11 +94,9 @@
   }
 
   async function handleTestTagging() {
-    // Auto-save model before testing so test uses the selected model
     taggingLoading = true;
     taggingResult = undefined;
     try {
-      await updateAppSettings(settings);
       taggingResult = await testOllamaTagging();
     } finally {
       taggingLoading = false;
@@ -114,9 +114,10 @@
     settingsNotice = "";
     try {
       settings = await updateAppSettings(settings);
+      savedModel = settings.ollama_model;
       await loadModelCatalog();
       settingsNotice = "Saved";
-      // Refresh status with new model
+      taggingResult = undefined;
       await refreshOllamaStatus();
     } finally {
       savingSettings = false;
@@ -157,6 +158,8 @@
   let selectedModelMeta = $derived.by<ModelOption | null>(() => {
     return modelCatalog.options.find((o) => o.value === settings.ollama_model) ?? null;
   });
+
+  let modelDirty = $derived(settings.ollama_model !== savedModel);
 </script>
 
 <div class="settings-page">
@@ -257,7 +260,7 @@
             {/if}
           </span>
           {#if ollamaStatus.model_installed}
-            <button class="status-action" type="button" disabled={taggingLoading} onclick={handleTestTagging}>
+            <button class="status-action" type="button" disabled={taggingLoading || modelDirty} onclick={handleTestTagging} title={modelDirty ? "Save settings first" : ""}>
               {#if taggingLoading}
                 <span class="spinner"></span> Testing...
               {:else}
@@ -266,9 +269,13 @@
             </button>
           {/if}
         </div>
-        {#if taggingLoading}
+        {#if modelDirty}
+          <div class="status-hint fail">
+            Model changed — save settings first, then test.
+          </div>
+        {:else if taggingLoading}
           <div class="status-hint">
-            Saving model and sending test request... This can take up to 60 seconds on first run while the model loads into memory.
+            Sending test request... This can take up to 60 seconds on first run while the model loads into memory.
           </div>
         {:else if taggingResult !== undefined && taggingResult !== null}
           <div class="status-hint ok">
@@ -416,7 +423,7 @@
 
   .settings-page {
     padding: 20px;
-    max-width: 460px;
+    max-width: 540px;
     margin: 0 auto;
   }
 

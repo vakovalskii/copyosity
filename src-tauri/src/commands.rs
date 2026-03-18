@@ -131,7 +131,7 @@ pub fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::App("/settings".into()),
     )
     .title("Copyosity Settings")
-    .inner_size(480.0, 580.0)
+    .inner_size(580.0, 680.0)
     .resizable(true)
     .center();
 
