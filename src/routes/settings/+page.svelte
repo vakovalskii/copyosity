@@ -11,6 +11,7 @@
     getModelCatalog,
     removeExcludedApp,
     updateAppSettings,
+    checkAccessibility,
     checkOllamaStatus,
     startOllamaServer,
     pullOllamaModel,
@@ -34,6 +35,8 @@
   let savingSettings = $state(false);
   let settingsNotice = $state("");
   let savedModel = $state("");
+
+  let accessibilityGranted = $state<boolean | null>(null);
 
   let ollamaStatus = $state<OllamaStatus | null>(null);
   let ollamaLoading = $state(false);
@@ -107,6 +110,7 @@
     loadSettings().then(() => loadModelCatalog());
     loadExcludedApps();
     refreshOllamaStatus();
+    checkAccessibility().then((v) => (accessibilityGranted = v));
 
     const unlistenPull = listen<string>("ollama-pull-progress", (event) => {
       pullProgress = event.payload;
@@ -182,6 +186,33 @@
     <div class="settings-title">Settings</div>
     <div class="settings-subtitle">Local AI and history behavior</div>
   </div>
+
+  <section class="settings-section">
+    <div class="settings-section-title">Permissions</div>
+    <div class="status-step">
+      <div class="status-row">
+        <span class="status-dot" class:ok={accessibilityGranted === true} class:fail={accessibilityGranted === false} class:checking={accessibilityGranted === null}></span>
+        <span class="status-text">
+          {accessibilityGranted === null ? "Checking..." : accessibilityGranted ? "Accessibility granted" : "Accessibility not granted"}
+        </span>
+        {#if accessibilityGranted === false}
+          <button class="status-action" type="button" onclick={async () => { accessibilityGranted = await checkAccessibility(); }}>
+            Request
+          </button>
+        {:else if accessibilityGranted === true}
+          <button class="status-action" type="button" onclick={async () => { accessibilityGranted = await checkAccessibility(); }}>
+            Recheck
+          </button>
+        {/if}
+      </div>
+      {#if accessibilityGranted === false}
+        <div class="status-hint">
+          Required for paste automation (Cmd+V) and global shortcut.
+          Click "Request" to open System Settings, then enable Copyosity under Privacy → Accessibility.
+        </div>
+      {/if}
+    </div>
+  </section>
 
   <section class="settings-section">
     <div class="settings-section-title">Local AI Status</div>

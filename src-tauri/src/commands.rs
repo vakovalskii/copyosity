@@ -318,6 +318,42 @@ pub fn paste_entry(app: tauri::AppHandle, text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn check_accessibility() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        // AXIsProcessTrustedWithOptions with prompt: true shows the system dialog
+        unsafe {
+            #[link(name = "ApplicationServices", kind = "framework")]
+            extern "C" {
+                fn AXIsProcessTrustedWithOptions(options: *const std::ffi::c_void) -> bool;
+            }
+
+            use objc::{msg_send, sel, sel_impl};
+            use objc::runtime::Object;
+
+            let key: *mut Object = msg_send![
+                objc::runtime::Class::get("NSString").unwrap(),
+                stringWithUTF8String: b"AXTrustedCheckOptionPrompt\0".as_ptr()
+            ];
+            let yes: *mut Object = msg_send![
+                objc::runtime::Class::get("NSNumber").unwrap(),
+                numberWithBool: true
+            ];
+            let dict: *mut Object = msg_send![
+                objc::runtime::Class::get("NSDictionary").unwrap(),
+                dictionaryWithObject: yes forKey: key
+            ];
+
+            let trusted = AXIsProcessTrustedWithOptions(dict as *const _);
+            return Ok(trusted);
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    Ok(true)
+}
+
+#[tauri::command]
 pub fn check_ollama_status() -> Result<ollama::OllamaStatus, String> {
     Ok(ollama::check_status())
 }
