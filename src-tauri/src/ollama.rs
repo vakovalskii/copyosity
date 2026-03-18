@@ -46,12 +46,12 @@ pub fn try_start_server() -> bool {
     false
 }
 
-pub fn try_pull_model() -> bool {
+pub fn try_pull_model(app: Option<&AppHandle>) -> bool {
     let model = ollama_model();
     if !ollama_available() {
         return false;
     }
-    pull_model(&model);
+    pull_model_with_progress(&model, app);
     model_installed(&model)
 }
 
@@ -243,13 +243,44 @@ fn spawn_ollama_serve() {
 }
 
 fn pull_model(model: &str) {
+    pull_model_with_progress(model, None);
+}
+
+pub fn pull_model_with_progress(model: &str, app: Option<&AppHandle>) {
+    use std::io::BufRead;
+
     log_debug(format!("pulling model {}", model));
-    let result = Command::new(ollama_bin())
+    let mut child = match Command::new(ollama_bin())
         .arg("pull")
         .arg(model)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status();
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(err) => {
+            log_debug(format!("failed to spawn ollama pull: {}", err));
+            return;
+        }
+    };
+
+    // Read stderr for progress (ollama outputs progress there)
+    if let Some(stderr) = child.stderr.take() {
+        let reader = std::io::BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                let trimmed = line.trim().to_string();
+                if !trimmed.is_empty() {
+                    log_debug(format!("pull: {}", trimmed));
+                    if let Some(app) = app {
+                        let _ = app.emit("ollama-pull-progress", &trimmed);
+                    }
+                }
+            }
+        }
+    }
+
+    let result = child.wait();
     log_debug(format!("pull result => {:?}", result));
 }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
   import type { AppSettings, ExcludedApp, ModelCatalog, ModelOption } from "$lib/types";
   import {
     addExcludedApp,
@@ -36,6 +37,7 @@
 
   let ollamaStatus = $state<OllamaStatus | null>(null);
   let ollamaLoading = $state(false);
+  let pullProgress = $state("");
   let taggingResult = $state<string[] | null | undefined>(undefined);
   let taggingLoading = $state(false);
 
@@ -85,11 +87,14 @@
 
   async function handlePullModel() {
     ollamaLoading = true;
+    pullProgress = "Starting download...";
     try {
       await pullOllamaModel();
+      pullProgress = "";
       await refreshOllamaStatus();
     } finally {
       ollamaLoading = false;
+      pullProgress = "";
     }
   }
 
@@ -107,6 +112,14 @@
     loadSettings().then(() => loadModelCatalog());
     loadExcludedApps();
     refreshOllamaStatus();
+
+    const unlistenPull = listen<string>("ollama-pull-progress", (event) => {
+      pullProgress = event.payload;
+    });
+
+    return () => {
+      unlistenPull.then((fn) => fn());
+    };
   });
 
   async function saveSettings() {
@@ -186,7 +199,7 @@
           </span>
           {#if !ollamaStatus.cli_installed}
             <button class="status-action" type="button" onclick={() => openUrl("https://ollama.com/download")}>
-              Download
+              Open ollama.com
             </button>
           {/if}
         </div>
@@ -233,7 +246,11 @@
             </button>
           {/if}
         </div>
-        {#if ollamaStatus.server_running && !ollamaStatus.model_installed}
+        {#if pullProgress}
+          <div class="status-hint pull-progress">
+            <span class="spinner"></span> {pullProgress}
+          </div>
+        {:else if ollamaStatus.server_running && !ollamaStatus.model_installed}
           <div class="status-hint">
             Model <code>{ollamaStatus.model_name}</code> needs to be downloaded.
             Click "Download" or run <code>ollama pull {ollamaStatus.model_name}</code> in terminal.
@@ -847,5 +864,15 @@
 
   @keyframes spin {
     to { transform: rotate(360deg); }
+  }
+
+  .pull-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #c4d4ff;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 10.5px;
+    word-break: break-all;
   }
 </style>
