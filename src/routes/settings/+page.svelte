@@ -13,6 +13,7 @@
     updateAppSettings,
     checkAccessibility,
     checkOllamaStatus,
+    unloadOllamaModel,
     startOllamaServer,
     pullOllamaModel,
     testOllamaTagging,
@@ -276,6 +277,11 @@
           {#if ollamaStatus.server_running && !ollamaStatus.model_installed}
             <button class="status-action" type="button" disabled={ollamaLoading} onclick={handlePullModel}>
               {#if ollamaLoading}<span class="spinner"></span> Pulling...{:else}Download{/if}
+            </button>
+          {/if}
+          {#if ollamaStatus.model_installed}
+            <button class="status-action" type="button" onclick={async () => { await unloadOllamaModel(); settingsNotice = "Model unloaded from memory"; }}>
+              Unload
             </button>
           {/if}
         </div>

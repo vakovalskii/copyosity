@@ -373,6 +373,11 @@ pub fn pull_ollama_model(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn unload_ollama_model() -> Result<bool, String> {
+    Ok(ollama::unload_model())
+}
+
+#[tauri::command]
 pub fn test_ollama_tagging() -> Result<Option<Vec<String>>, String> {
     Ok(ollama::test_tagging())
 }

@@ -57,6 +57,28 @@ pub fn try_pull_model(app: Option<&AppHandle>) -> bool {
 
 const DEFAULT_OLLAMA_PULL_URL: &str = "http://127.0.0.1:11434/api/pull";
 
+pub fn unload_model() -> bool {
+    let model = ollama_model();
+    if !ollama_available() {
+        return false;
+    }
+    log_debug(format!("unloading model: {}", model));
+    let agent = ollama_agent(2, 10);
+    let result = agent
+        .post("http://127.0.0.1:11434/api/generate")
+        .send_json(serde_json::json!({ "model": model, "keep_alive": 0 }));
+    match result {
+        Ok(_) => {
+            log_debug("model unloaded");
+            true
+        }
+        Err(err) => {
+            log_debug(format!("unload failed: {}", err));
+            false
+        }
+    }
+}
+
 pub fn test_tagging() -> Option<Vec<String>> {
     // Use a longer timeout for test — model cold start can take 30+ seconds
     let model = ollama_model();
@@ -287,6 +309,24 @@ fn pull_model_via_api(model: &str, app: Option<&AppHandle>) {
         let trimmed = line.trim();
         if trimmed.is_empty() { continue; }
 
+        // Try to parse as JSON
+        #[derive(Deserialize)]
+        struct PullError {
+            error: Option<String>,
+        }
+
+        // Check for error first
+        if let Ok(err) = serde_json::from_str::<PullError>(trimmed) {
+            if let Some(error) = err.error {
+                let msg = format!("Error: {}", error);
+                log_debug(format!("pull error: {}", msg));
+                if let Some(app) = app {
+                    let _ = app.emit("ollama-pull-progress", &msg);
+                }
+                return;
+            }
+        }
+
         if let Ok(progress) = serde_json::from_str::<PullProgress>(trimmed) {
             let msg = match (&progress.status, progress.total, progress.completed) {
                 (Some(status), Some(total), Some(completed)) if total > 0 => {
@@ -353,10 +393,10 @@ pub fn model_catalog() -> ModelCatalog {
     let recommended_memory_gb = ((total_memory_gb * 0.55) * 10.0).round() / 10.0;
     let installed = installed_models();
     let presets = [
-        ("qwen3:1.7b-instruct-q4_K_M", "Qwen3 1.7B Q4", 1.8_f64),
-        ("qwen3:4b-instruct-2507-q4_K_M", "Qwen3 4B Q4", 3.2_f64),
-        ("qwen3:4b-instruct-2507-fp16", "Qwen3 4B FP16", 8.5_f64),
-        ("qwen3:8b-instruct-q4_K_M", "Qwen3 8B Q4", 6.4_f64),
+        ("qwen3:0.6b", "Qwen3 0.6B", 0.5_f64),
+        ("qwen3:1.7b", "Qwen3 1.7B", 1.4_f64),
+        ("qwen3:4b", "Qwen3 4B", 2.6_f64),
+        ("qwen3:8b", "Qwen3 8B", 5.2_f64),
     ];
 
     let options = presets

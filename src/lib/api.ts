@@ -130,6 +130,10 @@ export async function pullOllamaModel(): Promise<void> {
   return invoke("pull_ollama_model");
 }
 
+export async function unloadOllamaModel(): Promise<boolean> {
+  return invoke("unload_ollama_model");
+}
+
 export async function testOllamaTagging(): Promise<string[] | null> {
   return invoke("test_ollama_tagging");
 }

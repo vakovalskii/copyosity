@@ -171,6 +171,7 @@ pub fn run() {
             commands::check_ollama_status,
             commands::start_ollama_server,
             commands::pull_ollama_model,
+            commands::unload_ollama_model,
             commands::test_ollama_tagging,
         ])
         .build(tauri::generate_context!())
