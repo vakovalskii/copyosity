@@ -51,9 +51,11 @@ pub fn try_pull_model(app: Option<&AppHandle>) -> bool {
     if !ollama_available() {
         return false;
     }
-    pull_model_with_progress(&model, app);
+    pull_model_via_api(&model, app);
     model_installed(&model)
 }
+
+const DEFAULT_OLLAMA_PULL_URL: &str = "http://127.0.0.1:11434/api/pull";
 
 pub fn test_tagging() -> Option<Vec<String>> {
     // Use a longer timeout for test — model cold start can take 30+ seconds
@@ -243,45 +245,67 @@ fn spawn_ollama_serve() {
 }
 
 fn pull_model(model: &str) {
-    pull_model_with_progress(model, None);
+    pull_model_via_api(model, None);
 }
 
-pub fn pull_model_with_progress(model: &str, app: Option<&AppHandle>) {
+fn pull_model_via_api(model: &str, app: Option<&AppHandle>) {
     use std::io::BufRead;
 
-    log_debug(format!("pulling model {}", model));
-    let mut child = match Command::new(ollama_bin())
-        .arg("pull")
-        .arg(model)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    log_debug(format!("pulling model via API: {}", model));
+
+    #[derive(Serialize)]
+    struct PullRequest<'a> {
+        name: &'a str,
+        stream: bool,
+    }
+
+    #[derive(Deserialize)]
+    struct PullProgress {
+        status: Option<String>,
+        total: Option<u64>,
+        completed: Option<u64>,
+    }
+
+    let agent = ollama_agent(5, 600); // 10 min timeout for large models
+    let response = match agent
+        .post(DEFAULT_OLLAMA_PULL_URL)
+        .send_json(PullRequest { name: model, stream: true })
     {
-        Ok(child) => child,
+        Ok(r) => r,
         Err(err) => {
-            log_debug(format!("failed to spawn ollama pull: {}", err));
+            log_debug(format!("pull API request failed: {}", err));
+            if let Some(app) = app {
+                let _ = app.emit("ollama-pull-progress", "Download failed");
+            }
             return;
         }
     };
 
-    // Read stderr for progress (ollama outputs progress there)
-    if let Some(stderr) = child.stderr.take() {
-        let reader = std::io::BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                let trimmed = line.trim().to_string();
-                if !trimmed.is_empty() {
-                    log_debug(format!("pull: {}", trimmed));
-                    if let Some(app) = app {
-                        let _ = app.emit("ollama-pull-progress", &trimmed);
-                    }
+    let reader = std::io::BufReader::new(response.into_reader());
+    for line in reader.lines() {
+        let Ok(line) = line else { continue };
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+
+        if let Ok(progress) = serde_json::from_str::<PullProgress>(trimmed) {
+            let msg = match (&progress.status, progress.total, progress.completed) {
+                (Some(status), Some(total), Some(completed)) if total > 0 => {
+                    let pct = (completed as f64 / total as f64 * 100.0) as u32;
+                    let mb_done = completed / 1_000_000;
+                    let mb_total = total / 1_000_000;
+                    format!("{} — {}MB / {}MB ({}%)", status, mb_done, mb_total, pct)
                 }
+                (Some(status), _, _) => status.clone(),
+                _ => continue,
+            };
+            log_debug(format!("pull: {}", msg));
+            if let Some(app) = app {
+                let _ = app.emit("ollama-pull-progress", &msg);
             }
         }
     }
 
-    let result = child.wait();
-    log_debug(format!("pull result => {:?}", result));
+    log_debug("pull via API complete");
 }
 
 fn total_memory_gb() -> f64 {

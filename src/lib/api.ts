@@ -122,7 +122,7 @@ export async function startOllamaServer(): Promise<boolean> {
   return invoke("start_ollama_server");
 }
 
-export async function pullOllamaModel(): Promise<boolean> {
+export async function pullOllamaModel(): Promise<void> {
   return invoke("pull_ollama_model");
 }
 

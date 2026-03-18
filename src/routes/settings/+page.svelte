@@ -88,14 +88,9 @@
   async function handlePullModel() {
     ollamaLoading = true;
     pullProgress = "Starting download...";
-    try {
-      await pullOllamaModel();
-      pullProgress = "";
-      await refreshOllamaStatus();
-    } finally {
-      ollamaLoading = false;
-      pullProgress = "";
-    }
+    await pullOllamaModel();
+    // Command returns immediately, progress comes via events
+    // ollama-pull-done will reset the state
   }
 
   async function handleTestTagging() {
@@ -117,8 +112,15 @@
       pullProgress = event.payload;
     });
 
+    const unlistenPullDone = listen<boolean>("ollama-pull-done", async (event) => {
+      ollamaLoading = false;
+      pullProgress = "";
+      await refreshOllamaStatus();
+    });
+
     return () => {
       unlistenPull.then((fn) => fn());
+      unlistenPullDone.then((fn) => fn());
     };
   });
 

@@ -328,8 +328,12 @@ pub fn start_ollama_server() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn pull_ollama_model(app: tauri::AppHandle) -> Result<bool, String> {
-    Ok(ollama::try_pull_model(Some(&app)))
+pub fn pull_ollama_model(app: tauri::AppHandle) -> Result<(), String> {
+    std::thread::spawn(move || {
+        let result = ollama::try_pull_model(Some(&app));
+        let _ = app.emit("ollama-pull-done", result);
+    });
+    Ok(())
 }
 
 #[tauri::command]
