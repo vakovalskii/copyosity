@@ -9,18 +9,28 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::db::{ClipboardEntry, Database};
 use crate::ollama;
 
-fn encode_thumb_from_rgba(bytes: &[u8], width: usize, height: usize) -> Option<String> {
+fn encode_image_from_rgba(bytes: &[u8], width: usize, height: usize) -> Option<(String, String)> {
     let rgba = ImageBuffer::<Rgba<u8>, _>::from_raw(width as u32, height as u32, bytes.to_vec())?;
     let full = DynamicImage::ImageRgba8(rgba);
+
+    // Encode full-size image as PNG
+    let mut full_buf = Cursor::new(Vec::new());
+    full.write_to(&mut full_buf, ImageFormat::Png).ok()?;
+    let full_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        full_buf.into_inner(),
+    );
+
+    // Encode thumbnail
     let thumb = full.thumbnail(240, 160);
     let mut thumb_buf = Cursor::new(Vec::new());
-
     thumb.write_to(&mut thumb_buf, ImageFormat::Png).ok()?;
-
-    Some(base64::Engine::encode(
+    let thumb_b64 = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
         thumb_buf.into_inner(),
-    ))
+    );
+
+    Some((full_b64, thumb_b64))
 }
 
 pub fn start_clipboard_monitor(app: AppHandle) {
@@ -117,8 +127,8 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                         continue;
                     }
                 }
-                let Some(image_thumb_b64) =
-                    encode_thumb_from_rgba(&img.bytes, img.width, img.height)
+                let Some((image_full_b64, image_thumb_b64)) =
+                    encode_image_from_rgba(&img.bytes, img.width, img.height)
                 else {
                     continue;
                 };
@@ -127,7 +137,7 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                     id: 0,
                     content_type: "image".to_string(),
                     text_content: None,
-                    image_data: None,
+                    image_data: Some(image_full_b64),
                     image_thumb: Some(image_thumb_b64),
                     source_app,
                     source_app_icon: None,

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
-  import type { AppSettings, ExcludedApp, ModelCatalog, ModelOption } from "$lib/types";
+  import type { AppSettings, AudioInputDevice, ExcludedApp, ModelCatalog, ModelOption } from "$lib/types";
   import {
     addExcludedApp,
     addFrontmostAppToExcluded,
@@ -11,6 +11,8 @@
     getModelCatalog,
     removeExcludedApp,
     updateAppSettings,
+    rebindVoiceShortcut,
+    listMicrophones,
     checkAccessibility,
     checkOllamaStatus,
     unloadOllamaModel,
@@ -24,7 +26,13 @@
   let settings = $state<AppSettings>({
     ollama_model: "qwen3:4b-instruct-2507-q4_K_M",
     retention_days: 30,
+    whisper_server_url: "",
+    whisper_server_token: "",
+    whisper_server_model: "whisper-1",
+    voice_shortcut: "option+space",
+    selected_microphone: "",
   });
+  let microphones: AudioInputDevice[] = $state([]);
   let modelCatalog = $state<ModelCatalog>({
     total_memory_gb: 0,
     recommended_memory_gb: 0,
@@ -108,9 +116,12 @@
   }
 
   onMount(() => {
-    loadSettings().then(() => loadModelCatalog());
+    // Load everything in parallel instead of sequentially
+    loadSettings();
+    loadModelCatalog();
     loadExcludedApps();
     refreshOllamaStatus();
+    listMicrophones().then((m) => (microphones = m));
     checkAccessibility().then((v) => (accessibilityGranted = v));
 
     const unlistenPull = listen<string>("ollama-pull-progress", (event) => {
@@ -133,12 +144,24 @@
     savingSettings = true;
     settingsNotice = "";
     try {
-      settings = await updateAppSettings(settings);
+      settings = await updateAppSettings({
+        ollama_model: settings.ollama_model,
+        retention_days: settings.retention_days,
+        whisper_server_url: settings.whisper_server_url,
+        whisper_server_token: settings.whisper_server_token,
+        whisper_server_model: settings.whisper_server_model,
+        voice_shortcut: settings.voice_shortcut,
+        selected_microphone: settings.selected_microphone,
+      });
       savedModel = settings.ollama_model;
-      await loadModelCatalog();
       settingsNotice = "Saved";
       taggingResult = undefined;
-      await refreshOllamaStatus();
+      // Run post-save tasks in parallel
+      await Promise.all([
+        rebindVoiceShortcut(),
+        loadModelCatalog(),
+        refreshOllamaStatus(),
+      ]);
     } finally {
       savingSettings = false;
     }
@@ -444,6 +467,63 @@
         <div class="settings-hint">Clipboard from excluded apps will not be stored or tagged.</div>
       {/if}
     </div>
+  </section>
+
+  <section class="settings-section">
+    <div class="settings-section-title">Voice Transcription</div>
+    <div class="settings-hint" style="margin-bottom: 10px;">
+      Hold the shortcut to record, release to transcribe and paste at cursor.
+      Requires an OpenAI-compatible Whisper server.
+    </div>
+    <label class="settings-field">
+      <span class="settings-label">Shortcut (hold to record)</span>
+      <input
+        class="settings-input"
+        type="text"
+        bind:value={settings.voice_shortcut}
+        placeholder="option+space"
+      />
+      <div class="settings-hint">
+        Use: <code>cmd</code>, <code>option</code>, <code>ctrl</code>, <code>shift</code> + key.
+        Examples: <code>option+space</code>, <code>cmd+shift+r</code>, <code>ctrl+alt+space</code>
+      </div>
+    </label>
+    <label class="settings-field" style="margin-top: 8px;">
+      <span class="settings-label">Microphone</span>
+      <select class="settings-select" bind:value={settings.selected_microphone}>
+        <option value="">System default</option>
+        {#each microphones as mic}
+          <option value={mic.name}>{mic.name}{mic.is_default ? " (default)" : ""}</option>
+        {/each}
+      </select>
+    </label>
+    <label class="settings-field" style="margin-top: 8px;">
+      <span class="settings-label">Server URL</span>
+      <input
+        class="settings-input"
+        type="text"
+        bind:value={settings.whisper_server_url}
+        placeholder="http://localhost:8000/v1/audio/transcriptions"
+      />
+    </label>
+    <label class="settings-field" style="margin-top: 8px;">
+      <span class="settings-label">API Token</span>
+      <input
+        class="settings-input"
+        type="password"
+        bind:value={settings.whisper_server_token}
+        placeholder="Bearer token (optional)"
+      />
+    </label>
+    <label class="settings-field" style="margin-top: 8px;">
+      <span class="settings-label">Model</span>
+      <input
+        class="settings-input"
+        type="text"
+        bind:value={settings.whisper_server_model}
+        placeholder="whisper-1"
+      />
+    </label>
   </section>
 
   <div class="settings-actions">
@@ -871,6 +951,17 @@
     border-radius: 4px;
     font-family: "SF Mono", Menlo, monospace;
     font-size: 10.5px;
+    color: #c8cee0;
+  }
+
+  kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 5px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px;
     color: #c8cee0;
   }
 

@@ -77,13 +77,15 @@
     // Tell Rust we're loaded — it will hide the off-screen warmup window
     invoke("frontend_ready");
 
-    const unlistenClipboard = listen("clipboard-changed", () => {
-      loadEntries();
-    });
+    // Debounce entry reloads — clipboard-changed and entry-tagged can fire together
+    let reloadTimer: ReturnType<typeof setTimeout>;
+    function scheduleReload() {
+      clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(() => loadEntries(), 100);
+    }
 
-    const unlistenTagged = listen("entry-tagged", () => {
-      loadEntries();
-    });
+    const unlistenClipboard = listen("clipboard-changed", scheduleReload);
+    const unlistenTagged = listen("entry-tagged", scheduleReload);
 
     const unlistenShow = listen("window-show", () => {
       showWindow();
@@ -125,6 +127,8 @@
     window.addEventListener("keydown", handleKeydown);
 
     return () => {
+      clearTimeout(reloadTimer);
+      clearTimeout(debounceTimer);
       unlistenClipboard.then((fn) => fn());
       unlistenTagged.then((fn) => fn());
       unlistenShow.then((fn) => fn());

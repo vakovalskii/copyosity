@@ -24,6 +24,16 @@ export interface Collection {
 export interface AppSettings {
   ollama_model: string;
   retention_days: number;
+  whisper_server_url: string;
+  whisper_server_token: string;
+  whisper_server_model: string;
+  voice_shortcut: string;
+  selected_microphone: string;
+}
+
+export interface AudioInputDevice {
+  name: string;
+  is_default: boolean;
 }
 
 export interface ModelOption {

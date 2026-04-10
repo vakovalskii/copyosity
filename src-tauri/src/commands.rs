@@ -158,12 +158,24 @@ pub fn update_app_settings(
     db: State<'_, Arc<Database>>,
     ollama_model: Option<String>,
     retention_days: Option<i64>,
+    whisper_server_url: Option<String>,
+    whisper_server_token: Option<String>,
+    whisper_server_model: Option<String>,
+    voice_shortcut: Option<String>,
+    selected_microphone: Option<String>,
 ) -> Result<AppSettings, String> {
     let settings = db
-        .update_app_settings(ollama_model.as_deref(), retention_days)
+        .update_app_settings(
+            ollama_model.as_deref(),
+            retention_days,
+            whisper_server_url.as_deref(),
+            whisper_server_token.as_deref(),
+            whisper_server_model.as_deref(),
+            voice_shortcut.as_deref(),
+            selected_microphone.as_deref(),
+        )
         .map_err(|e| e.to_string())?;
 
-    // Keep the active process aligned with the saved model so new tagging uses it immediately.
     ollama::set_active_model(&settings.ollama_model);
     ollama::ensure_runtime();
 
@@ -380,4 +392,14 @@ pub fn unload_ollama_model() -> Result<bool, String> {
 #[tauri::command]
 pub fn test_ollama_tagging() -> Result<Option<Vec<String>>, String> {
     Ok(ollama::test_tagging())
+}
+
+#[tauri::command]
+pub fn rebind_voice_shortcut(app: tauri::AppHandle) -> Result<String, String> {
+    crate::register_voice_shortcut(&app)
+}
+
+#[tauri::command]
+pub fn list_microphones() -> Result<Vec<crate::whisper::AudioInputDevice>, String> {
+    Ok(crate::whisper::list_input_devices())
 }

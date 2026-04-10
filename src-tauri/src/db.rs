@@ -7,6 +7,13 @@ use std::sync::Mutex;
 pub struct AppSettings {
     pub ollama_model: String,
     pub retention_days: i64,
+    pub whisper_server_url: String,
+    pub whisper_server_token: String,
+    pub whisper_server_model: String,
+    /// e.g. "option+space", "cmd+space", "ctrl+alt+space"
+    pub voice_shortcut: String,
+    /// Selected microphone device name (empty = default)
+    pub selected_microphone: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -162,9 +169,31 @@ impl Database {
             .filter(|days| matches!(*days, 1 | 7 | 30 | 180))
             .unwrap_or(30);
 
+        let whisper_server_url = self
+            .get_setting("whisper_server_url")?
+            .unwrap_or_default();
+        let whisper_server_token = self
+            .get_setting("whisper_server_token")?
+            .unwrap_or_default();
+        let whisper_server_model = self
+            .get_setting("whisper_server_model")?
+            .unwrap_or_else(|| "whisper-1".to_string());
+
+        let voice_shortcut = self
+            .get_setting("voice_shortcut")?
+            .unwrap_or_else(|| "option+space".to_string());
+        let selected_microphone = self
+            .get_setting("selected_microphone")?
+            .unwrap_or_default();
+
         Ok(AppSettings {
             ollama_model,
             retention_days,
+            whisper_server_url,
+            whisper_server_token,
+            whisper_server_model,
+            voice_shortcut,
+            selected_microphone,
         })
     }
 
@@ -172,13 +201,32 @@ impl Database {
         &self,
         ollama_model: Option<&str>,
         retention_days: Option<i64>,
+        whisper_server_url: Option<&str>,
+        whisper_server_token: Option<&str>,
+        whisper_server_model: Option<&str>,
+        voice_shortcut: Option<&str>,
+        selected_microphone: Option<&str>,
     ) -> Result<AppSettings, rusqlite::Error> {
         if let Some(model) = ollama_model {
             self.set_setting("ollama_model", model.trim())?;
         }
-
         if let Some(days) = retention_days {
             self.set_setting("retention_days", &days.to_string())?;
+        }
+        if let Some(url) = whisper_server_url {
+            self.set_setting("whisper_server_url", url.trim())?;
+        }
+        if let Some(token) = whisper_server_token {
+            self.set_setting("whisper_server_token", token.trim())?;
+        }
+        if let Some(model) = whisper_server_model {
+            self.set_setting("whisper_server_model", model.trim())?;
+        }
+        if let Some(sc) = voice_shortcut {
+            self.set_setting("voice_shortcut", sc.trim())?;
+        }
+        if let Some(mic) = selected_microphone {
+            self.set_setting("selected_microphone", mic.trim())?;
         }
 
         self.get_app_settings()

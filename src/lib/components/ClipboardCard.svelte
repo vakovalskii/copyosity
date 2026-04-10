@@ -42,7 +42,7 @@
     const lower = sample.toLowerCase();
 
     if (/^(https?:\/\/|www\.)/.test(lower)) return "URL";
-    if ((sample.startsWith("{") && sample.endsWith("}")) || (sample.startsWith("[") && sample.endsWith("]"))) {
+    if (sample.length < 10000 && ((sample.startsWith("{") && sample.endsWith("}")) || (sample.startsWith("[") && sample.endsWith("]")))) {
       try {
         JSON.parse(sample);
         return "JSON";
@@ -171,7 +171,7 @@
     {:else if entry.content_type === "image"}
       <div class="image-preview">
         {#if entry.image_thumb}
-          <img src="data:image/png;base64,{entry.image_thumb}" alt="Copied content" />
+          <img src="data:image/png;base64,{entry.image_thumb}" alt="Copied content" loading="lazy" decoding="async" />
         {:else}
           <div class="image-placeholder">Image</div>
         {/if}
