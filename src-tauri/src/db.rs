@@ -132,6 +132,29 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_clipboard_tag_state_status ON clipboard_tag_state(status);
         ")?;
 
+        // Seed default excluded apps (password managers, banking) on first run
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM excluded_apps", [], |row| row.get(0)
+        )?;
+        if count == 0 {
+            let defaults = [
+                "com.1password.1password",
+                "com.agilebits.onepassword7",
+                "com.bitwarden.desktop",
+                "com.lastpass.LastPass",
+                "com.apple.keychainaccess",
+                "ru.keeperapp.macapp",
+                "org.keepassx.keepassxc",
+                "com.dashlane.Dashlane",
+            ];
+            for bundle_id in defaults {
+                conn.execute(
+                    "INSERT OR IGNORE INTO excluded_apps (bundle_id) VALUES (?1)",
+                    params![bundle_id],
+                )?;
+            }
+        }
+
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -586,6 +609,21 @@ impl Database {
             rusqlite::Error::QueryReturnedNoRows => Ok(None),
             _ => Err(err),
         })
+    }
+
+    /// Auto-purge entries tagged as sensitive (token, otp, code, password) older than 5 minutes
+    pub fn cleanup_sensitive_entries(&self) -> Result<usize, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let deleted = conn.execute(
+            "DELETE FROM clipboard_entries WHERE is_pinned = 0 AND id IN (
+                SELECT DISTINCT ct.entry_id FROM clipboard_tags ct
+                JOIN clipboard_entries ce ON ce.id = ct.entry_id
+                WHERE ct.tag IN ('token', 'otp', 'code', 'password', 'secret', 'api-key')
+                AND ce.created_at < datetime('now', '-5 minutes')
+            )",
+            [],
+        )?;
+        Ok(deleted)
     }
 
     #[allow(dead_code)]

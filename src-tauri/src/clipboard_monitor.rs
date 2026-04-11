@@ -38,11 +38,28 @@ pub fn start_clipboard_monitor(app: AppHandle) {
 
     // Run clipboard polling in a dedicated thread (not async — arboard is sync)
     std::thread::spawn(move || {
-        let mut clipboard = Clipboard::new().expect("Failed to access clipboard");
+        let mut clipboard = match Clipboard::new() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Failed to access clipboard: {e}");
+                return;
+            }
+        };
         let mut last_hash = String::new();
+        let mut tick_count: u64 = 0;
 
         loop {
             std::thread::sleep(std::time::Duration::from_millis(300));
+
+            // Auto-purge sensitive entries every ~60s (200 ticks × 300ms)
+            tick_count += 1;
+            if tick_count % 200 == 0 {
+                if let Ok(deleted) = db.cleanup_sensitive_entries() {
+                    if deleted > 0 {
+                        let _ = app.emit("entries-purged", deleted);
+                    }
+                }
+            }
 
             // Try text
             if let Ok(text) = clipboard.get_text() {
