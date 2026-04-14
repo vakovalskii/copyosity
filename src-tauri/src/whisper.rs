@@ -93,8 +93,10 @@ impl RecordingSession {
                     }
                     if count > 0 {
                         let rms = (sum_sq / count as f32).sqrt();
-                        // Map RMS to 0..100 (RMS of voice is typically 0.01..0.3)
-                        let pct = (rms * 300.0).min(100.0) as u32;
+                        // Logarithmic scale tuned for quiet laptop mics
+                        let db = if rms > 1e-7 { 20.0 * rms.log10() } else { -140.0 };
+                        // Map -80dB..-10dB → 0..100
+                        let pct = ((db + 80.0) * (100.0 / 70.0)).clamp(0.0, 100.0) as u32;
                         level_clone.store(pct, Ordering::Relaxed);
                     }
                 },

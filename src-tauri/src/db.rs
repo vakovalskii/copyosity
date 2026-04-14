@@ -244,6 +244,13 @@ impl Database {
         ).ok();
 
         if let Some(id) = existing {
+            // Backfill image_data for entries created before full-size storage was added
+            if entry.image_data.is_some() {
+                conn.execute(
+                    "UPDATE clipboard_entries SET image_data = ?1 WHERE id = ?2 AND image_data IS NULL",
+                    params![entry.image_data, id],
+                )?;
+            }
             return Ok((id, false));
         }
 

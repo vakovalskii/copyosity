@@ -1,4 +1,4 @@
-APP_DIR := /Users/v.kovalskii/coplys/copyosity
+APP_DIR := /Users/v.kovalskii/copyosity
 OLLAMA_MODEL ?= qwen3:4b-instruct-2507-q4_K_M
 OLLAMA_DEBUG ?= 1
 

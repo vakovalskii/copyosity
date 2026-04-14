@@ -218,6 +218,9 @@ pub fn run() {
                 }
             })?;
 
+            // Pre-create voice overlay panel so it's ready without stealing focus later
+            ensure_voice_overlay(app.handle());
+
             // Register voice transcription shortcut from settings
             if let Err(e) = register_voice_shortcut(app.handle()) {
                 eprintln!("Voice shortcut registration failed: {}", e);
@@ -386,7 +389,11 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                                 }
                                 let lvl =
                                     level_arc.load(std::sync::atomic::Ordering::Relaxed);
-                                let _ = emit_handle.emit("audio-level", lvl);
+                                if let Some(win) = emit_handle.get_webview_window("voice_overlay") {
+                                    let _ = win.emit("audio-level", lvl);
+                                } else {
+                                    let _ = emit_handle.emit("audio-level", lvl);
+                                }
                                 std::thread::sleep(std::time::Duration::from_millis(60));
                             }
                         });
@@ -445,33 +452,78 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
     }
 }
 
+fn ensure_voice_overlay(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::ManagerExt;
+        // Already created
+        if app.get_webview_panel("voice_overlay").is_ok() {
+            return;
+        }
+
+        let builder = tauri::WebviewWindowBuilder::new(
+            app,
+            "voice_overlay",
+            tauri::WebviewUrl::App("/overlay".into()),
+        )
+        .title("")
+        .inner_size(160.0, 52.0)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .center();
+
+        if let Ok(win) = builder.build() {
+            use tauri_nspanel::panel::NSWindowStyleMask;
+            use tauri_nspanel::WebviewWindowExt;
+
+            if let Ok(panel) = win.to_panel::<CopyosityPanel>() {
+                panel.set_level(24);
+                panel.set_style_mask(
+                    NSWindowStyleMask::Borderless
+                        | NSWindowStyleMask::NonactivatingPanel,
+                );
+                panel.set_becomes_key_only_if_needed(true);
+            }
+        }
+    }
+}
+
 fn show_voice_overlay(app: &tauri::AppHandle) {
-    // If overlay already open, just show it
-    if let Some(win) = app.get_webview_window("voice_overlay") {
-        let _ = win.show();
-        return;
+    ensure_voice_overlay(app);
+
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::ManagerExt;
+        if let Ok(panel) = app.get_webview_panel("voice_overlay") {
+            panel.order_front_regardless();
+        }
     }
 
-    let builder = tauri::WebviewWindowBuilder::new(
-        app,
-        "voice_overlay",
-        tauri::WebviewUrl::App("/overlay".into()),
-    )
-    .title("")
-    .inner_size(160.0, 52.0)
-    .resizable(false)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .center();
-
-    let _ = builder.build();
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(win) = app.get_webview_window("voice_overlay") {
+            let _ = win.show();
+        }
+    }
 }
 
 fn hide_voice_overlay(app: &tauri::AppHandle) {
-    if let Some(win) = app.get_webview_window("voice_overlay") {
-        let _ = win.close();
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::ManagerExt;
+        if let Ok(panel) = app.get_webview_panel("voice_overlay") {
+            panel.hide();
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(win) = app.get_webview_window("voice_overlay") {
+            let _ = win.close();
+        }
     }
 }
 
