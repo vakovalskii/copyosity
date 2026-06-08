@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Release CI checks** — `cargo audit`, `npm run check`, and `cargo test` on tagged releases.
 - **README** — Apple Silicon vs Intel install table and dual-architecture DMG guidance.
 - **Unit tests** — expanded Rust coverage (clipboard monitor retry/hash-poisoning fix, image format, DB backfill and migration round-trip, GIF paste temp-file path, model validation, settings partial updates, `open_accessibility_settings` IPC); 70 tests in `copyosity_lib`.
+- **Voice transcription toggle** — Settings switch (off by default) to enable or disable hold-to-record transcription and its global shortcut without clearing Whisper configuration.
 
 ### Changed
 

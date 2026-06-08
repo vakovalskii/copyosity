@@ -99,24 +99,30 @@ fn parse_shortcut(s: &str) -> Option<Shortcut> {
     Some(Shortcut::new(mods_opt, key))
 }
 
+fn unregister_voice_shortcut(app: &tauri::AppHandle) {
+    let mut current = voice_shortcut_mutex().lock().unwrap();
+    if let Some(old) = current.take() {
+        let _ = app.global_shortcut().unregister(old);
+    }
+}
+
 /// Register (or re-register) the voice shortcut from current DB settings.
 /// Returns the shortcut string on success.
 pub fn register_voice_shortcut(app: &tauri::AppHandle) -> Result<String, String> {
     let db = app.state::<std::sync::Arc<db::Database>>();
     let settings = db.get_app_settings().map_err(|e| e.to_string())?;
 
+    unregister_voice_shortcut(app);
+
+    if !settings.voice_transcription_enabled {
+        eprintln!("[voice] transcription disabled, shortcut not registered");
+        return Ok(settings.voice_shortcut);
+    }
+
     eprintln!("[voice] registering shortcut: \"{}\"", settings.voice_shortcut);
 
     let new_shortcut = parse_shortcut(&settings.voice_shortcut)
         .ok_or_else(|| format!("Invalid shortcut: {}", settings.voice_shortcut))?;
-
-    // Unregister old shortcut if any
-    {
-        let mut current = voice_shortcut_mutex().lock().unwrap();
-        if let Some(old) = current.take() {
-            let _ = app.global_shortcut().unregister(old);
-        }
-    }
 
     // Register new one
     let voice_handle = app.clone();

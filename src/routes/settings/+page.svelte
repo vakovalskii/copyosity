@@ -37,6 +37,7 @@
     whisper_server_model: "whisper-1",
     voice_shortcut: "option+space",
     selected_microphone: "",
+    voice_transcription_enabled: false,
   });
   let microphones: AudioInputDevice[] = $state([]);
   let modelCatalog = $state<ModelCatalog>({
@@ -234,6 +235,7 @@
         whisper_server_model: settings.whisper_server_model,
         voice_shortcut: settings.voice_shortcut,
         selected_microphone: settings.selected_microphone,
+        voice_transcription_enabled: settings.voice_transcription_enabled,
       });
       savedModel = settings.ollama_model;
       settingsNotice = "Saved";
@@ -278,6 +280,12 @@
   async function handleClearHistory() {
     await clearHistory();
     settingsNotice = "History cleared";
+  }
+
+  async function handleVoiceToggle(enabled: boolean) {
+    settings.voice_transcription_enabled = enabled;
+    settings = await updateAppSettings({ voice_transcription_enabled: enabled });
+    await rebindVoiceShortcut();
   }
 
   let selectedModelMeta = $derived.by<ModelOption | null>(() => {
@@ -561,60 +569,78 @@
   </section>
 
   <section class="settings-section">
-    <div class="settings-section-title">Voice Transcription</div>
-    <div class="settings-hint" style="margin-bottom: 10px;">
-      Hold the shortcut to record, release to transcribe and paste at cursor.
-      Requires an OpenAI-compatible Whisper server.
+    <div class="settings-section-header">
+      <div class="settings-section-title">Voice Transcription</div>
+      <label class="toggle" title="Enable voice transcription">
+        <input
+          type="checkbox"
+          role="switch"
+          aria-label="Enable voice transcription"
+          checked={settings.voice_transcription_enabled}
+          onchange={(e) => void handleVoiceToggle((e.currentTarget as HTMLInputElement).checked)}
+        />
+        <span class="toggle-slider" aria-hidden="true"></span>
+      </label>
     </div>
-    <label class="settings-field">
-      <span class="settings-label">Shortcut (hold to record)</span>
-      <input
-        class="settings-input"
-        type="text"
-        bind:value={settings.voice_shortcut}
-        placeholder="option+space"
-      />
-      <div class="settings-hint">
-        Use: <code>cmd</code>, <code>option</code>, <code>ctrl</code>, <code>shift</code> + key.
-        Examples: <code>option+space</code>, <code>cmd+shift+r</code>, <code>ctrl+alt+space</code>
+    <fieldset
+      class="voice-transcription-body"
+      class:is-disabled={!settings.voice_transcription_enabled}
+      disabled={!settings.voice_transcription_enabled}
+    >
+      <div class="settings-hint voice-transcription-intro">
+        Hold the shortcut to record, release to transcribe and paste at cursor.
+        Requires an OpenAI-compatible Whisper server.
       </div>
-    </label>
-    <label class="settings-field" style="margin-top: 8px;">
-      <span class="settings-label">Microphone</span>
-      <select class="settings-select" bind:value={settings.selected_microphone}>
-        <option value="">System default</option>
-        {#each microphones as mic}
-          <option value={mic.name}>{mic.name}{mic.is_default ? " (default)" : ""}</option>
-        {/each}
-      </select>
-    </label>
-    <label class="settings-field" style="margin-top: 8px;">
-      <span class="settings-label">Server URL</span>
-      <input
-        class="settings-input"
-        type="text"
-        bind:value={settings.whisper_server_url}
-        placeholder="http://localhost:8000/v1/audio/transcriptions"
-      />
-    </label>
-    <label class="settings-field" style="margin-top: 8px;">
-      <span class="settings-label">API Token</span>
-      <input
-        class="settings-input"
-        type="password"
-        bind:value={settings.whisper_server_token}
-        placeholder="Bearer token (optional)"
-      />
-    </label>
-    <label class="settings-field" style="margin-top: 8px;">
-      <span class="settings-label">Model</span>
-      <input
-        class="settings-input"
-        type="text"
-        bind:value={settings.whisper_server_model}
-        placeholder="whisper-1"
-      />
-    </label>
+      <label class="settings-field">
+        <span class="settings-label">Shortcut (hold to record)</span>
+        <input
+          class="settings-input"
+          type="text"
+          bind:value={settings.voice_shortcut}
+          placeholder="option+space"
+        />
+        <div class="settings-hint">
+          Use: <code>cmd</code>, <code>option</code>, <code>ctrl</code>, <code>shift</code> + key.
+          Examples: <code>option+space</code>, <code>cmd+shift+r</code>, <code>ctrl+alt+space</code>
+        </div>
+      </label>
+      <label class="settings-field spaced">
+        <span class="settings-label">Microphone</span>
+        <select class="settings-select" bind:value={settings.selected_microphone}>
+          <option value="">System default</option>
+          {#each microphones as mic}
+            <option value={mic.name}>{mic.name}{mic.is_default ? " (default)" : ""}</option>
+          {/each}
+        </select>
+      </label>
+      <label class="settings-field spaced">
+        <span class="settings-label">Server URL</span>
+        <input
+          class="settings-input"
+          type="text"
+          bind:value={settings.whisper_server_url}
+          placeholder="http://localhost:8000/v1/audio/transcriptions"
+        />
+      </label>
+      <label class="settings-field spaced">
+        <span class="settings-label">API Token</span>
+        <input
+          class="settings-input"
+          type="password"
+          bind:value={settings.whisper_server_token}
+          placeholder="Bearer token (optional)"
+        />
+      </label>
+      <label class="settings-field spaced">
+        <span class="settings-label">Model</span>
+        <input
+          class="settings-input"
+          type="text"
+          bind:value={settings.whisper_server_model}
+          placeholder="whisper-1"
+        />
+      </label>
+    </fieldset>
   </section>
 
   <div class="settings-actions">
@@ -684,13 +710,93 @@
     margin-top: 10px;
   }
 
-  .settings-section-title {
+  .settings-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     margin-bottom: 10px;
+  }
+
+  .settings-section-title {
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: #8f97aa;
+  }
+
+  .toggle {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  .toggle input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .toggle-slider {
+    display: block;
+    width: 36px;
+    height: 20px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .toggle-slider::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #f2f5fb;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+    transition: transform 0.2s ease;
+  }
+
+  .toggle input:checked + .toggle-slider {
+    background: #4ade80;
+    border-color: rgba(74, 222, 128, 0.55);
+    box-shadow: 0 0 6px rgba(74, 222, 128, 0.35);
+  }
+
+  .toggle input:checked + .toggle-slider::after {
+    transform: translateX(16px);
+  }
+
+  .toggle input:focus-visible + .toggle-slider {
+    box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.22);
+  }
+
+  .voice-transcription-body {
+    border: none;
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .voice-transcription-body.is-disabled {
+    opacity: 0.42;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .voice-transcription-intro {
+    margin-bottom: 10px;
+  }
+
+  .settings-field.spaced {
+    margin-top: 8px;
   }
 
   .settings-field {

@@ -61,6 +61,7 @@ export async function updateAppSettings(opts: {
   whisper_server_model?: string | null;
   voice_shortcut?: string | null;
   selected_microphone?: string | null;
+  voice_transcription_enabled?: boolean | null;
 }): Promise<AppSettings> {
   return invoke("update_app_settings", {
     ollamaModel: opts.ollama_model ?? null,
@@ -70,6 +71,7 @@ export async function updateAppSettings(opts: {
     whisperServerModel: opts.whisper_server_model ?? null,
     voiceShortcut: opts.voice_shortcut ?? null,
     selectedMicrophone: opts.selected_microphone ?? null,
+    voiceTranscriptionEnabled: opts.voice_transcription_enabled ?? null,
   });
 }
 

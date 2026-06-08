@@ -145,6 +145,7 @@ pub fn update_app_settings(
     whisper_server_model: Option<String>,
     voice_shortcut: Option<String>,
     selected_microphone: Option<String>,
+    voice_transcription_enabled: Option<bool>,
 ) -> Result<AppSettings, String> {
     if let Some(model) = ollama_model.as_deref() {
         ollama::validate_model_name(model)?;
@@ -159,6 +160,7 @@ pub fn update_app_settings(
             whisper_server_model.as_deref(),
             voice_shortcut.as_deref(),
             selected_microphone.as_deref(),
+            voice_transcription_enabled,
         )
         .map_err(|e| e.to_string())?;
 

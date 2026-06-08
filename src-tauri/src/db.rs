@@ -14,6 +14,8 @@ pub struct AppSettings {
     pub voice_shortcut: String,
     /// Selected microphone device name (empty = default)
     pub selected_microphone: String,
+    /// When false, voice shortcut is not registered (default off).
+    pub voice_transcription_enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -224,6 +226,10 @@ impl Database {
         let selected_microphone = self
             .get_setting("selected_microphone")?
             .unwrap_or_default();
+        let voice_transcription_enabled = self
+            .get_setting("voice_transcription_enabled")?
+            .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(false);
 
         Ok(AppSettings {
             ollama_model,
@@ -233,6 +239,7 @@ impl Database {
             whisper_server_model,
             voice_shortcut,
             selected_microphone,
+            voice_transcription_enabled,
         })
     }
 
@@ -245,6 +252,7 @@ impl Database {
         whisper_server_model: Option<&str>,
         voice_shortcut: Option<&str>,
         selected_microphone: Option<&str>,
+        voice_transcription_enabled: Option<bool>,
     ) -> Result<AppSettings, rusqlite::Error> {
         if let Some(model) = ollama_model {
             self.set_setting("ollama_model", model.trim())?;
@@ -266,6 +274,12 @@ impl Database {
         }
         if let Some(mic) = selected_microphone {
             self.set_setting("selected_microphone", mic.trim())?;
+        }
+        if let Some(enabled) = voice_transcription_enabled {
+            self.set_setting(
+                "voice_transcription_enabled",
+                if enabled { "true" } else { "false" },
+            )?;
         }
 
         self.get_app_settings()
@@ -1047,6 +1061,7 @@ mod tests {
         let s = db.get_app_settings().unwrap();
         assert_eq!(s.ollama_model, "qwen3:4b-instruct-2507-q4_K_M");
         assert_eq!(s.retention_days, 30);
+        assert!(!s.voice_transcription_enabled);
     }
 
     fn seed_full_settings(db: &Database) {
@@ -1058,6 +1073,7 @@ mod tests {
             Some("whisper-1"),
             Some("option+space"),
             Some("Built-in Microphone"),
+            Some(true),
         )
         .unwrap();
     }
@@ -1074,6 +1090,7 @@ mod tests {
         assert_eq!(s.whisper_server_model, "whisper-1");
         assert_eq!(s.voice_shortcut, "option+space");
         assert_eq!(s.selected_microphone, "Built-in Microphone");
+        assert!(s.voice_transcription_enabled);
     }
 
     #[test]
@@ -1081,7 +1098,7 @@ mod tests {
         let db = test_db();
         seed_full_settings(&db);
 
-        db.update_app_settings(None, Some(30), None, None, None, None, None)
+        db.update_app_settings(None, Some(30), None, None, None, None, None, None)
             .unwrap();
         let s = db.get_app_settings().unwrap();
         assert_eq!(s.retention_days, 30);
@@ -1091,6 +1108,7 @@ mod tests {
         assert_eq!(s.whisper_server_model, "whisper-1");
         assert_eq!(s.voice_shortcut, "option+space");
         assert_eq!(s.selected_microphone, "Built-in Microphone");
+        assert!(s.voice_transcription_enabled);
     }
 
     #[test]
@@ -1098,7 +1116,7 @@ mod tests {
         let db = test_db();
         seed_full_settings(&db);
 
-        db.update_app_settings(None, None, Some("https://new.example"), None, None, None, None)
+        db.update_app_settings(None, None, Some("https://new.example"), None, None, None, None, None)
             .unwrap();
         let s = db.get_app_settings().unwrap();
         assert_eq!(s.whisper_server_url, "https://new.example");
@@ -1106,6 +1124,34 @@ mod tests {
         assert_eq!(s.retention_days, 7);
         assert_eq!(s.voice_shortcut, "option+space");
         assert_eq!(s.selected_microphone, "Built-in Microphone");
+        assert!(s.voice_transcription_enabled);
+    }
+
+    #[test]
+    fn voice_transcription_enabled_toggle() {
+        let db = test_db();
+        assert!(!db.get_app_settings().unwrap().voice_transcription_enabled);
+
+        db.update_app_settings(None, None, None, None, None, None, None, Some(true))
+            .unwrap();
+        assert!(db.get_app_settings().unwrap().voice_transcription_enabled);
+
+        db.update_app_settings(None, None, None, None, None, None, None, Some(false))
+            .unwrap();
+        assert!(!db.get_app_settings().unwrap().voice_transcription_enabled);
+    }
+
+    #[test]
+    fn partial_update_voice_enabled_preserves_whisper_settings() {
+        let db = test_db();
+        seed_full_settings(&db);
+
+        db.update_app_settings(None, None, None, None, None, None, None, Some(false))
+            .unwrap();
+        let s = db.get_app_settings().unwrap();
+        assert!(!s.voice_transcription_enabled);
+        assert_eq!(s.whisper_server_url, "https://whisper.example/v1");
+        assert_eq!(s.voice_shortcut, "option+space");
     }
 
     #[test]

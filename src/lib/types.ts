@@ -30,6 +30,7 @@ export interface AppSettings {
   whisper_server_model: string;
   voice_shortcut: string;
   selected_microphone: string;
+  voice_transcription_enabled: boolean;
 }
 
 export interface AudioInputDevice {
