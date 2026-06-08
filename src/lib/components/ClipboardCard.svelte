@@ -30,11 +30,6 @@
     return new Date(dateStr).toLocaleDateString();
   }
 
-  function truncate(text: string, max: number): string {
-    if (text.length <= max) return text;
-    return text.slice(0, max) + "...";
-  }
-
   /** GIF thumbs are stored as raw GIF bytes; PNG/JPEG thumbs use image/png. */
   function imageThumbSrc(b64: string): string {
     const mime = b64.startsWith("R0lGOD") ? "image/gif" : "image/png";
@@ -131,12 +126,12 @@
     onretagged?.();
   }
 
-  let preview = $derived(entry.text_content ? truncate(entry.text_content, 200) : "");
   let textKind = $derived(detectTextKind(entry.text_content));
   let typeLabel = $derived(entry.content_type === "text" ? textKind : entry.content_type === "image" ? "Image" : "File");
   let imageFormat = $derived(entry.content_type === "image" ? entry.image_format : null);
   let charLabel = $derived(entry.char_count ? `${entry.char_count.toLocaleString()} characters` : "");
   let tags = $derived(entry.tags ?? []);
+  let textLineClamp = $derived(tags.length > 0 ? 8 : 9);
 </script>
 
 <div
@@ -196,7 +191,9 @@
 
   <div class="card-body">
     {#if entry.content_type === "text"}
-      <pre class="text-preview">{preview}</pre>
+      <div class="text-preview">
+        <div class="text-content" style:--line-clamp={textLineClamp}>{entry.text_content}</div>
+      </div>
     {:else if entry.content_type === "image"}
       <div class="image-preview">
         {#if entry.image_thumb}
@@ -363,25 +360,41 @@
   }
 
   .card-body {
-    flex: 1;
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
-    margin-bottom: 8px;
   }
 
   .text-preview {
+    flex: 1 1 0;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    box-sizing: border-box;
     padding: 10px 12px;
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .text-content {
+    min-height: 0;
+    margin: 0;
+    overflow: hidden;
     font-size: 12px;
     line-height: 1.55;
     color: #f0f0f2;
-    white-space: pre-wrap;
+    white-space: pre-line;
     word-break: break-word;
-    margin: 0;
     font-family: "SF Mono", "Menlo", "Monaco", monospace;
-    overflow: hidden;
-    max-height: 100%;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: var(--line-clamp, 9);
+    line-clamp: var(--line-clamp, 9);
+    text-overflow: ellipsis;
   }
 
   .image-preview {
@@ -424,10 +437,10 @@
 
   .card-footer {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 8px;
+    flex-direction: column;
+    gap: 6px;
     flex-shrink: 0;
+    margin-top: 8px;
   }
 
   .footer-meta {
@@ -468,6 +481,9 @@
   .char-count {
     font-size: 11px;
     color: #555;
+    align-self: flex-end;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .card.copied {

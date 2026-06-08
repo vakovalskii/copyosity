@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Image history backfill** — re-copying the same image updates legacy rows missing full-size `image_data` or `image_format`; existing `jpeg` format labels and tags are normalized to `jpg`.
 - **Settings partial updates** — changing one field no longer wipes Whisper/voice/microphone settings.
 - **Clipboard card action icons** — copy, retag, pin, and delete use uniform 16×16 SVG icons instead of mismatched Unicode glyphs; pinned star is filled and highlighted.
+- **Clipboard card text preview** — long text no longer bleeds into the inner border or bottom padding; preview uses a padded outer box with grid clipping, and truncated text shows a CSS ellipsis (`line-clamp`: 9 lines without tags, 8 when tags are shown).
+- **Clipboard card footer** — character count sits on its own line below tags instead of sharing a row, so many tags no longer wrap into the count label.
 
 ### Dependencies
 
