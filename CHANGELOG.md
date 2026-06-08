@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Voice overlay** — pre-created NSPanel with non-activating behavior so showing the overlay no longer steals focus from the target app; audio level meter uses a logarithmic dB scale for quiet laptop mics.
 - **Tray click** — opens the menu only; use **Open Copyosity** or `Cmd+Shift+V` to show the clipboard panel.
 - **Makefile** — portable `APP_DIR` (`CURDIR`); `make check` runs `cargo test`.
+- **Settings unload feedback** — "Model unloaded from memory" appears under the active model name instead of at the bottom of the page.
 
 ### Fixed
 

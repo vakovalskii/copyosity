@@ -57,6 +57,7 @@
   let ollamaStatus = $state<OllamaStatus | null>(null);
   let ollamaLoading = $state(false);
   let pullProgress = $state("");
+  let unloadNotice = $state("");
   let taggingResult = $state<string[] | null | undefined>(undefined);
   let taggingLoading = $state(false);
 
@@ -87,11 +88,18 @@
   async function refreshOllamaStatus() {
     ollamaLoading = true;
     taggingResult = undefined;
+    unloadNotice = "";
     try {
       ollamaStatus = await checkOllamaStatus();
     } finally {
       ollamaLoading = false;
     }
+  }
+
+  async function handleUnloadModel() {
+    unloadNotice = "";
+    const ok = await unloadOllamaModel();
+    unloadNotice = ok ? "Model unloaded from memory" : "Failed to unload model";
   }
 
   async function handleStartServer() {
@@ -383,7 +391,7 @@
             </button>
           {/if}
           {#if ollamaStatus.model_installed}
-            <button class="status-action" type="button" onclick={async () => { await unloadOllamaModel(); settingsNotice = "Model unloaded from memory"; }}>
+            <button class="status-action" type="button" onclick={handleUnloadModel}>
               Unload
             </button>
           {/if}
@@ -402,6 +410,9 @@
           <div class="status-hint ok">
             Using <code>{ollamaStatus.model_name}</code>
           </div>
+          {#if unloadNotice}
+            <div class="status-hint ok">{unloadNotice}</div>
+          {/if}
         {/if}
       </div>
 
