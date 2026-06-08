@@ -13,6 +13,7 @@ commands.allow = [
   "add_frontmost_app_to_excluded",
   "clear_history",
   "check_accessibility",
+  "open_accessibility_settings",
   "check_ollama_status",
   "start_ollama_server",
   "pull_ollama_model",

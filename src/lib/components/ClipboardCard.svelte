@@ -35,6 +35,12 @@
     return text.slice(0, max) + "...";
   }
 
+  /** GIF thumbs are stored as raw GIF bytes; PNG/JPEG thumbs use image/png. */
+  function imageThumbSrc(b64: string): string {
+    const mime = b64.startsWith("R0lGOD") ? "image/gif" : "image/png";
+    return `data:${mime};base64,${b64}`;
+  }
+
   function detectTextKind(text: string | null): string {
     if (!text) return "Text";
 
@@ -128,6 +134,7 @@
   let preview = $derived(entry.text_content ? truncate(entry.text_content, 200) : "");
   let textKind = $derived(detectTextKind(entry.text_content));
   let typeLabel = $derived(entry.content_type === "text" ? textKind : entry.content_type === "image" ? "Image" : "File");
+  let imageFormat = $derived(entry.content_type === "image" ? entry.image_format : null);
   let charLabel = $derived(entry.char_count ? `${entry.char_count.toLocaleString()} characters` : "");
   let tags = $derived(entry.tags ?? []);
 </script>
@@ -145,7 +152,10 @@
 >
   <div class="card-header">
     <div class="card-type">
-      <span class="type-label">{typeLabel}</span>
+      <span class="type-label">
+        <span>{typeLabel}</span>
+        {#if imageFormat}<span class="format-suffix">{imageFormat}</span>{/if}
+      </span>
       <span class="time">{timeAgo(entry.created_at)}</span>
     </div>
     <div class="card-actions">
@@ -170,7 +180,7 @@
     {:else if entry.content_type === "image"}
       <div class="image-preview">
         {#if entry.image_thumb}
-          <img src="data:image/png;base64,{entry.image_thumb}" alt="Copied content" loading="lazy" decoding="async" />
+          <img src={imageThumbSrc(entry.image_thumb)} alt="Copied content" loading="lazy" decoding="async" />
         {:else}
           <div class="image-placeholder">Image</div>
         {/if}
@@ -263,6 +273,7 @@
   .type-label {
     display: inline-flex;
     align-items: center;
+    gap: 5px;
     width: fit-content;
     padding: 3px 8px;
     border-radius: 999px;
@@ -271,6 +282,14 @@
     font-size: 12px;
     letter-spacing: 0.02em;
     color: #e0e0e0;
+  }
+
+  .format-suffix {
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: #9eb8ff;
+    text-transform: uppercase;
   }
 
   .time {

@@ -51,5 +51,6 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
   "NSDictionary",
   "NSValue",
   "NSObject",
+  "NSData",
 ] }
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e89" }

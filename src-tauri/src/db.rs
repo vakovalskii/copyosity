@@ -48,6 +48,9 @@ pub struct ClipboardEntry {
     pub collection_id: Option<i64>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Display format for image entries: GIF, PNG, JPG.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_format: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -66,6 +69,28 @@ pub struct ExcludedApp {
 
 pub struct Database {
     pub conn: Mutex<Connection>,
+}
+
+fn resolve_image_format(entry: &mut ClipboardEntry) {
+    if entry.content_type != "image" {
+        return;
+    }
+
+    if let Some(ref fmt) = entry.image_format {
+        let normalized = crate::image_format::normalize(fmt).to_string();
+        if normalized != *fmt {
+            entry.image_format = Some(normalized);
+        }
+        return;
+    }
+
+    let b64 = entry
+        .image_data
+        .as_deref()
+        .or(entry.image_thumb.as_deref());
+    if let Some(b64) = b64 {
+        entry.image_format = Some(crate::image_format::detect_from_b64(b64).to_string());
+    }
 }
 
 impl Database {
@@ -131,6 +156,20 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_clipboard_tags_tag ON clipboard_tags(tag);
             CREATE INDEX IF NOT EXISTS idx_clipboard_tag_state_status ON clipboard_tag_state(status);
         ")?;
+
+        let _ = conn.execute(
+            "ALTER TABLE clipboard_entries ADD COLUMN image_format TEXT",
+            [],
+        );
+
+        let _ = conn.execute(
+            "UPDATE clipboard_entries SET image_format = 'JPG' WHERE image_format = 'JPEG'",
+            [],
+        );
+        let _ = conn.execute(
+            "UPDATE clipboard_tags SET tag = 'jpg' WHERE tag = 'jpeg'",
+            [],
+        );
 
         Ok(Self { conn: Mutex::new(conn) })
     }
@@ -251,12 +290,25 @@ impl Database {
                     params![entry.image_data, id],
                 )?;
             }
+            if entry.content_type == "image" {
+                if let Some(ref fmt) = entry.image_format {
+                    let normalized = crate::image_format::normalize(fmt).to_string();
+                    conn.execute(
+                        "UPDATE clipboard_entries SET image_format = ?1 WHERE id = ?2 AND image_format IS NULL",
+                        params![normalized, id],
+                    )?;
+                    conn.execute(
+                        "UPDATE clipboard_entries SET image_format = 'JPG' WHERE id = ?1 AND image_format = 'JPEG'",
+                        params![id],
+                    )?;
+                }
+            }
             return Ok((id, false));
         }
 
         conn.execute(
-            "INSERT INTO clipboard_entries (content_type, text_content, image_data, image_thumb, source_app, source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO clipboard_entries (content_type, text_content, image_data, image_thumb, source_app, source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id, image_format)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 entry.content_type,
                 entry.text_content,
@@ -269,6 +321,7 @@ impl Database {
                 entry.created_at,
                 entry.is_pinned as i32,
                 entry.collection_id,
+                entry.image_format,
             ],
         )?;
 
@@ -280,7 +333,8 @@ impl Database {
 
         let mut sql = String::from(
             "SELECT id, content_type, text_content, NULL as image_data, COALESCE(image_thumb, image_data) as image_thumb, source_app, NULL as source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id,
-             COALESCE((SELECT GROUP_CONCAT(tag, '|') FROM clipboard_tags WHERE entry_id = clipboard_entries.id), '') as tags
+             COALESCE((SELECT GROUP_CONCAT(tag, '|') FROM clipboard_tags WHERE entry_id = clipboard_entries.id), '') as tags,
+             image_format
              FROM clipboard_entries WHERE 1=1"
         );
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -326,9 +380,14 @@ impl Database {
                     .filter(|tag| !tag.is_empty())
                     .map(|tag| tag.to_string())
                     .collect(),
+                image_format: row.get(13)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
+        let mut entries = entries;
+        for entry in &mut entries {
+            resolve_image_format(entry);
+        }
         Ok(entries)
     }
 
@@ -561,7 +620,8 @@ impl Database {
         conn.query_row(
             "SELECT id, content_type, text_content, image_data, image_thumb, source_app, source_app_icon,
                     content_hash, char_count, created_at, is_pinned, collection_id,
-                    COALESCE((SELECT GROUP_CONCAT(tag, '|') FROM clipboard_tags WHERE entry_id = clipboard_entries.id), '') as tags
+                    COALESCE((SELECT GROUP_CONCAT(tag, '|') FROM clipboard_tags WHERE entry_id = clipboard_entries.id), '') as tags,
+                    image_format
              FROM clipboard_entries
              WHERE id = ?1",
             params![entry_id],
@@ -585,6 +645,7 @@ impl Database {
                         .filter(|tag| !tag.is_empty())
                         .map(|tag| tag.to_string())
                         .collect(),
+                    image_format: row.get(13)?,
                 })
             },
         )
@@ -593,6 +654,42 @@ impl Database {
             rusqlite::Error::QueryReturnedNoRows => Ok(None),
             _ => Err(err),
         })
+        .map(|opt| {
+            opt.map(|mut entry| {
+                resolve_image_format(&mut entry);
+                entry
+            })
+        })
+    }
+
+    /// Persist image_format for legacy image rows missing the column. Returns rows updated.
+    pub fn backfill_missing_image_formats(&self, batch_size: i64) -> Result<i64, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, image_data, image_thumb FROM clipboard_entries
+             WHERE content_type = 'image' AND image_format IS NULL
+             LIMIT ?1",
+        )?;
+        let rows: Vec<(i64, Option<String>, Option<String>)> = stmt
+            .query_map(params![batch_size], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut updated = 0i64;
+        for (id, image_data, image_thumb) in rows {
+            let b64 = image_data.as_deref().or(image_thumb.as_deref());
+            let Some(b64) = b64 else {
+                continue;
+            };
+            let format = crate::image_format::detect_from_b64(b64).to_string();
+            let changed = conn.execute(
+                "UPDATE clipboard_entries SET image_format = ?1 WHERE id = ?2 AND image_format IS NULL",
+                params![format, id],
+            )?;
+            updated += changed as i64;
+        }
+        Ok(updated)
     }
 
     #[allow(dead_code)]
@@ -636,7 +733,8 @@ mod tests {
                 char_count INTEGER,
                 created_at TEXT NOT NULL,
                 is_pinned INTEGER DEFAULT 0,
-                collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL
+                collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,
+                image_format TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_entries_content_hash ON clipboard_entries(content_hash);
             CREATE TABLE IF NOT EXISTS settings (
@@ -675,6 +773,26 @@ mod tests {
             is_pinned: false,
             collection_id: None,
             tags: Vec::new(),
+            image_format: None,
+        }
+    }
+
+    fn make_image_entry(hash: &str, thumb_b64: &str, image_format: Option<&str>) -> ClipboardEntry {
+        ClipboardEntry {
+            id: 0,
+            content_type: "image".to_string(),
+            text_content: None,
+            image_data: None,
+            image_thumb: Some(thumb_b64.to_string()),
+            source_app: Some("TestApp".to_string()),
+            source_app_icon: None,
+            content_hash: hash.to_string(),
+            char_count: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            is_pinned: false,
+            collection_id: None,
+            tags: Vec::new(),
+            image_format: image_format.map(str::to_string),
         }
     }
 
@@ -708,6 +826,109 @@ mod tests {
         let (id1, _) = db.insert_entry(&make_entry("a", "h1")).unwrap();
         let (id2, _) = db.insert_entry(&make_entry("b", "h2")).unwrap();
         assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn insert_duplicate_image_backfills_image_format() {
+        let db = test_db();
+        let thumb = "iVBORw0KGgoAAAANSUhEUg";
+        let e1 = make_image_entry("img_dup", thumb, None);
+        let (id1, new1) = db.insert_entry(&e1).unwrap();
+        assert!(new1);
+
+        let e2 = make_image_entry("img_dup", thumb, Some("PNG"));
+        let (id2, new2) = db.insert_entry(&e2).unwrap();
+        assert!(!new2);
+        assert_eq!(id1, id2);
+
+        let entry = db.get_entry_by_id(id1).unwrap().unwrap();
+        assert_eq!(entry.image_format.as_deref(), Some("PNG"));
+    }
+
+    #[test]
+    fn get_entries_resolves_image_format_from_thumb() {
+        let db = test_db();
+        let thumb = "/9j/4AAQSkZJRgABAQAAAQ";
+        let entry = make_image_entry("img_jpg", thumb, None);
+        let (id, _) = db.insert_entry(&entry).unwrap();
+
+        let entries = db.get_entries(10, 0, None, false, None).unwrap();
+        let found = entries.iter().find(|e| e.id == id).unwrap();
+        assert_eq!(found.image_format.as_deref(), Some("JPG"));
+    }
+
+    #[test]
+    fn backfill_missing_image_formats_persists_rows() {
+        let db = test_db();
+        let thumb = "R0lGODlhAQABAIAAAAAAAP";
+        let entry = make_image_entry("img_gif", thumb, None);
+        db.insert_entry(&entry).unwrap();
+
+        let updated = db.backfill_missing_image_formats(100).unwrap();
+        assert_eq!(updated, 1);
+
+        let entries = db.get_entries(10, 0, None, false, None).unwrap();
+        assert_eq!(entries[0].image_format.as_deref(), Some("GIF"));
+    }
+
+    #[test]
+    fn image_format_round_trips_on_insert_and_fetch() {
+        let db = test_db();
+        let mut entry = make_image_entry("img_png", "iVBORw0KGgoAAAANSUhEUg", Some("PNG"));
+        entry.image_data = Some("iVBORw0KGgoAAAANSUhEUg".to_string());
+
+        let (id, is_new) = db.insert_entry(&entry).unwrap();
+        assert!(is_new);
+
+        let fetched = db.get_entry_by_id(id).unwrap().unwrap();
+        assert_eq!(fetched.image_format.as_deref(), Some("PNG"));
+
+        let listed = db.get_entries(10, 0, None, false, None).unwrap();
+        let found = listed.iter().find(|e| e.id == id).unwrap();
+        assert_eq!(found.image_format.as_deref(), Some("PNG"));
+    }
+
+    #[test]
+    fn image_format_migration_adds_column_to_legacy_schema() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE clipboard_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content_type TEXT NOT NULL DEFAULT 'text',
+                text_content TEXT,
+                image_data BLOB,
+                image_thumb BLOB,
+                source_app TEXT,
+                source_app_icon BLOB,
+                content_hash TEXT NOT NULL,
+                char_count INTEGER,
+                created_at TEXT NOT NULL,
+                is_pinned INTEGER DEFAULT 0,
+                collection_id INTEGER
+            );",
+        )
+        .unwrap();
+
+        let _ = conn.execute(
+            "ALTER TABLE clipboard_entries ADD COLUMN image_format TEXT",
+            [],
+        );
+
+        conn.execute(
+            "INSERT INTO clipboard_entries (content_type, image_thumb, content_hash, created_at, image_format)
+             VALUES ('image', 'R0lGODlh', 'legacy_gif', '2026-01-01T00:00:00Z', 'GIF')",
+            [],
+        )
+        .unwrap();
+
+        let format: String = conn
+            .query_row(
+                "SELECT image_format FROM clipboard_entries WHERE content_hash = 'legacy_gif'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, "GIF");
     }
 
     // --- Get entries ---

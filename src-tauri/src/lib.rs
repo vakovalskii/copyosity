@@ -1,11 +1,11 @@
 #![allow(unexpected_cfgs)]
 
-#[cfg(target_os = "macos")]
 mod clipboard_macos;
 mod clipboard_monitor;
 mod clipboard_write;
 mod commands;
 mod db;
+mod image_format;
 mod ollama;
 mod whisper;
 
@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tauri::{
     Emitter, Manager,
     menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    tray::TrayIconBuilder,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -33,6 +33,13 @@ tauri_nspanel::tauri_panel!(
 );
 
 static LAST_SHOW_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Main panel level while hidden — below status-bar menu popups.
+#[cfg(target_os = "macos")]
+const PANEL_LEVEL_IDLE: i64 = 3;
+/// Main panel level while shown — above fullscreen apps.
+#[cfg(target_os = "macos")]
+const PANEL_LEVEL_ACTIVE: i64 = 24;
 
 static RECORDING: std::sync::OnceLock<std::sync::Mutex<Option<whisper::RecordingSession>>> =
     std::sync::OnceLock::new();
@@ -133,10 +140,9 @@ fn now_ms() -> u64 {
 }
 
 #[tauri::command]
-fn frontend_ready(app: tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
-    }
+fn frontend_ready(_app: tauri::AppHandle) {
+    // Main window starts hidden in tauri.conf.json; nothing to hide here.
+    // (Previously called hide() and raced with the first tray-menu click.)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -169,8 +175,8 @@ pub fn run() {
                 let window = app.get_webview_window("main").unwrap();
                 let panel = window.to_panel::<CopyosityPanel>().expect("Failed to convert window to panel");
 
-                // Floating above other windows like Spotlight
-                panel.set_level(24); // NSPopUpMenuWindowLevel
+                // Keep hidden panel below status-bar menus (level 24 fights first tray click).
+                panel.set_level(PANEL_LEVEL_IDLE);
                 panel.set_style_mask(
                     NSWindowStyleMask::Borderless
                         | NSWindowStyleMask::NonactivatingPanel
@@ -183,12 +189,15 @@ pub fn run() {
                         .full_screen_auxiliary()
                         .into(),
                 );
+                panel.set_hides_on_deactivate(false);
             }
 
-            let tray = TrayIconBuilder::new()
+            let tray_menu = build_tray_menu(app)?;
+
+            let tray_builder = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Copyosity")
-                .menu(&build_tray_menu(app)?)
+                .menu(&tray_menu)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "open" => toggle_window(app.app_handle()),
                     "settings" => {
@@ -198,19 +207,9 @@ pub fn run() {
                         let _ = commands::quit_app(app.app_handle().clone());
                     }
                     _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        toggle_window(app);
-                    }
-                })
-                .build(app)?;
+                });
+
+            let tray = tray_builder.build(app)?;
             app.manage(tray);
 
             let shortcut = {
@@ -227,9 +226,6 @@ pub fn run() {
                 }
             })?;
 
-            // Pre-create voice overlay panel so it's ready without stealing focus later
-            ensure_voice_overlay(app.handle());
-
             // Register voice transcription shortcut from settings
             if let Err(e) = register_voice_shortcut(app.handle()) {
                 eprintln!("Voice shortcut registration failed: {}", e);
@@ -244,7 +240,19 @@ pub fn run() {
             let _ = db.cleanup_old_entries(settings.retention_days);
 
             ollama::ensure_runtime();
+            clipboard_write::sweep_stale_gif_temp_files();
             ollama::backfill_existing_tags(app.handle().clone(), db.clone());
+            {
+                let db_backfill = db.clone();
+                std::thread::spawn(move || {
+                    loop {
+                        match db_backfill.backfill_missing_image_formats(100) {
+                            Ok(0) | Err(_) => break,
+                            Ok(_) => {}
+                        }
+                    }
+                });
+            }
             clipboard_monitor::start_clipboard_monitor(app.handle().clone());
 
             Ok(())
@@ -274,6 +282,7 @@ pub fn run() {
             commands::activate_entry,
             commands::paste_entry,
             commands::check_accessibility,
+            commands::open_accessibility_settings,
             commands::check_ollama_status,
             commands::start_ollama_server,
             commands::pull_ollama_model,
@@ -295,8 +304,12 @@ pub fn run() {
                         hide_panel(app);
                     }
                     ("main", tauri::WindowEvent::Focused(false)) => {
-                        let elapsed = now_ms() - LAST_SHOW_MS.load(Ordering::Relaxed);
-                        if elapsed > 500 {
+                        let last_show = LAST_SHOW_MS.load(Ordering::Relaxed);
+                        if last_show == 0 {
+                            return;
+                        }
+                        let elapsed = now_ms() - last_show;
+                        if elapsed > 500 && main_panel_visible(app) {
                             hide_panel(app);
                         }
                     }
@@ -314,12 +327,14 @@ fn toggle_window(app: &tauri::AppHandle) {
         if let Ok(panel) = app.get_webview_panel("main") {
             if panel.is_visible() {
                 panel.hide();
+                panel.set_level(PANEL_LEVEL_IDLE);
             } else {
                 if let Some(window) = app.get_webview_window("main") {
                     position_window_bottom(&window);
                 }
                 clipboard_macos::remember_paste_target();
                 LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
+                panel.set_level(PANEL_LEVEL_ACTIVE);
                 panel.show_and_make_key();
                 let _ = app.emit("window-show", ());
             }
@@ -345,27 +360,45 @@ fn hide_panel(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
         if let Ok(panel) = app.get_webview_panel("main") {
-            panel.hide();
+            if panel.is_visible() {
+                panel.hide();
+                panel.set_level(PANEL_LEVEL_IDLE);
+            }
             return;
         }
     }
 
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        }
     }
+}
+
+fn main_panel_visible(app: &tauri::AppHandle) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(panel) = app.get_webview_panel("main") {
+            return panel.is_visible();
+        }
+    }
+
+    app.get_webview_window("main")
+        .map(|window| window.is_visible().unwrap_or(false))
+        .unwrap_or(false)
 }
 
 fn build_tray_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
     let version = &app.package_info().version;
     let version_label = format!("Copyosity v{}", version);
 
-    let status = MenuItem::with_id(app, "open", "Open Copyosity", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Copyosity", true, None::<&str>)?;
     let ver = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    Menu::with_items(app, &[&status, &ver, &sep, &settings, &sep2, &quit])
+    Menu::with_items(app, &[&open, &ver, &sep, &settings, &sep2, &quit])
 }
 
 fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
@@ -457,8 +490,7 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                             std::thread::sleep(std::time::Duration::from_millis(100));
                             #[cfg(target_os = "macos")]
                             {
-                                clipboard_macos::restore_paste_target();
-                                clipboard_macos::simulate_cmd_v();
+                                clipboard_macos::spawn_automated_paste(false);
                             }
                         }
                         Ok(_) => eprintln!("[voice] transcription returned empty text"),

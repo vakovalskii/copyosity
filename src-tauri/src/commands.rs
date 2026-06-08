@@ -1,11 +1,5 @@
 use crate::db::{AppSettings, ClipboardEntry, Collection, Database, ExcludedApp, ModelCatalog};
 
-#[cfg(target_os = "macos")]
-fn simulate_paste() {
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    crate::clipboard_macos::simulate_cmd_v();
-}
-
 #[cfg(not(target_os = "macos"))]
 fn simulate_paste() {}
 
@@ -244,7 +238,7 @@ pub fn copy_entry(db: State<'_, Arc<Database>>, entry_id: i64) -> Result<(), Str
             }
         }
         "image" => {
-            clipboard_write::set_image(&mut clipboard, image_data_from_entry(&entry)?)?;
+            write_image_entry(&mut clipboard, &entry, ClipboardWriteMode::Copy)?;
         }
         _ => {}
     }
@@ -260,11 +254,7 @@ fn write_entry_for_paste(clipboard: &mut Clipboard, entry: &ClipboardEntry) -> R
             }
         }
         "image" => {
-            clipboard_write::write_image(
-                clipboard,
-                image_data_from_entry(entry)?,
-                ClipboardWriteMode::Paste,
-            )?;
+            write_image_entry(clipboard, entry, ClipboardWriteMode::Paste)?;
         }
         _ => {}
     }
@@ -272,19 +262,12 @@ fn write_entry_for_paste(clipboard: &mut Clipboard, entry: &ClipboardEntry) -> R
 }
 
 #[cfg(target_os = "macos")]
-fn finish_paste(app: &tauri::AppHandle) {
-    crate::hide_panel(app);
-    crate::clipboard_macos::restore_paste_target();
+fn finish_paste(_app: &tauri::AppHandle) {
+    crate::hide_panel(_app);
 
-    // Auto-paste needs Accessibility; prompt until the user grants it.
-    if crate::clipboard_macos::accessibility_trusted(false) {
-        simulate_paste();
-    } else {
-        crate::clipboard_macos::accessibility_trusted(true);
-        if crate::clipboard_macos::accessibility_trusted(false) {
-            simulate_paste();
-        }
-    }
+    // Paste must run off the main thread: blocking here prevents the run loop from
+    // completing panel hide and returning focus to the target app (Cursor/Electron).
+    crate::clipboard_macos::spawn_automated_paste(true);
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -293,16 +276,19 @@ fn finish_paste(app: &tauri::AppHandle) {
     simulate_paste();
 }
 
-fn image_data_from_entry(entry: &ClipboardEntry) -> Result<ImageData<'static>, String> {
+fn image_bytes_from_entry(entry: &ClipboardEntry) -> Result<Vec<u8>, String> {
     let encoded = entry
         .image_data
         .as_ref()
         .or(entry.image_thumb.as_ref())
         .ok_or_else(|| "Image data is missing".to_string())?;
-    let bytes = base64::engine::general_purpose::STANDARD
+    base64::engine::general_purpose::STANDARD
         .decode(encoded)
-        .map_err(|e| e.to_string())?;
-    let image = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())
+}
+
+fn raster_image_from_bytes(bytes: &[u8]) -> Result<ImageData<'static>, String> {
+    let image = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
     let rgba = image.to_rgba8();
     let (width, height) = image.dimensions();
     Ok(ImageData {
@@ -310,6 +296,23 @@ fn image_data_from_entry(entry: &ClipboardEntry) -> Result<ImageData<'static>, S
         height: height as usize,
         bytes: Cow::Owned(rgba.into_raw()),
     })
+}
+
+fn write_image_entry(
+    clipboard: &mut Clipboard,
+    entry: &ClipboardEntry,
+    mode: ClipboardWriteMode,
+) -> Result<(), String> {
+    let bytes = image_bytes_from_entry(entry)?;
+    if crate::clipboard_monitor::is_gif_bytes(&bytes) {
+        return clipboard_write::write_gif(clipboard, &bytes, mode);
+    }
+
+    let image = raster_image_from_bytes(&bytes)?;
+    match mode {
+        ClipboardWriteMode::Copy => clipboard_write::set_image(clipboard, image),
+        ClipboardWriteMode::Paste => clipboard_write::write_image(clipboard, image, mode),
+    }
 }
 
 fn paste_text_into_target(app: &tauri::AppHandle, text: String) -> Result<(), String> {
@@ -350,6 +353,12 @@ pub fn check_accessibility(prompt: bool) -> Result<bool, String> {
 }
 
 #[tauri::command]
+pub fn open_accessibility_settings() -> Result<(), String> {
+    crate::clipboard_macos::open_accessibility_settings();
+    Ok(())
+}
+
+#[tauri::command]
 pub fn check_ollama_status() -> Result<ollama::OllamaStatus, String> {
     Ok(ollama::check_status())
 }
@@ -386,4 +395,14 @@ pub fn rebind_voice_shortcut(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub fn list_microphones() -> Result<Vec<crate::whisper::AudioInputDevice>, String> {
     Ok(crate::whisper::list_input_devices())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_accessibility_settings_command_returns_ok() {
+        assert!(open_accessibility_settings().is_ok());
+    }
 }

@@ -15,6 +15,7 @@
     rebindVoiceShortcut,
     listMicrophones,
     checkAccessibility,
+    openAccessibilitySettings,
     checkOllamaStatus,
     unloadOllamaModel,
     startOllamaServer,
@@ -151,9 +152,13 @@
 
   async function handleRequestAccessibility() {
     accessibilityNotice = "";
+    await openAccessibilitySettings();
     await checkAccessibility(true);
     a11yPromptedThisVisit = true;
     accessibilityGranted = await checkAccessibility(false);
+    if (!accessibilityGranted) {
+      accessibilityNotice = "Enable Copyosity in the list.";
+    }
   }
 
   async function handleRecheckAccessibility() {
@@ -301,7 +306,7 @@
       {#if accessibilityGranted === false}
         <div class="status-hint">
           Required for paste automation (Cmd+V) and global shortcut.
-          Click "Request" to open System Settings, then enable Copyosity under Privacy → Accessibility.
+          Click "Request" to open System Settings, then enable <strong>Copyosity</strong>.
         </div>
       {/if}
       {#if accessibilityNotice}

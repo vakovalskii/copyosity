@@ -12,6 +12,7 @@ export interface ClipboardEntry {
   is_pinned: boolean;
   collection_id: number | null;
   tags: string[];
+  image_format?: string | null;
 }
 
 export interface Collection {
