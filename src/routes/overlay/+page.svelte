@@ -53,15 +53,15 @@
     gap: 10px;
     width: 100vw;
     height: 100vh;
-    background: rgba(18, 18, 24, 0.88);
+    background: var(--surface-voice);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-soft);
   }
 
   .mic-icon {
-    color: #f87171;
+    color: var(--color-danger-soft);
     animation: pulse-mic 1.2s ease-in-out infinite;
     flex-shrink: 0;
   }
@@ -82,7 +82,7 @@
   .bar {
     width: 5px;
     min-height: 4px;
-    background: linear-gradient(180deg, #f87171, #fb923c);
+    background: var(--gradient-voice-bar);
     border-radius: 3px;
     transition: height 80ms ease-out;
   }

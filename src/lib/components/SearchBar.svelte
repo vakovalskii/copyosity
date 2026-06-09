@@ -34,14 +34,14 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--surface-6);
+    border: 1px solid var(--border-soft);
     border-radius: 8px;
     min-width: 200px;
   }
 
   .search-icon {
-    color: #666;
+    color: var(--color-text-subtle);
     flex-shrink: 0;
   }
 
@@ -49,13 +49,13 @@
     background: none;
     border: none;
     outline: none;
-    color: #e0e0e0;
+    color: var(--color-text-body);
     font-size: 13px;
     width: 100%;
     font-family: inherit;
   }
 
   input::placeholder {
-    color: #555;
+    color: var(--color-text-faint);
   }
 </style>

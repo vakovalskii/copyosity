@@ -63,7 +63,7 @@
       role="button"
       tabindex="0"
     >
-      <span class="tab-dot" style:background={col.color ?? '#666'}></span>
+      <span class="tab-dot" style:background={col.color ?? "var(--color-text-subtle)"}></span>
       {col.name}
       <button class="tab-delete app-btn" type="button" onclick={(e) => handleDelete(e, col.id)}>×</button>
     </div>
@@ -106,7 +106,7 @@
     border-radius: 6px;
     background: none;
     border: none;
-    color: #999;
+    color: var(--color-text-tab);
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
@@ -116,13 +116,13 @@
   }
 
   .tab:hover:not(:disabled):not([aria-busy="true"]) {
-    color: #ddd;
-    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-text-tab-hover);
+    background: var(--surface-6);
   }
 
   .tab.active {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-bright);
+    background: var(--surface-10);
   }
 
   .tab-dot {
@@ -135,7 +135,7 @@
   .tab-delete {
     background: none;
     border: none;
-    color: #666;
+    color: var(--color-text-subtle);
     cursor: pointer;
     font-size: 14px;
     padding: 0 2px;
@@ -149,19 +149,19 @@
   }
 
   .tab-delete:hover:not(:disabled):not([aria-busy="true"]) {
-    color: #ff6b6b;
+    color: var(--color-danger);
   }
 
   .add-tab {
     font-size: 16px;
-    color: #666;
+    color: var(--color-text-subtle);
   }
 
   .add-form input {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: var(--surface-6);
+    border: 1px solid var(--border-input);
     border-radius: 6px;
-    color: #e0e0e0;
+    color: var(--color-text-body);
     padding: 4px 10px;
     font-size: 12px;
     outline: none;

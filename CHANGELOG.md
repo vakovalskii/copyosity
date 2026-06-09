@@ -24,7 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shared form controls** (`form-controls.css`) — compact macOS-style inputs, selects, section layout, and form buttons reused in Settings.
 - **AI tagging toggle** — Settings switch (off by default) to enable or disable automatic Ollama tagging; when off, the clipboard monitor skips tag requests and startup backfill does not run.
 - **`is_tagging_ready` IPC** — main window queries whether retag is available (tagging on + Ollama CLI, server, and model installed; unloaded model still counts).
-- **Shared status-list layout** — compact checklist styling in `form-controls.css` with spacing tokens (`--space-section`, `--space-field`, `--space-row`, `--space-hint`) for consistent Settings rhythm.
+- **Shared status-list layout** — compact checklist styling in `form-controls.css` with spacing tokens from `tokens.css` for consistent Settings rhythm.
+- **Design tokens** (`tokens.css`) — single source for spacing, surfaces, borders, semantic colors, shadows, and focus rings; imported globally from `+layout.svelte`.
+- **`form-link-danger`** — inline destructive text button style for list remove actions (Privacy excluded apps).
 - **Unit tests** — **82 tests** in `copyosity_lib` for 0.4.0, with emphasis on clipboard monitor dedup/hash-poisoning, image format and animated GIF paste paths, DB migration and tag backfill, settings partial updates (Whisper, voice transcription, AI tagging toggles), `tagging_ready` / `is_ai_tagging_enabled`, Ollama model validation plus `/api/ps` load-unload matching, and `open_accessibility_settings` IPC.
 
 ### Changed
@@ -38,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Makefile** — portable `APP_DIR` (`CURDIR`); `make check` runs `cargo test`.
 - **Settings unload feedback** — Ollama step 3 shows three distinct states: model ready (green), model on disk but unloaded (static yellow), model not installed (red); `model_loaded` comes from Ollama `/api/ps`.
 - **Settings Ollama actions** — Unload, Test, Start, and Download run on a background thread (`spawn_blocking`) so the WebView stays responsive; busy buttons use `is-busy` (not `disabled`) so WebKit keeps spinner animations running.
-- **Voice transcription Settings UI** — compact on/off toggle; Whisper fields sit in a disabled fieldset when off; active toggle uses the same green as status indicators.
+- **Voice transcription Settings UI** — compact on/off toggle; Whisper fields sit in a disabled fieldset when off; active toggle uses muted `--color-success-control` (no glow).
 - **Settings Save button** — muted blue aligned with other Settings accents; stable width during save (overlay spinner, reserved “Saved” slot); macOS-style press/focus feedback without hover lift.
 - **Settings form controls** — compact macOS-style inputs (32px, 13px type), consistent section spacing, shared `form-controls.css` reused across form blocks; clear-history action moved into Storage section, footer reserved for Save only.
 - **Button hover/press** — removed `translateY` lift on hover; press uses inset darken/brightness instead of scale; async Settings actions expose `aria-busy` while loading.
@@ -48,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Voice transcription fieldset** — reuses `toggle-section-body` instead of a duplicate disabled-state class.
 - **Retag button** — shown on text cards only when AI tagging is ready; hidden when tagging is off or Ollama is not set up.
 - **Enabling AI tagging** — triggers tag backfill for existing untagged entries (on Save or toggle); `ensure_runtime` runs only while tagging is enabled.
+- **UI color system** — main window, Settings, clipboard cards, search bar, voice overlay, and shared form/button styles use CSS variables from `tokens.css` instead of scattered hex/rgba literals.
+- **Success palette** — cool sage green scale (`--color-success` for dots and overlays, `--color-success-text` for hints and save feedback, `--color-success-control` for toggles) tuned to dark-theme accent/danger weight.
+- **Settings toggles** — accent focus ring when off, `--ring-success-control` when on; no neon fill or outer glow.
+- **Privacy excluded apps** — Remove uses red `form-link-danger` instead of amber text.
 
 ### Fixed
 

@@ -740,7 +740,7 @@
             <div class="excluded-app-row">
               <span class="excluded-app-name">{app.bundle_id}</span>
               <button
-                class="excluded-remove-btn app-btn"
+                class="form-link-danger app-btn"
                 type="button"
                 onclick={() => handleRemoveExcludedApp(app.id)}
               >
@@ -855,9 +855,9 @@
   :global(body) {
     margin: 0;
     padding: 0;
-    background: rgba(30, 30, 36, 0.96);
+    background: var(--surface-page);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    color: #e0e0e0;
+    color: var(--color-text-body);
     user-select: none;
     -webkit-user-select: none;
   }
@@ -881,14 +881,14 @@
   .settings-title {
     font-size: 20px;
     font-weight: 700;
-    color: #f2f5fb;
+    color: var(--color-text-primary);
     letter-spacing: -0.02em;
   }
 
   .settings-subtitle {
     margin-top: 4px;
     font-size: 13px;
-    color: #9097aa;
+    color: var(--color-text-tertiary);
   }
 
   .toggle {
@@ -910,8 +910,8 @@
     width: 36px;
     height: 20px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--surface-14);
+    border: 1px solid var(--border-strong);
     transition: background 0.2s ease, border-color 0.2s ease;
   }
 
@@ -923,15 +923,14 @@
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #f2f5fb;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+    background: var(--color-text-primary);
+    box-shadow: var(--shadow-toggle-knob);
     transition: transform 0.2s ease;
   }
 
   .toggle input:checked + .toggle-slider {
-    background: #4ade80;
-    border-color: rgba(74, 222, 128, 0.55);
-    box-shadow: 0 0 6px rgba(74, 222, 128, 0.35);
+    background: var(--color-success-control);
+    border-color: var(--border-success-control);
   }
 
   .toggle input:checked + .toggle-slider::after {
@@ -939,7 +938,11 @@
   }
 
   .toggle input:focus-visible + .toggle-slider {
-    box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.22);
+    box-shadow: var(--ring-accent);
+  }
+
+  .toggle input:checked:focus-visible + .toggle-slider {
+    box-shadow: var(--ring-success-control);
   }
 
   .settings-footer {
@@ -965,30 +968,15 @@
     justify-content: space-between;
     gap: 10px;
     padding: 7px 10px;
-    background: rgba(255, 255, 255, 0.035);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--surface-3);
+    border: 1px solid var(--border-default);
     border-radius: 8px;
   }
 
   .excluded-app-name {
     font-size: 12px;
-    color: #e7ebf3;
+    color: var(--color-text-primary);
     min-width: 0;
     word-break: break-word;
-  }
-
-  .excluded-remove-btn {
-    border: none;
-    background: transparent;
-    color: #e3b370;
-    cursor: pointer;
-    font: inherit;
-    font-size: 11px;
-    padding: 0;
-    white-space: nowrap;
-  }
-
-  .excluded-remove-btn:hover:not(:disabled) {
-    color: #f0c890;
   }
 </style>

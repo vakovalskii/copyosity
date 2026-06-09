@@ -244,8 +244,8 @@
     width: 220px;
     min-width: 220px;
     height: 280px;
-    background: linear-gradient(180deg, rgba(58, 58, 66, 0.92), rgba(36, 36, 44, 0.88));
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--surface-card);
+    border: 1px solid var(--border-strong);
     border-radius: 14px;
     padding: 12px;
     cursor: pointer;
@@ -260,19 +260,19 @@
   }
 
   .card:hover {
-    border-color: rgba(120, 160, 255, 0.45);
-    background: linear-gradient(180deg, rgba(66, 66, 76, 0.96), rgba(42, 42, 50, 0.92));
+    border-color: var(--border-accent-selected);
+    background: var(--surface-card-hover);
     transform: translateY(-2px);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+    box-shadow: var(--shadow-card);
   }
 
   .card.selected {
-    border-color: rgba(100, 140, 255, 0.7);
-    box-shadow: 0 0 0 2px rgba(100, 140, 255, 0.3);
+    border-color: var(--border-accent-ring);
+    box-shadow: 0 0 0 2px var(--shadow-accent-selected);
   }
 
   .card.pinned {
-    border-color: rgba(255, 200, 50, 0.3);
+    border-color: var(--border-warning-pinned);
   }
 
   .card-header {
@@ -296,24 +296,24 @@
     width: fit-content;
     padding: 3px 8px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.07);
+    background: var(--surface-7);
     font-weight: 600;
     font-size: 12px;
     letter-spacing: 0.02em;
-    color: #e0e0e0;
+    color: var(--color-text-body);
   }
 
   .format-suffix {
     font-weight: 700;
     font-size: 10px;
     letter-spacing: 0.08em;
-    color: #9eb8ff;
+    color: var(--color-accent-text-soft);
     text-transform: uppercase;
   }
 
   .time {
     font-size: 11px;
-    color: #888;
+    color: var(--color-text-muted);
   }
 
   .card-actions {
@@ -335,7 +335,7 @@
     height: 24px;
     background: none;
     border: none;
-    color: #888;
+    color: var(--color-text-muted);
     cursor: pointer;
     padding: 0;
     border-radius: 4px;
@@ -349,16 +349,16 @@
   }
 
   .action-btn:hover:not(:disabled):not([aria-busy="true"]) {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-bright);
+    background: var(--surface-10);
   }
 
   .action-btn.pinned {
-    color: #ffc832;
+    color: var(--color-warning-bright);
   }
 
   .action-btn.delete:hover:not(:disabled):not([aria-busy="true"]) {
-    color: #ff6b6b;
+    color: var(--color-danger);
   }
 
   .card-body {
@@ -376,8 +376,8 @@
     grid-template-rows: minmax(0, 1fr);
     box-sizing: border-box;
     padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--surface-4);
+    border: 1px solid var(--border-default);
     border-radius: 10px;
     overflow: hidden;
   }
@@ -388,7 +388,7 @@
     overflow: hidden;
     font-size: 12px;
     line-height: 1.55;
-    color: #f0f0f2;
+    color: var(--color-text-primary);
     white-space: pre-line;
     word-break: break-word;
     font-family: "SF Mono", "Menlo", "Monaco", monospace;
@@ -411,28 +411,28 @@
     border-radius: 10px;
     object-fit: cover;
     display: block;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+    border: 1px solid var(--border-soft);
+    box-shadow: var(--shadow-image);
   }
 
   .image-placeholder {
     width: 100%;
     height: 86px;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-5);
     border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #666;
+    color: var(--color-text-subtle);
     font-size: 13px;
   }
 
   .image-meta {
     padding: 7px 10px;
-    background: rgba(255, 255, 255, 0.035);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--surface-3);
+    border: 1px solid var(--border-default);
     border-radius: 10px;
-    color: #d8d8dd;
+    color: var(--color-text-body);
     font-size: 11px;
     line-height: 1.45;
   }
@@ -454,7 +454,7 @@
 
   .source-app {
     font-size: 11px;
-    color: #666;
+    color: var(--color-text-subtle);
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -472,9 +472,9 @@
     align-items: center;
     padding: 3px 7px;
     border-radius: 999px;
-    background: rgba(90, 138, 255, 0.14);
-    border: 1px solid rgba(120, 160, 255, 0.18);
-    color: #cdddff;
+    background: var(--surface-accent-tag);
+    border: 1px solid var(--border-accent-tag);
+    color: var(--color-accent-text-tag);
     font-size: 10px;
     line-height: 1;
     text-transform: lowercase;
@@ -482,15 +482,15 @@
 
   .char-count {
     font-size: 11px;
-    color: #555;
+    color: var(--color-text-faint);
     align-self: flex-end;
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .card.copied {
-    border-color: rgba(74, 222, 128, 0.5);
-    box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.2);
+    border-color: var(--border-success);
+    box-shadow: 0 0 0 2px var(--shadow-success);
   }
 
   .copied-overlay {
@@ -501,10 +501,10 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    background: rgba(20, 20, 26, 0.88);
+    background: var(--surface-overlay);
     backdrop-filter: blur(6px);
     border-radius: 14px;
-    color: #4ade80;
+    color: var(--color-success);
     font-size: 15px;
     font-weight: 700;
     letter-spacing: 0.02em;

@@ -294,7 +294,7 @@
     padding: 0;
     background: transparent;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    color: #e0e0e0;
+    color: var(--color-text-body);
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
@@ -312,15 +312,14 @@
   .app {
     width: 100vw;
     height: 100vh;
-    background:
-      linear-gradient(180deg, rgba(44, 44, 50, 0.68), rgba(24, 24, 30, 0.58));
+    background: var(--surface-app);
     backdrop-filter: blur(34px) saturate(1.15);
     -webkit-backdrop-filter: blur(34px) saturate(1.15);
     border-radius: 18px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--border-strong);
     box-shadow:
-      0 18px 50px rgba(0, 0, 0, 0.28),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      var(--shadow-elevated),
+      var(--shadow-inset-highlight);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -342,8 +341,8 @@
     align-items: center;
     gap: 12px;
     padding: 12px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    background: rgba(255, 255, 255, 0.015);
+    border-bottom: 1px solid var(--border-default);
+    background: var(--surface-1);
     flex-shrink: 0;
   }
 
@@ -365,9 +364,9 @@
     gap: 7px;
     padding: 7px 11px;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.035);
-    color: #c9ccd8;
+    border: 1px solid var(--border-soft);
+    background: var(--surface-3);
+    color: var(--color-text-secondary);
     cursor: pointer;
     white-space: nowrap;
     font: inherit;
@@ -376,14 +375,14 @@
   }
 
   .tag-group-chip:hover:not(:disabled):not([aria-busy="true"]) {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.12);
+    background: var(--surface-7);
+    border-color: var(--border-strong);
   }
 
   .tag-group-chip.active {
-    background: rgba(94, 140, 255, 0.18);
-    border-color: rgba(120, 160, 255, 0.28);
-    color: #eef3ff;
+    background: var(--surface-accent);
+    border-color: var(--border-accent-soft);
+    color: var(--color-accent-chip);
   }
 
   .tag-group-count {
@@ -392,7 +391,7 @@
     justify-content: center;
     padding: 2px 5px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--surface-8);
     font-size: 10px;
     line-height: 1;
   }
@@ -409,16 +408,16 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--surface-6);
+    border: 1px solid var(--border-soft);
     border-radius: 10px;
-    color: #d8d8d8;
+    color: var(--color-text-body);
     cursor: pointer;
   }
 
   .settings-btn:hover:not(:disabled):not([aria-busy="true"]) {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.16);
+    background: var(--surface-10);
+    border-color: var(--border-emphasis);
   }
 
   .settings-btn svg {
@@ -436,7 +435,7 @@
     overflow-y: hidden;
     align-items: flex-start;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   .grid-container::-webkit-scrollbar {
@@ -448,7 +447,7 @@
   }
 
   .grid-container::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--scrollbar-thumb);
     border-radius: 3px;
   }
 
@@ -474,7 +473,7 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: #666;
+    color: var(--color-text-subtle);
   }
 
   .empty-state p {
@@ -483,6 +482,6 @@
 
   .hint {
     font-size: 13px;
-    color: #555;
+    color: var(--color-text-faint);
   }
 </style>

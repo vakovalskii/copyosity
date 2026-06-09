@@ -1,6 +1,7 @@
 /*
  * Shared macOS-like button interaction states.
  * Apply class="app-btn" to <button> elements; keep per-button colors locally.
+ * Colors: tokens.css
  *
  * Busy buttons: label in .app-btn-label, overlay spinner in .app-btn-spinner.
  * Use class "is-busy" while loading — do NOT set disabled during busy (WebKit pauses animations).
@@ -43,8 +44,8 @@ button.app-btn.is-busy .app-btn-spinner {
 .app-btn-spinner-icon {
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.18);
-  border-top-color: rgba(255, 255, 255, 0.92);
+  border: 2px solid var(--spinner-track);
+  border-top-color: var(--spinner-head);
   border-radius: 50%;
   animation: app-btn-spin 0.72s linear infinite;
 }
@@ -63,34 +64,34 @@ button.app-btn.is-busy .app-btn-spinner {
 button.app-btn.is-busy {
   pointer-events: none;
   cursor: default;
-  opacity: 0.88;
+  opacity: var(--opacity-busy);
 }
 
 button.app-btn.is-locked {
   pointer-events: none;
   cursor: default;
-  opacity: 0.48;
+  opacity: var(--opacity-disabled);
 }
 
 button.app-btn:active:not(.is-busy):not(.is-locked):not(:disabled) {
   filter: brightness(0.9);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-inset-press);
   transition-duration: 0.05s;
 }
 
 button.app-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(120, 160, 255, 0.22);
+  box-shadow: var(--ring-accent);
 }
 
 button.app-btn:focus-visible:active:not(.is-busy):not(.is-locked):not(:disabled) {
   box-shadow:
-    inset 0 1px 2px rgba(0, 0, 0, 0.2),
-    0 0 0 3px rgba(120, 160, 255, 0.22);
+    var(--shadow-inset-press),
+    var(--ring-accent);
 }
 
 button.app-btn:disabled {
-  opacity: 0.48;
+  opacity: var(--opacity-disabled);
   cursor: default;
   pointer-events: none;
 }
