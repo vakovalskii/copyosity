@@ -55,8 +55,13 @@
   let clearHistoryNotice = $state("");
   let savedModel = $state("");
 
+  const A11Y_NOTICE_ENABLE = "Enable Copyosity in the list.";
+  const A11Y_NOTICE_VERIFIED = "Accessibility verified — paste automation is ready.";
+
   let accessibilityGranted = $state<boolean | null>(null);
   let accessibilityNotice = $state("");
+  /** User was sent to System Settings; keep enable hint until access is granted. */
+  let a11yEnablePending = $state(false);
 
   let ollamaStatus = $state<OllamaStatus | null>(null);
   let ollamaBusy = $state<"refresh" | "start" | "pull" | "unload" | null>(null);
@@ -158,53 +163,64 @@
   /** macOS trust prompt already shown this settings-window visit. */
   let a11yPromptedThisVisit = false;
 
-  async function updateAccessibilityStatus() {
-    const granted = await checkAccessibility(false);
-    accessibilityGranted = granted;
-    if (!granted) {
+  function syncA11yNotice(granted: boolean, showVerified = false) {
+    if (granted) {
+      a11yEnablePending = false;
+      if (showVerified || accessibilityNotice === A11Y_NOTICE_ENABLE) {
+        accessibilityNotice = A11Y_NOTICE_VERIFIED;
+      }
+      return;
+    }
+    if (a11yEnablePending) {
+      accessibilityNotice = A11Y_NOTICE_ENABLE;
+    } else {
       accessibilityNotice = "";
     }
+  }
+
+  async function updateAccessibilityStatus() {
+    const granted = await checkAccessibility(false);
+    const wasPending = a11yEnablePending;
+    accessibilityGranted = granted;
+    syncA11yNotice(granted, wasPending);
     return granted;
   }
 
   /** One macOS prompt per settings visit when access is still missing. */
   async function promptAccessibilityIfNeeded() {
-    accessibilityNotice = "";
     let granted = await checkAccessibility(false);
     if (!granted && !a11yPromptedThisVisit) {
       await checkAccessibility(true);
       a11yPromptedThisVisit = true;
+      a11yEnablePending = true;
       granted = await checkAccessibility(false);
     }
     accessibilityGranted = granted;
-    if (!granted) {
-      accessibilityNotice = "";
-    }
+    syncA11yNotice(granted);
     return granted;
   }
 
   async function handleRequestAccessibility() {
-    accessibilityNotice = "";
     await openAccessibilitySettings();
     await checkAccessibility(true);
     a11yPromptedThisVisit = true;
+    a11yEnablePending = true;
     accessibilityGranted = await checkAccessibility(false);
-    if (!accessibilityGranted) {
-      accessibilityNotice = "Enable Copyosity in the list.";
-    }
+    syncA11yNotice(accessibilityGranted, true);
   }
 
   async function handleRecheckAccessibility() {
-    accessibilityNotice = "";
     const granted = await checkAccessibility(false);
     accessibilityGranted = granted;
     if (granted) {
-      accessibilityNotice = "Accessibility verified — paste automation is ready.";
+      syncA11yNotice(true, true);
       return;
     }
     await checkAccessibility(true);
     a11yPromptedThisVisit = true;
+    a11yEnablePending = true;
     accessibilityGranted = await checkAccessibility(false);
+    syncA11yNotice(accessibilityGranted);
   }
 
   onMount(() => {
@@ -379,12 +395,16 @@
         </div>
         {#if accessibilityGranted === false}
           <div class="status-hint">
-            Required for paste automation (Cmd+V) and global shortcut.
+            Required for paste automation (Cmd+V) and global shortcut.<br />
             Click "Request" to open System Settings, then enable <strong>Copyosity</strong>.
           </div>
         {/if}
         {#if accessibilityNotice}
-          <div class="status-hint ok a11y-notice">{accessibilityNotice}</div>
+          <div
+            class="status-hint a11y-notice"
+            class:ok={accessibilityNotice === A11Y_NOTICE_VERIFIED}
+            class:warn={accessibilityNotice === A11Y_NOTICE_ENABLE}
+          >{accessibilityNotice}</div>
         {/if}
         <div class="status-hint">
           After a new build or reinstall, remove Copyosity from Accessibility and add it again if paste stops working.
@@ -584,7 +604,7 @@
           {/if}
         </div>
         {#if modelDirty}
-          <div class="status-hint fail">
+          <div class="status-hint warn">
             Model changed — save settings first, then test.
           </div>
         {:else if taggingLoading}

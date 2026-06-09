@@ -526,7 +526,7 @@ fn ensure_voice_overlay(app: &tauri::AppHandle) {
             tauri::WebviewUrl::App("/overlay".into()),
         )
         .title("")
-        .inner_size(160.0, 52.0)
+        .inner_size(96.0, 44.0)
         .resizable(false)
         .decorations(false)
         .transparent(true)

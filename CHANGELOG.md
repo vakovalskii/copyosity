@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings toggles** — accent focus ring when off, `--ring-success-control` when on; no neon fill or outer glow.
 - **Privacy excluded apps** — Remove uses red `form-link-danger` instead of amber text.
 - **Settings clear-history feedback** — confirmation sits in the Storage action row (button left, status right) instead of the Save footer; neutral `--color-text-tertiary` for destructive completion, success green reserved for Save; `form-note-success` / `form-note-neutral` variants; status copy stays on one line (`white-space: nowrap`).
+- **Accessibility enable hint** — pending “enable in the list” copy uses macOS `systemOrange` (`--color-warning-text`); verified state stays success green.
+- **Settings model-dirty hint** — “Model changed — save settings first, then test.” uses warning orange instead of error red.
+- **Voice overlay layout** — mic icon and level meter share a centered row with tighter side padding, 12pt gap between icon and meter, and larger 22/24px proportions in a compact 96×44 HUD window.
 
 ### Fixed
 
@@ -67,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Clipboard card footer** — character count sits on its own line below tags instead of sharing a row, so many tags no longer wrap into the count label.
 - **Settings Save layout jump** — saving no longer resizes the button or shifts the “Saved” label when loading state appears.
 - **Settings Unload** — works on the first click with a visible busy spinner; uses the documented Ollama unload request (`prompt: ""`, `keep_alive: 0`), verifies unload via `/api/ps` (with `ollama stop` fallback), and clears the tagging test result only after the model is confirmed unloaded.
+- **Settings accessibility hint** — “Enable Copyosity in the list.” no longer disappears when the Settings window regains focus; it stays until Accessibility is actually granted (then switches to the verified success message); the verified message clears when access is revoked.
 - **Settings tagging test** — repeatable after success; busy spinner and “Testing…” state render on every run; successful test display requires the model to be loaded in memory.
 - **Settings Ollama status dot** — “Model unloaded” uses a static yellow indicator instead of the pulsing animation reserved for in-progress checks.
 - **Settings status hints** — symmetric vertical padding within checklist rows; hint copy split across lines where it improves readability (model unloaded, tagging test).

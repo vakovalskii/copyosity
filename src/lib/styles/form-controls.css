@@ -447,6 +447,10 @@
   color: var(--color-success-text);
 }
 
+.status-hint.warn {
+  color: var(--color-warning-text);
+}
+
 .status-hint.fail {
   color: var(--color-danger-text);
 }

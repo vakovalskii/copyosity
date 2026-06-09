@@ -76,6 +76,7 @@
   --color-success-control: #4ea574;
   --color-warning: #fbbf24;
   --color-warning-bright: #ffc832;
+  --color-warning-text: #ff9f0a; /* macOS systemOrange — attention / pending action */
 
   /* ── Surfaces (white alpha) ────────────────────────── */
   --surface-1: rgb(var(--rgb-white) / 0.015);
