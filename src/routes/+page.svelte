@@ -27,6 +27,8 @@
   let revealCycle = $state(0);
   let retagAvailable = $state(false);
   const hiddenTopTags = new Set(["code", "otp", "token", "log"]);
+  const imageFormatTags = ["gif", "jpg", "png"];
+  const imageFormatTagSet = new Set(imageFormatTags);
 
   async function syncRetagAvailability() {
     retagAvailable = await isTaggingReady();
@@ -178,6 +180,13 @@
     debounceTimer = setTimeout(() => handleSearch(q), 150);
   }
 
+  function sortTagsByCount(tagCounts: [string, number][]) {
+    return tagCounts.sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    });
+  }
+
   let topTags = $derived.by(() => {
     const counts = new Map<string, number>();
 
@@ -188,18 +197,29 @@
       }
     }
 
-    return [...counts.entries()]
-      .sort((a, b) => {
-        if (b[1] !== a[1]) return b[1] - a[1];
-        return a[0].localeCompare(b[0]);
-      })
-      .slice(0, 8);
+    const pinnedFormatTags = sortTagsByCount(
+      imageFormatTags
+        .filter((tag) => counts.has(tag))
+        .map((tag) => [tag, counts.get(tag)!] as [string, number]),
+    );
+
+    const contentTags = sortTagsByCount(
+      [...counts.entries()].filter(([tag]) => !imageFormatTagSet.has(tag)),
+    ).slice(0, 8);
+
+    return [...pinnedFormatTags, ...contentTags];
   });
+
+  function entryMatchesTag(entry: ClipboardEntry, tag: string): boolean {
+    if ((entry.tags ?? []).includes(tag)) return true;
+    if (!imageFormatTagSet.has(tag) || entry.content_type !== "image") return false;
+    return entry.image_format?.toLowerCase() === tag;
+  }
 
   let filteredEntries = $derived.by(() => {
     if (!activeTag) return entries;
     const tag = activeTag;
-    return entries.filter((entry) => (entry.tags ?? []).includes(tag));
+    return entries.filter((entry) => entryMatchesTag(entry, tag));
   });
 </script>
 
