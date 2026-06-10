@@ -83,12 +83,13 @@
     }
   }
 
-  async function loadEntries() {
+  async function loadEntries(selectFirst = false) {
     entries = await getEntries({
       collection_id: activeCollectionId,
       pinned_only: pinnedOnly,
       search: searchQuery || null,
     });
+    if (selectFirst) resetKeyboardSelection();
   }
 
   async function loadCollections() {
@@ -99,10 +100,9 @@
     window.getSelection()?.removeAllRanges();
     searchQuery = "";
     activeTag = null;
-    selectedIndex = -1;
     void syncRetagAvailability();
     void loadExcludeCandidate();
-    loadEntries();
+    void loadEntries(true);
     revealCycle += 1;
     // Reset scroll to start
     if (gridEl) gridEl.scrollLeft = 0;
@@ -204,16 +204,14 @@
 
   function handleSearch(q: string) {
     searchQuery = q;
-    selectedIndex = -1;
-    loadEntries();
+    void loadEntries(true);
   }
 
   function handleCollectionSelect(id: number | null) {
     pinnedOnly = id === -1;
     activeCollectionId = id === -1 ? null : id;
     activeTag = null;
-    selectedIndex = -1;
-    loadEntries();
+    void loadEntries(true);
   }
 
   function handleEntryAction() {
@@ -271,6 +269,11 @@
     const tag = activeTag;
     return entries.filter((entry) => entryMatchesTag(entry, tag));
   });
+
+  function resetKeyboardSelection() {
+    selectedIndex = filteredEntries.length > 0 ? 0 : -1;
+    scrollToSelected();
+  }
 </script>
 
 <div class="app" class:visible>
@@ -335,7 +338,7 @@
         type="button"
         onclick={() => {
           activeTag = null;
-          selectedIndex = -1;
+          resetKeyboardSelection();
         }}
       >
         All tags
@@ -348,7 +351,7 @@
           type="button"
           onclick={() => {
             activeTag = tag;
-            selectedIndex = -1;
+            resetKeyboardSelection();
           }}
         >
           <span>{tag}</span>

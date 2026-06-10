@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Clipboard monitor** — reads the pasteboard only when content actually changes; identical payloads are not re-captured or re-emitted to the UI.
 - **Paste pipeline** — Enter in the main window activates an entry the same way as double-click (text and images); paste returns focus to the previous target app; voice transcription uses the same automated paste path; `try_ax_paste_for_pid` centralizes per-app paste strategy; native apps that ignore `CGEventPostToPid` (Messages) receive session-tap Cmd+V when frontmost; AX focus search ranks text fields above scroll areas.
+- **Overlay keyboard selection** — opening the panel or changing search, collection, or tag filters selects the first (newest) entry; `Cmd+Shift+V` then `Enter` pastes the latest item without an extra arrow key; mouse hover highlighting stays separate from keyboard selection.
 - **Accessibility in Settings** — silent checks vs macOS trust dialog are separated; one prompt per Settings visit; live AX probe; **Recheck** confirms when access is still valid; guidance after rebuild or reinstall; `open_accessibility_settings` IPC from Settings.
 - **Settings window** — native title bar (draggable again) with a custom header drag region.
 - **Voice overlay** — pre-created NSPanel with non-activating behavior so showing the overlay no longer steals focus from the target app; audio level meter uses a logarithmic dB scale for quiet laptop mics.
