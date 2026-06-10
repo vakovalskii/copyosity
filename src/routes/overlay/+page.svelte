@@ -79,7 +79,7 @@
     width: 24px;
     height: 24px;
     flex-shrink: 0;
-    color: var(--color-danger-soft);
+    color: var(--color-recording);
     animation: pulse-mic 1.2s ease-in-out infinite;
   }
 

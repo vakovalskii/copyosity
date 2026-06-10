@@ -3,14 +3,23 @@
   import { prepareBusyUi } from "$lib/run-with-busy-ui";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import type { AppSettings, AudioInputDevice, ExcludedApp, ModelCatalog } from "$lib/types";
+  import type {
+    AppSettings,
+    AudioInputDevice,
+    ExcludedApp,
+    ExcludableAppCandidate,
+    ExcludeAppResult,
+    ModelCatalog,
+  } from "$lib/types";
   import {
     addExcludedApp,
-    addFrontmostAppToExcluded,
+    addExcludableAppCandidate,
     clearHistory,
     getAppSettings,
     getExcludedApps,
+    getExcludableAppCandidate,
     getModelCatalog,
+    pickAppToExclude,
     removeExcludedApp,
     updateAppSettings,
     rebindVoiceShortcut,
@@ -26,6 +35,21 @@
   } from "$lib/api";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import SectionIcon from "$lib/components/SectionIcon.svelte";
+  import {
+    allowInClipboardHistoryAriaLabel,
+    allowedInHistoryNotice,
+    alreadyExcludedListMetaLabel,
+    appNotFoundNotice,
+    chooseApplicationActionLabel,
+    excludeFromClipboardHistoryAriaLabel,
+    invokeErrorMessage,
+    isAppNotFoundError,
+    excludableCandidateMetaLabel,
+    excludeListAddLabel,
+    excludeListRemoveLabel,
+    alreadyExcludedFromHistoryNotice,
+    excludedFromHistoryNotice,
+  } from "$lib/exclusion-label";
 
   function openOllamaDownload() {
     void openUrl("https://ollama.com/download");
@@ -51,6 +75,10 @@
   let selectedModelPreset = $state("__custom__");
   let excludedApps: ExcludedApp[] = $state([]);
   let excludedAppInput = $state("");
+  let excludableCandidate: ExcludableAppCandidate | null = $state(null);
+  let excludedAppsNotice = $state("");
+  let excludedAppsNoticeTone = $state<"neutral" | "warn">("neutral");
+  let excludeActionBusy = $state(false);
   let savingSettings = $state(false);
   let settingsNotice = $state("");
   let clearHistoryNotice = $state("");
@@ -92,6 +120,44 @@
 
   async function loadExcludedApps() {
     excludedApps = await getExcludedApps();
+  }
+
+  async function loadExcludableCandidate() {
+    excludableCandidate = await getExcludableAppCandidate();
+  }
+
+  function isActiveApp(bundleId: string): boolean {
+    return excludableCandidate?.bundleId === bundleId;
+  }
+
+  let listedExcludedApps = $derived(
+    excludedApps.filter((app) => !isActiveApp(app.bundleId)),
+  );
+
+  let activeExcludedEntry = $derived.by(() => {
+    const candidate = excludableCandidate;
+    if (!candidate?.alreadyExcluded) return undefined;
+    return excludedApps.find((app) => app.bundleId === candidate.bundleId);
+  });
+
+  function setExcludedAppsNotice(message: string, tone: "neutral" | "warn" = "neutral") {
+    excludedAppsNotice = message;
+    excludedAppsNoticeTone = tone;
+  }
+
+  function showExcludeAppNotice(result: ExcludeAppResult) {
+    if (result.alreadyExcluded) {
+      setExcludedAppsNotice(
+        alreadyExcludedFromHistoryNotice(result.displayName),
+        "warn",
+      );
+      return;
+    }
+    setExcludedAppsNotice(excludedFromHistoryNotice(result.displayName));
+  }
+
+  async function refreshExcludedAppsSection() {
+    await Promise.all([loadExcludedApps(), loadExcludableCandidate()]);
   }
 
   async function syncOllamaStatus() {
@@ -228,7 +294,7 @@
     // Load everything in parallel instead of sequentially
     loadSettings();
     loadModelCatalog();
-    loadExcludedApps();
+    refreshExcludedAppsSection();
     refreshOllamaStatus();
     listMicrophones().then((m) => (microphones = m));
 
@@ -248,11 +314,13 @@
     const unlistenShown = listen("settings-shown", () => {
       a11yPromptedThisVisit = false;
       void promptAccessibilityIfNeeded();
+      void refreshExcludedAppsSection();
     });
 
     const unlistenFocus = win.onFocusChanged(({ payload: focused }) => {
       if (focused) {
         void updateAccessibilityStatus();
+        void refreshExcludedAppsSection();
       }
     });
 
@@ -311,23 +379,88 @@
     }
   }
 
-  async function handleAddExcludedApp() {
+  async function handleAddExcludedByName() {
     const value = excludedAppInput.trim();
     if (!value) return;
-    await addExcludedApp(value);
-    excludedAppInput = "";
-    await loadExcludedApps();
+    setExcludedAppsNotice("");
+    try {
+      const result = await addExcludedApp(value);
+      if (!result.alreadyExcluded) {
+        excludedAppInput = "";
+      }
+      showExcludeAppNotice(result);
+      await refreshExcludedAppsSection();
+    } catch (err) {
+      if (isAppNotFoundError(err)) {
+        setExcludedAppsNotice(appNotFoundNotice(value), "warn");
+        return;
+      }
+      setExcludedAppsNotice("Could not add this app. Try again.", "warn");
+    }
   }
 
-  async function handleAddFrontmostApp() {
-    const added = await addFrontmostAppToExcluded();
-    settingsNotice = added ? `Excluded ${added}` : "No active app detected";
-    await loadExcludedApps();
+  async function handleAddCandidateApp() {
+    if (excludeActionBusy) return;
+    excludeActionBusy = true;
+    setExcludedAppsNotice("");
+    try {
+      const result = await addExcludableAppCandidate();
+      if (result) {
+        showExcludeAppNotice(result);
+      } else {
+        setExcludedAppsNotice(
+          "No active app detected. Switch to the app you want to exclude, or choose one below.",
+          "warn",
+        );
+      }
+      await refreshExcludedAppsSection();
+    } catch (err) {
+      setExcludedAppsNotice(
+        invokeErrorMessage(err) || "Could not add this app. Try again.",
+        "warn",
+      );
+    } finally {
+      excludeActionBusy = false;
+    }
   }
 
-  async function handleRemoveExcludedApp(id: number) {
-    await removeExcludedApp(id);
-    await loadExcludedApps();
+  async function handleChooseApp() {
+    if (excludeActionBusy) return;
+    excludeActionBusy = true;
+    setExcludedAppsNotice("");
+    try {
+      const result = await pickAppToExclude();
+      if (result) {
+        showExcludeAppNotice(result);
+        await refreshExcludedAppsSection();
+      }
+    } catch (err) {
+      const message = invokeErrorMessage(err);
+      if (message.startsWith("main_thread_required:")) {
+        setExcludedAppsNotice("Could not open the app picker. Try again.", "warn");
+      } else {
+        setExcludedAppsNotice(message || "Could not add this app. Try again.", "warn");
+      }
+    } finally {
+      excludeActionBusy = false;
+    }
+  }
+
+  async function handleRemoveExcludedApp(id: number, displayName: string) {
+    if (excludeActionBusy) return;
+    excludeActionBusy = true;
+    try {
+      await removeExcludedApp(id);
+      setExcludedAppsNotice(allowedInHistoryNotice(displayName));
+      await refreshExcludedAppsSection();
+    } catch (err) {
+      setExcludedAppsNotice(
+        invokeErrorMessage(err) || "Could not update excluded apps. Try again.",
+        "warn",
+      );
+    } finally {
+      excludeActionBusy = false;
+    }
   }
 
   async function handleClearHistory() {
@@ -755,39 +888,114 @@
       Privacy
     </div>
     <div class="form-section-body">
-    <div class="form-field">
+    <div class="form-field excluded-apps-field">
       <span class="form-label">Excluded apps</span>
-      <div class="form-inline">
+      <div class="form-hint">
+        Clipboard from excluded apps will not be stored or tagged.
+      </div>
+
+      <div class="excluded-apps-panel" role="group" aria-label="Excluded applications">
+        {#if excludableCandidate}
+          <div class="excluded-apps-row">
+            <div class="excluded-apps-row-main">
+              <span class="excluded-apps-row-label">{excludableCandidate.displayName}</span>
+              <span class="excluded-apps-row-meta"
+                >{excludableCandidateMetaLabel(excludableCandidate.source)}</span
+              >
+            </div>
+            {#if excludableCandidate.alreadyExcluded && activeExcludedEntry}
+              {@const removeLabel = allowInClipboardHistoryAriaLabel(excludableCandidate.displayName)}
+              <button
+                class="form-link-accent excluded-list-action app-btn"
+                type="button"
+                aria-label={removeLabel}
+                title={removeLabel}
+                aria-busy={excludeActionBusy}
+                disabled={excludeActionBusy}
+                onclick={() =>
+                  handleRemoveExcludedApp(activeExcludedEntry.id, activeExcludedEntry.displayName)}
+              >
+                <span class="excluded-list-action-icon" aria-hidden="true">−</span>
+                <span>{excludeListRemoveLabel()}</span>
+              </button>
+            {:else if excludableCandidate.alreadyExcluded}
+              <span class="excluded-apps-row-meta">{alreadyExcludedListMetaLabel()}</span>
+            {:else}
+              {@const addLabel = excludeFromClipboardHistoryAriaLabel(excludableCandidate.displayName)}
+              <button
+                class="form-link-restrict excluded-list-action app-btn"
+                type="button"
+                aria-label={addLabel}
+                title={addLabel}
+                aria-busy={excludeActionBusy}
+                disabled={excludeActionBusy}
+                onclick={handleAddCandidateApp}
+              >
+                <span class="excluded-list-action-icon" aria-hidden="true">+</span>
+                <span>{excludeListAddLabel()}</span>
+              </button>
+            {/if}
+          </div>
+        {/if}
+
+        {#each listedExcludedApps as app (app.id)}
+          <div class="excluded-apps-row excluded-apps-row--listed">
+            <span class="excluded-apps-row-label">{app.displayName}</span>
+            <button
+              class="form-link-accent excluded-list-action app-btn"
+              type="button"
+              aria-label={allowInClipboardHistoryAriaLabel(app.displayName)}
+              title={allowInClipboardHistoryAriaLabel(app.displayName)}
+              aria-busy={excludeActionBusy}
+              disabled={excludeActionBusy}
+              onclick={() => handleRemoveExcludedApp(app.id, app.displayName)}
+            >
+              <span class="excluded-list-action-icon" aria-hidden="true">−</span>
+              <span>{excludeListRemoveLabel()}</span>
+            </button>
+          </div>
+        {/each}
+
+        <button
+          class="excluded-apps-row excluded-apps-row--action app-btn"
+          type="button"
+          aria-busy={excludeActionBusy}
+          disabled={excludeActionBusy}
+          onclick={handleChooseApp}
+        >
+          {chooseApplicationActionLabel}
+        </button>
+      </div>
+
+      <div class="form-inline excluded-by-name">
         <input
           class="form-input"
           type="text"
           bind:value={excludedAppInput}
-          placeholder="App name, for example Telegram"
+          placeholder="Installed app name, e.g. Telegram"
+          aria-label="Installed app name to exclude"
+          onkeydown={(e) => {
+            if (e.key === "Enter") void handleAddExcludedByName();
+          }}
         />
-        <button class="form-btn form-btn-secondary app-btn" type="button" onclick={handleAddExcludedApp}>
+        <button
+          class="form-btn form-btn-secondary app-btn"
+          type="button"
+          onclick={handleAddExcludedByName}
+        >
           Add
         </button>
       </div>
-      <button class="form-btn form-btn-ghost app-btn" type="button" onclick={handleAddFrontmostApp}>
-        Exclude current app
-      </button>
-      {#if excludedApps.length > 0}
-        <div class="excluded-apps">
-          {#each excludedApps as app}
-            <div class="excluded-app-row">
-              <span class="excluded-app-name">{app.bundle_id}</span>
-              <button
-                class="form-link-danger app-btn"
-                type="button"
-                onclick={() => handleRemoveExcludedApp(app.id)}
-              >
-                Remove
-              </button>
-            </div>
-          {/each}
+
+      {#if excludedAppsNotice}
+        <div
+          class="status-hint excluded-apps-notice"
+          class:neutral={excludedAppsNoticeTone === "neutral"}
+          class:warn={excludedAppsNoticeTone === "warn"}
+          aria-live="polite"
+        >
+          {excludedAppsNotice}
         </div>
-      {:else}
-        <div class="form-hint">Clipboard from excluded apps will not be stored or tagged.</div>
       {/if}
     </div>
     </div>
@@ -816,7 +1024,7 @@
       disabled={!settings.voice_transcription_enabled}
     >
       <div class="form-hint">
-        Hold the shortcut to record, release to transcribe and paste at cursor.
+        Hold the shortcut to record, release to transcribe and paste at cursor.<br />
         Requires an OpenAI-compatible Whisper server.
       </div>
       <label class="form-field">
@@ -997,30 +1205,76 @@
     margin-top: 0;
   }
 
-  .excluded-apps {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-field);
-    max-height: 160px;
-    overflow-y: auto;
-    padding-right: 2px;
+  .excluded-apps-field .form-hint {
+    margin-top: -2px;
   }
 
-  .excluded-app-row {
+  .excluded-apps-panel {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 7px 10px;
+    flex-direction: column;
+    max-height: 220px;
+    overflow-y: auto;
     background: var(--surface-3);
     border: 1px solid var(--border-default);
     border-radius: 8px;
   }
 
-  .excluded-app-name {
+  .excluded-apps-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 36px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .excluded-apps-row:last-child {
+    border-bottom: none;
+  }
+
+  .excluded-apps-row-main {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .excluded-apps-row-label {
     font-size: 12px;
     color: var(--color-text-primary);
     min-width: 0;
     word-break: break-word;
+  }
+
+  .excluded-apps-row-meta {
+    font-size: 10px;
+    color: var(--color-text-tertiary);
+    line-height: 1.3;
+  }
+
+  .excluded-apps-row--action {
+    width: 100%;
+    justify-content: flex-start;
+    border: none;
+    background: transparent;
+    color: var(--color-accent-link);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .excluded-apps-row--action:hover:not(:disabled):not([aria-busy="true"]) {
+    background: var(--surface-5);
+    color: var(--color-accent-link-hover);
+  }
+
+  .excluded-by-name {
+    margin-top: 0;
+  }
+
+  .excluded-apps-notice {
+    margin: 0;
   }
 </style>

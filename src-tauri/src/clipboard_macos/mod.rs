@@ -153,6 +153,7 @@ pub fn remember_paste_target() {
         PASTE_TARGET_PID.store(pid, Ordering::SeqCst);
         #[cfg(target_os = "macos")]
         {
+            crate::app_exclusion::remember_from_pid(pid);
             let focus = capture_focus_for_pid(pid);
             paste_log(format!(
                 "remember pid={pid} focus={}",
@@ -198,6 +199,12 @@ fn frontmost_pid_excluding_self() -> Option<i32> {
 #[cfg(not(target_os = "macos"))]
 fn frontmost_pid_excluding_self() -> Option<i32> {
     None
+}
+
+/// Last non-Copyosity app remembered before the panel took focus.
+pub fn paste_target_pid() -> Option<i32> {
+    let pid = PASTE_TARGET_PID.load(Ordering::SeqCst);
+    (pid > 0).then_some(pid)
 }
 
 #[cfg(target_os = "macos")]

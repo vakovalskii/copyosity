@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, AudioInputDevice, ClipboardEntry, Collection, ExcludedApp, ModelCatalog } from "./types";
+import type {
+  AppSettings,
+  AudioInputDevice,
+  ClipboardEntry,
+  Collection,
+  ExcludedApp,
+  ExcludableAppCandidate,
+  ExcludeAppResult,
+  ModelCatalog,
+} from "./types";
 
 export async function getEntries(opts?: {
   limit?: number;
@@ -93,16 +102,26 @@ export async function getExcludedApps(): Promise<ExcludedApp[]> {
   return invoke("get_excluded_apps");
 }
 
-export async function addExcludedApp(bundleId: string): Promise<void> {
-  return invoke("add_excluded_app", { bundleId });
+export async function addExcludedApp(
+  appNameOrBundleId: string,
+): Promise<ExcludeAppResult> {
+  return invoke("add_excluded_app", { appNameOrBundleId });
 }
 
 export async function removeExcludedApp(id: number): Promise<void> {
   return invoke("remove_excluded_app", { id });
 }
 
-export async function addFrontmostAppToExcluded(): Promise<string | null> {
-  return invoke("add_frontmost_app_to_excluded");
+export async function getExcludableAppCandidate(): Promise<ExcludableAppCandidate | null> {
+  return invoke("get_excludable_app_candidate");
+}
+
+export async function addExcludableAppCandidate(): Promise<ExcludeAppResult | null> {
+  return invoke("add_excludable_app_candidate");
+}
+
+export async function pickAppToExclude(): Promise<ExcludeAppResult | null> {
+  return invoke("pick_app_to_exclude");
 }
 
 export async function retagEntry(entryId: number): Promise<void> {

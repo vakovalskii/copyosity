@@ -5,7 +5,7 @@ All notable changes to Copyosity are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2026-06-09
+## [0.4.0] - 2026-06-10
 
 ### Added
 
@@ -27,8 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`is_tagging_ready` IPC** — main window queries whether retag is available (tagging on + Ollama CLI, server, and model installed; unloaded model still counts).
 - **Shared status-list layout** — compact checklist styling in `form-controls.css` with spacing tokens from `tokens.css` for consistent Settings rhythm.
 - **Design tokens** (`tokens.css`) — single source for spacing, surfaces, borders, semantic colors, shadows, and focus rings; imported globally from `+layout.svelte`.
-- **`form-link-danger`** — inline destructive text button style for list remove actions (Privacy excluded apps).
-- **Unit tests** — **82 tests** in `copyosity_lib` for 0.4.0, with emphasis on clipboard monitor dedup/hash-poisoning, image format and animated GIF paste paths, DB migration and tag backfill, settings partial updates (Whisper, voice transcription, AI tagging toggles), `tagging_ready` / `is_ai_tagging_enabled`, Ollama model validation plus `/api/ps` load-unload matching, and `open_accessibility_settings` IPC.
+- **`form-btn-restrict`** — warning-styled button for privacy/restrict actions (panel exclude button; pairs with `form-link-restrict` in Settings).
+- **Excluded apps (Privacy)** — list-first layout with Choose Application via native picker, Add by name, contextual Add row using remembered paste-target app (shows **Active app** or **Recent app**), inline section notices, and overlay header **Exclude [App]** action.
+- **Unit tests** — **100 tests** in `copyosity_lib` for 0.4.0, with emphasis on clipboard monitor dedup/hash-poisoning, image format and animated GIF paste paths, DB migration and tag backfill, settings partial updates (Whisper, voice transcription, AI tagging toggles), `tagging_ready` / `is_ai_tagging_enabled`, Ollama model validation plus `/api/ps` load-unload matching, `open_accessibility_settings` IPC, `macos_app` bundle ID resolution, and app-exclusion candidate resolution.
 
 ### Changed
 
@@ -55,11 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **UI color system** — main window, Settings, clipboard cards, search bar, voice overlay, and shared form/button styles use CSS variables from `tokens.css` instead of scattered hex/rgba literals.
 - **Success palette** — cool sage green scale (`--color-success` for dots and overlays, `--color-success-text` for hints and save feedback, `--color-success-control` for toggles) tuned to dark-theme accent/danger weight.
 - **Settings toggles** — accent focus ring when off, `--ring-success-control` when on; no neon fill or outer glow.
-- **Privacy excluded apps** — Remove uses red `form-link-danger` instead of amber text.
+- **Privacy excluded apps** — list-first Apple-style layout; feedback stays inline near actions (footer notice is Save-only); remembered app name used when Settings or the panel is frontmost; Remove uses accent link style, Add uses warning restrict style.
+- **App exclusion identity** — excluded apps, clipboard skip checks, and picker/frontmost detection now use macOS bundle IDs (`com.apple.Safari`) with display names in the UI; legacy display-name rows migrate on startup; `lsappinfo` shell lookup removed.
 - **Settings clear-history feedback** — confirmation sits in the Storage action row (button left, status right) instead of the Save footer; neutral `--color-text-tertiary` for destructive completion, success green reserved for Save; `form-note-success` / `form-note-neutral` variants; status copy stays on one line (`white-space: nowrap`).
 - **Accessibility enable hint** — pending “enable in the list” copy uses macOS `systemOrange` (`--color-warning-text`); verified state stays success green.
 - **Settings model-dirty hint** — “Model changed — save settings first, then test.” uses warning orange instead of error red.
 - **Voice overlay layout** — mic icon and level meter share a centered row with tighter side padding, 12pt gap between icon and meter, and larger 22/24px proportions in a compact 96×44 HUD window.
+- **Voice overlay mic color** — live recording indicator uses `--color-recording` so it reads as active capture, not an error state.
 
 ### Fixed
 
@@ -77,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings Ollama status dot** — “Model unloaded” uses a static yellow indicator instead of the pulsing animation reserved for in-progress checks.
 - **Settings status hints** — symmetric vertical padding within checklist rows; hint copy split across lines where it improves readability (model unloaded, tagging test).
 - **Tag filter bar** — image format tags (`jpg`, `gif`, `png`) always appear in filter chips when matching entries exist; previously only the top 8 tags by count were shown, so low-count format tags (e.g. `jpg`) could be missing from the bar while still visible on cards; filtering also matches `image_format` for legacy rows.
+- **Clipboard self-capture** — clipboard monitor skips capture when Copyosity is frontmost, even when the source bundle ID is unavailable in the pasteboard read path.
 
 ### Dependencies
 
@@ -86,7 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Sensitive IPC commands scoped per window (`settings` cannot call paste commands; `voice_overlay` cannot call `clear_history` or `start_ollama_server`).
+- Sensitive IPC commands scoped per window (`settings` cannot call paste commands; `voice_overlay` cannot call `clear_history` or `start_ollama_server`; main panel may only read/add the current excludable-app candidate, not open the picker or edit the full exclusion list).
 - `cargo audit` in the release workflow.
 - **Tauri 2.11** — upstream IPC ACL hardening for custom commands from remote origins.
 

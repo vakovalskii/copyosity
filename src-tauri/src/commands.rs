@@ -1,4 +1,9 @@
-use crate::db::{AppSettings, ClipboardEntry, Collection, Database, ExcludedApp, ModelCatalog};
+use crate::app_exclusion::{self, ExcludableAppSource};
+use crate::db::{
+    AppSettings, ClipboardEntry, Collection, Database, ExcludedApp, ModelCatalog,
+};
+use crate::macos_app;
+use serde::{Deserialize, Serialize};
 
 #[cfg(not(target_os = "macos"))]
 fn simulate_paste() {}
@@ -96,6 +101,9 @@ fn activate_for_settings_window() {
 
 #[tauri::command]
 pub fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    crate::clipboard_macos::remember_paste_target();
+
     // If settings window already exists, just focus it
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.show();
@@ -194,9 +202,41 @@ pub fn get_excluded_apps(db: State<'_, Arc<Database>>) -> Result<Vec<ExcludedApp
     db.get_excluded_apps().map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExcludeAppResult {
+    pub display_name: String,
+    pub already_excluded: bool,
+}
+
+fn exclude_app_result(
+    db: &Database,
+    identity: &macos_app::AppIdentity,
+) -> Result<ExcludeAppResult, String> {
+    let is_new = db
+        .add_excluded_app(&identity.bundle_id)
+        .map_err(|e| e.to_string())?;
+    Ok(ExcludeAppResult {
+        display_name: identity.display_name.clone(),
+        already_excluded: !is_new,
+    })
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AddExcludedAppArgs {
+    #[serde(rename = "appNameOrBundleId", alias = "bundleId")]
+    app_name_or_bundle_id: String,
+}
+
 #[tauri::command]
-pub fn add_excluded_app(db: State<'_, Arc<Database>>, bundle_id: String) -> Result<(), String> {
-    db.add_excluded_app(&bundle_id).map_err(|e| e.to_string())
+pub fn add_excluded_app(
+    db: State<'_, Arc<Database>>,
+    args: AddExcludedAppArgs,
+) -> Result<ExcludeAppResult, String> {
+    let input = args.app_name_or_bundle_id;
+    let identity = macos_app::resolve_app_identity_from_input(&input)
+        .ok_or_else(|| format!("app_not_found:{}", input.trim()))?;
+    exclude_app_result(db.inner(), &identity)
 }
 
 #[tauri::command]
@@ -204,15 +244,61 @@ pub fn remove_excluded_app(db: State<'_, Arc<Database>>, id: i64) -> Result<(), 
     db.remove_excluded_app(id).map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExcludableAppCandidate {
+    pub bundle_id: String,
+    pub display_name: String,
+    pub already_excluded: bool,
+    pub source: ExcludableAppSource,
+}
+
 #[tauri::command]
-pub fn add_frontmost_app_to_excluded(
+pub fn get_excludable_app_candidate(
     db: State<'_, Arc<Database>>,
-) -> Result<Option<String>, String> {
-    let app_name = crate::clipboard_monitor::get_frontmost_app();
-    if let Some(app_name) = &app_name {
-        db.add_excluded_app(app_name).map_err(|e| e.to_string())?;
-    }
-    Ok(app_name)
+) -> Result<Option<ExcludableAppCandidate>, String> {
+    let Some((identity, source)) = app_exclusion::resolve_excludable_app_identity() else {
+        return Ok(None);
+    };
+    let already_excluded = db
+        .is_app_excluded(&identity.bundle_id)
+        .map_err(|e| e.to_string())?;
+    Ok(Some(ExcludableAppCandidate {
+        bundle_id: identity.bundle_id,
+        display_name: identity.display_name,
+        already_excluded,
+        source,
+    }))
+}
+
+#[tauri::command]
+pub fn add_excludable_app_candidate(
+    db: State<'_, Arc<Database>>,
+) -> Result<Option<ExcludeAppResult>, String> {
+    let Some((identity, _)) = app_exclusion::resolve_excludable_app_identity() else {
+        return Ok(None);
+    };
+    Ok(Some(exclude_app_result(db.inner(), &identity)?))
+}
+
+#[tauri::command]
+pub fn pick_app_to_exclude(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<Database>>,
+) -> Result<Option<ExcludeAppResult>, String> {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = tx.send(app_exclusion::pick_application_identity_on_main_thread());
+    })
+    .map_err(|e| format!("main_thread_required:{}", e))?;
+    let identity = rx
+        .recv()
+        .map_err(|_| "main_thread_required:channel".to_string())?
+        .map_err(|e| e.to_string())?;
+    let Some(identity) = identity else {
+        return Ok(None);
+    };
+    Ok(Some(exclude_app_result(db.inner(), &identity)?))
 }
 
 #[tauri::command]

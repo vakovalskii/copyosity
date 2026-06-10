@@ -41,16 +41,20 @@ hound = "3.5"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSApplication",
+  "NSOpenPanel",
   "NSResponder",
   "NSPasteboard",
   "NSWorkspace",
   "NSRunningApplication",
 ] }
 objc2-foundation = { version = "0.3", default-features = false, features = [
+  "NSArray",
   "NSString",
   "NSDictionary",
   "NSValue",
   "NSObject",
   "NSData",
+  "NSBundle",
+  "NSURL",
 ] }
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e89" }

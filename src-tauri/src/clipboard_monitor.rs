@@ -158,11 +158,17 @@ pub fn probe_clipboard_hash(clipboard: &mut Clipboard) -> Option<String> {
     None
 }
 
-fn should_skip_source(db: &Database, source_app: &Option<String>) -> bool {
-    match source_app {
-        Some(app_name) if app_name == "Copyosity" => true,
-        Some(app_name) => db.is_app_excluded(app_name).unwrap_or(false),
-        None => false,
+fn should_skip_source(db: &Database, bundle_id: &Option<String>) -> bool {
+    match bundle_id {
+        Some(id) if crate::macos_app::is_copyosity_bundle(id) => true,
+        Some(id) => match db.is_app_excluded(id) {
+            Ok(excluded) => excluded,
+            Err(err) => {
+                eprintln!("[clipboard] exclusion check failed: {err}");
+                true
+            }
+        },
+        None => crate::macos_app::is_copyosity_frontmost(),
     }
 }
 
@@ -177,10 +183,11 @@ impl CaptureContext {
         image_full_b64: String,
         image_thumb_b64: String,
         base_hash: String,
+        source_bundle_id: Option<String>,
         source_app: Option<String>,
         format_hint: Option<&str>,
     ) -> bool {
-        if should_skip_source(&self.db, &source_app) {
+        if should_skip_source(&self.db, &source_bundle_id) {
             return false;
         }
 
@@ -222,8 +229,14 @@ impl CaptureContext {
         }
     }
 
-    fn try_text(&self, text: String, base_hash: String, source_app: Option<String>) -> bool {
-        if should_skip_source(&self.db, &source_app) {
+    fn try_text(
+        &self,
+        text: String,
+        base_hash: String,
+        source_bundle_id: Option<String>,
+        source_app: Option<String>,
+    ) -> bool {
+        if should_skip_source(&self.db, &source_bundle_id) {
             return false;
         }
 
@@ -276,13 +289,22 @@ impl CaptureContext {
 }
 
 fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -> bool {
-    let source_app = get_frontmost_app();
+    let source = crate::macos_app::frontmost_app_identity();
+    let source_bundle_id = source.as_ref().map(|app| app.bundle_id.clone());
+    let source_app = source.map(|app| app.display_name);
 
     // 1. Animated GIF from pasteboard (Telegram/browsers) — keep raw bytes.
     if let Some(gif_bytes) = crate::clipboard_macos::pasteboard_gif_bytes() {
         let base_hash = hash_bytes(&gif_bytes);
         if let Some((full_b64, thumb_b64)) = encode_stored_gif(&gif_bytes) {
-            return ctx.try_image(full_b64, thumb_b64, base_hash, source_app.clone(), Some("GIF"));
+            return ctx.try_image(
+                full_b64,
+                thumb_b64,
+                base_hash,
+                source_bundle_id.clone(),
+                source_app.clone(),
+                Some("GIF"),
+            );
         }
     }
 
@@ -300,7 +322,14 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
                     continue;
                 };
                 let format = image_format::detect_from_path(&path);
-                captured |= ctx.try_image(full_b64, thumb_b64, base_hash, source_app.clone(), Some(format));
+                captured |= ctx.try_image(
+                    full_b64,
+                    thumb_b64,
+                    base_hash,
+                    source_bundle_id.clone(),
+                    source_app.clone(),
+                    Some(format),
+                );
             }
             if captured {
                 return true;
@@ -315,7 +344,14 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
             if let Some((full_b64, thumb_b64)) =
                 encode_image_from_rgba(&img.bytes, img.width, img.height)
             {
-                return ctx.try_image(full_b64, thumb_b64, base_hash, source_app, None);
+                return ctx.try_image(
+                    full_b64,
+                    thumb_b64,
+                    base_hash,
+                    source_bundle_id,
+                    source_app,
+                    None,
+                );
             }
         }
     }
@@ -326,7 +362,7 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
             return false;
         }
         let base_hash = hash_bytes(text.as_bytes());
-        return ctx.try_text(text, base_hash, source_app);
+        return ctx.try_text(text, base_hash, source_bundle_id, source_app);
     }
 
     false
@@ -417,34 +453,6 @@ pub fn start_clipboard_monitor(app: AppHandle) {
     });
 }
 
-#[cfg(target_os = "macos")]
-pub fn get_frontmost_app() -> Option<String> {
-    use std::process::Command;
-    let output = Command::new("lsappinfo")
-        .arg("info")
-        .arg("-only")
-        .arg("name")
-        .arg("-app")
-        .arg("front")
-        .output()
-        .ok()?;
-    let out = String::from_utf8_lossy(&output.stdout);
-    out.split('"')
-        .nth(3)
-        .map(|s| s.to_string())
-        .filter(|s| !s.is_empty())
-}
-
-#[cfg(target_os = "windows")]
-fn get_frontmost_app() -> Option<String> {
-    None
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn get_frontmost_app() -> Option<String> {
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,12 +530,24 @@ mod tests {
     #[test]
     fn should_skip_source_copyosity_and_excluded_apps() {
         let db = test_db();
-        assert!(should_skip_source(&db, &Some("Copyosity".to_string())));
-        assert!(!should_skip_source(&db, &None));
-        assert!(!should_skip_source(&db, &Some("Safari".to_string())));
+        assert!(should_skip_source(
+            &db,
+            &Some(crate::macos_app::COPYOSITY_BUNDLE_ID.to_string()),
+        ));
+        assert_eq!(
+            should_skip_source(&db, &None),
+            crate::macos_app::is_copyosity_frontmost()
+        );
+        assert!(!should_skip_source(
+            &db,
+            &Some("com.apple.Safari".to_string()),
+        ));
 
-        db.add_excluded_app("Safari").unwrap();
-        assert!(should_skip_source(&db, &Some("Safari".to_string())));
+        db.add_excluded_app("com.apple.Safari").unwrap();
+        assert!(should_skip_source(
+            &db,
+            &Some("com.apple.Safari".to_string()),
+        ));
     }
 
     #[test]

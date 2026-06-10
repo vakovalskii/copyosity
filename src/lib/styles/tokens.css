@@ -77,6 +77,8 @@
   --color-warning: #fbbf24;
   --color-warning-bright: #ffc832;
   --color-warning-text: #ff9f0a; /* macOS systemOrange — attention / pending action */
+  /* Voice overlay mic — same red as danger-soft; reads as “recording live”, not an error */
+  --color-recording: var(--color-danger-soft);
 
   /* ── Surfaces (white alpha) ────────────────────────── */
   --surface-1: rgb(var(--rgb-white) / 0.015);
@@ -136,6 +138,10 @@
   --ring-success-control: 0 0 0 3px rgb(var(--rgb-success-control) / 0.18);
 
   /* ── Warning surfaces ──────────────────────────────── */
+  --surface-warning-subtle: rgb(var(--rgb-warning) / 0.08);
+  --surface-warning: rgb(var(--rgb-warning) / 0.14);
+  --border-warning: rgb(var(--rgb-warning-bright) / 0.32);
+  --border-warning-hover: rgb(var(--rgb-warning-bright) / 0.45);
   --border-warning-pinned: rgb(var(--rgb-warning-bright) / 0.3);
   --shadow-warning-dot: rgb(var(--rgb-warning) / 0.35);
 

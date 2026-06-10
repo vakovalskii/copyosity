@@ -53,7 +53,22 @@ export interface ModelCatalog {
   options: ModelOption[];
 }
 
+// Exclusion IPC types use camelCase (backend #[serde(rename_all = "camelCase")]).
+
 export interface ExcludedApp {
   id: number;
-  bundle_id: string;
+  bundleId: string;
+  displayName: string;
+}
+
+export interface ExcludableAppCandidate {
+  bundleId: string;
+  displayName: string;
+  alreadyExcluded: boolean;
+  source: "remembered" | "frontmost";
+}
+
+export interface ExcludeAppResult {
+  displayName: string;
+  alreadyExcluded: boolean;
 }

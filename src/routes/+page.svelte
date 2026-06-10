@@ -10,7 +10,16 @@
     openSettingsWindow,
     activateEntry,
     isTaggingReady,
+    getExcludableAppCandidate,
+    addExcludableAppCandidate,
   } from "$lib/api";
+  import type { ExcludableAppCandidate } from "$lib/types";
+  import {
+    alreadyExcludedFromHistoryLabel,
+    excludeFromClipboardHistoryAriaLabel,
+    excludeFromHistoryLabel,
+    invokeErrorMessage,
+  } from "$lib/exclusion-label";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
   import CollectionTabs from "$lib/components/CollectionTabs.svelte";
@@ -26,12 +35,52 @@
   let visible = $state(false);
   let revealCycle = $state(0);
   let retagAvailable = $state(false);
+  let excludeCandidate: ExcludableAppCandidate | null = $state(null);
+  let excludeNotice = $state("");
+  let excludeNoticeTone = $state<"neutral" | "warn">("neutral");
+  let excludeBusy = $state(false);
   const hiddenTopTags = new Set(["code", "otp", "token", "log"]);
   const imageFormatTags = ["gif", "jpg", "png"];
   const imageFormatTagSet = new Set(imageFormatTags);
 
   async function syncRetagAvailability() {
     retagAvailable = await isTaggingReady();
+  }
+
+  async function loadExcludeCandidate() {
+    try {
+      const candidate = await getExcludableAppCandidate();
+      excludeCandidate = candidate;
+      if (candidate?.alreadyExcluded) {
+        excludeNotice = alreadyExcludedFromHistoryLabel(candidate.displayName);
+        excludeNoticeTone = "neutral";
+        return;
+      }
+      excludeNotice = "";
+    } catch (err) {
+      excludeCandidate = null;
+      excludeNotice = invokeErrorMessage(err) || "Could not detect active app";
+      excludeNoticeTone = "warn";
+    }
+  }
+
+  async function handleExcludeFromPanel() {
+    if (excludeBusy) return;
+    excludeBusy = true;
+    try {
+      const added = await addExcludableAppCandidate();
+      if (added) {
+        await loadExcludeCandidate();
+        return;
+      }
+      excludeNotice = "No active app";
+      excludeNoticeTone = "warn";
+    } catch (err) {
+      excludeNotice = invokeErrorMessage(err) || "Could not exclude this app";
+      excludeNoticeTone = "warn";
+    } finally {
+      excludeBusy = false;
+    }
   }
 
   async function loadEntries() {
@@ -52,6 +101,7 @@
     activeTag = null;
     selectedIndex = -1;
     void syncRetagAvailability();
+    void loadExcludeCandidate();
     loadEntries();
     revealCycle += 1;
     // Reset scroll to start
@@ -234,6 +284,34 @@
       onupdate={loadCollections}
     />
     <div class="header-actions">
+      {#if excludeCandidate && !excludeCandidate.alreadyExcluded}
+        {@const excludeLabel = excludeFromClipboardHistoryAriaLabel(
+          excludeCandidate.displayName,
+        )}
+        <button
+          class="form-btn-restrict exclude-app-btn app-btn"
+          type="button"
+          aria-label={excludeLabel}
+          title={excludeLabel}
+          aria-busy={excludeBusy}
+          disabled={excludeBusy}
+          onclick={() => void handleExcludeFromPanel()}
+        >
+          <span class="exclude-app-btn-text"
+            >{excludeFromHistoryLabel(excludeCandidate.displayName)}</span
+          >
+        </button>
+      {/if}
+      {#if excludeNotice}
+        <span
+          class="status-hint exclude-notice"
+          class:neutral={excludeNoticeTone === "neutral"}
+          class:warn={excludeNoticeTone === "warn"}
+          aria-live="polite"
+        >
+          {excludeNotice}
+        </span>
+      {/if}
       <button
         class="settings-btn app-btn"
         type="button"
@@ -418,8 +496,34 @@
 
   .header-actions {
     position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin-left: auto;
     flex-shrink: 0;
+  }
+
+  .exclude-app-btn {
+    height: 36px;
+    max-width: min(220px, 42vw);
+    padding: 0 12px;
+    border-radius: 10px;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .exclude-app-btn-text {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .exclude-notice {
+    margin: 0;
+    white-space: nowrap;
   }
 
   .settings-btn {

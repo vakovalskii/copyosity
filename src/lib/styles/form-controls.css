@@ -277,10 +277,27 @@
   color: var(--color-danger-text-hover);
 }
 
-.form-link-danger {
+/* Privacy / restrict actions (exclude app from history) — warning, not destructive */
+.form-btn-restrict {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  background: var(--surface-6);
+  border: 1px solid var(--border-warning);
+  color: var(--color-warning-text);
+}
+
+.form-btn-restrict:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+  background: var(--surface-warning-subtle);
+  border-color: var(--border-warning-hover);
+  color: var(--color-warning-bright);
+}
+
+.form-link-accent {
   border: none;
   background: transparent;
-  color: var(--color-danger-text);
+  color: var(--color-accent-link);
   cursor: pointer;
   font: inherit;
   font-size: 11px;
@@ -288,8 +305,38 @@
   white-space: nowrap;
 }
 
-.form-link-danger:hover:not(.is-busy):not(.is-locked):not(:disabled) {
-  color: var(--color-danger-text-hover);
+.form-link-accent:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+  color: var(--color-accent-link-hover);
+}
+
+.form-link-restrict {
+  border: none;
+  background: transparent;
+  color: var(--color-warning-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.form-link-restrict:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+  color: var(--color-warning-bright);
+}
+
+.excluded-list-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.excluded-list-action-icon {
+  width: 12px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
 }
 
 .form-btn-icon {
@@ -447,6 +494,10 @@
 
 .status-hint.ok {
   color: var(--color-success-text);
+}
+
+.status-hint.neutral {
+  color: var(--color-text-tertiary);
 }
 
 .status-hint.warn {

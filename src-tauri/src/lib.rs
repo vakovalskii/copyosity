@@ -1,5 +1,7 @@
 #![allow(unexpected_cfgs)]
 
+mod app_exclusion;
+mod macos_app;
 mod clipboard_macos;
 mod clipboard_monitor;
 mod clipboard_write;
@@ -198,9 +200,9 @@ pub fn run() {
                 panel.set_hides_on_deactivate(false);
             }
 
-            let tray_menu = build_tray_menu(app)?;
+            let tray_menu = build_tray_menu(app.handle())?;
 
-            let tray_builder = TrayIconBuilder::new()
+            let tray_builder = TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Copyosity")
                 .menu(&tray_menu)
@@ -283,7 +285,9 @@ pub fn run() {
             commands::get_excluded_apps,
             commands::add_excluded_app,
             commands::remove_excluded_app,
-            commands::add_frontmost_app_to_excluded,
+            commands::get_excludable_app_candidate,
+            commands::add_excludable_app_candidate,
+            commands::pick_app_to_exclude,
             commands::update_app_settings,
             commands::retag_entry,
             commands::is_tagging_ready,
@@ -397,17 +401,18 @@ fn main_panel_visible(app: &tauri::AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-fn build_tray_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
+fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let version = &app.package_info().version;
     let version_label = format!("Copyosity v{}", version);
 
     let open = MenuItem::with_id(app, "open", "Open Copyosity", true, None::<&str>)?;
     let ver = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
-    let sep = PredefinedMenuItem::separator(app)?;
+    let sep1 = PredefinedMenuItem::separator(app)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    Menu::with_items(app, &[&open, &ver, &sep, &settings, &sep2, &quit])
+
+    Menu::with_items(app, &[&open, &ver, &sep1, &settings, &sep2, &quit])
 }
 
 fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {

@@ -66,9 +66,11 @@ pub struct Collection {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ExcludedApp {
     pub id: i64,
     pub bundle_id: String,
+    pub display_name: String,
 }
 
 pub struct Database {
@@ -174,6 +176,8 @@ impl Database {
             "UPDATE clipboard_tags SET tag = 'jpg' WHERE tag = 'jpeg'",
             [],
         );
+
+        crate::macos_app::migrate_legacy_excluded_app_names(&conn)?;
 
         Ok(Self { conn: Mutex::new(conn) })
     }
@@ -486,31 +490,43 @@ impl Database {
     }
 
     pub fn get_excluded_apps(&self) -> Result<Vec<ExcludedApp>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt =
-            conn.prepare("SELECT id, bundle_id FROM excluded_apps ORDER BY bundle_id COLLATE NOCASE")?;
-        let apps = stmt
-            .query_map([], |row| {
-                Ok(ExcludedApp {
-                    id: row.get(0)?,
-                    bundle_id: row.get(1)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(apps)
+        let rows: Vec<(i64, String)> = {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id, bundle_id FROM excluded_apps ORDER BY bundle_id COLLATE NOCASE",
+            )?;
+            let rows = stmt
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+
+        let bundle_ids: Vec<&str> = rows.iter().map(|(_, bundle_id)| bundle_id.as_str()).collect();
+        let display_names = crate::macos_app::display_names_for_bundle_ids(&bundle_ids);
+
+        Ok(rows
+            .into_iter()
+            .zip(display_names)
+            .map(|((id, bundle_id), display_name)| ExcludedApp {
+                id,
+                bundle_id,
+                display_name,
+            })
+            .collect())
     }
 
-    pub fn add_excluded_app(&self, bundle_id: &str) -> Result<(), rusqlite::Error> {
+    /// Returns `true` when a new row was inserted, `false` when the app was already excluded.
+    pub fn add_excluded_app(&self, bundle_id: &str) -> Result<bool, rusqlite::Error> {
         let normalized = bundle_id.trim();
         if normalized.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
         let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let changes = conn.execute(
             "INSERT OR IGNORE INTO excluded_apps (bundle_id) VALUES (?1)",
             params![normalized],
         )?;
-        Ok(())
+        Ok(changes > 0)
     }
 
     pub fn remove_excluded_app(&self, id: i64) -> Result<(), rusqlite::Error> {
@@ -1246,16 +1262,19 @@ mod tests {
     #[test]
     fn exclude_and_check_app() {
         let db = test_db();
-        assert!(!db.is_app_excluded("Telegram").unwrap());
+        let bundle_id = "org.telegram.desktop";
+        assert!(!db.is_app_excluded(bundle_id).unwrap());
 
-        db.add_excluded_app("Telegram").unwrap();
-        assert!(db.is_app_excluded("Telegram").unwrap());
+        db.add_excluded_app(bundle_id).unwrap();
+        assert!(db.is_app_excluded(bundle_id).unwrap());
 
         let apps = db.get_excluded_apps().unwrap();
         assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].bundle_id, bundle_id);
+        assert_eq!(apps[0].display_name, "Telegram");
 
         db.remove_excluded_app(apps[0].id).unwrap();
-        assert!(!db.is_app_excluded("Telegram").unwrap());
+        assert!(!db.is_app_excluded(bundle_id).unwrap());
     }
 
     #[test]
@@ -1268,8 +1287,9 @@ mod tests {
     #[test]
     fn exclude_duplicate_app_is_noop() {
         let db = test_db();
-        db.add_excluded_app("Safari").unwrap();
-        db.add_excluded_app("Safari").unwrap();
+        let bundle_id = "com.apple.Safari";
+        assert!(db.add_excluded_app(bundle_id).unwrap());
+        assert!(!db.add_excluded_app(bundle_id).unwrap());
         assert_eq!(db.get_excluded_apps().unwrap().len(), 1);
     }
 }
