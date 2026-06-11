@@ -56,18 +56,18 @@ flowchart TB
 - [x] `[Overlay]` `⌘F` / `/` → search; `←/→` зарезервированы под карточки (п. 4)
 - [ ] `[Overlay]` Keyboard hints — контекстный hint в `SearchBar` + footer strip в `+page.svelte` (п. 19)
 - [ ] `[Overlay]` Segmented control для History / Starred; tablist ARIA; упростить header (п. 8–9)
-- [ ] `[Overlay]` SF Pro для plain text, SF Mono только для code-like preview (п. 11)
+- [x] `[Overlay]` SF Pro для plain text, SF Mono только для code-like preview (п. 11)
 - [ ] `[Settings]` Toggle / section patterns вынести в `form-controls.css` (п. 26)
 
 ### P3 — Polish
 
 - [x] `[Overlay]` Empty state fix (фильтр по тегу / search) (п. 18)
-- [ ] `[Overlay]` Убрать `title` tooltip с карточки (п. 14)
+- [x] `[Overlay]` Убрать `title` tooltip с карточки (п. 14)
 - [ ] `[Overlay]` Delete undo / confirm (п. 12)
 - [ ] `[Settings]` Clear history без confirm / undo (п. 22)
 - [x] `[Shared]` `prefers-reduced-motion` — полное покрытие (п. 20)
 - [ ] `[Shared]` `prefers-reduced-transparency` — blur fallback (п. 6, 21)
-- [ ] `[Overlay]` Image meta labels (dimensions вместо «Image preview») (п. 17)
+- [x] `[Overlay]` Image meta labels (dimensions вместо «Image preview») (п. 17)
 - [ ] `[Shared]` Убрать дублирование `title` + `aria-label` на toggles и list actions (п. 24)
 
 ### P4 — Native depth
@@ -75,7 +75,7 @@ flowchart TB
 - [ ] `[Shared]` SF Symbols вместо custom stroke SVG (п. 15)
 - [ ] `[Shared]` Native vibrancy / light mode (`prefers-color-scheme: light`) (п. 7)
 - [ ] `[Overlay]` VoiceOver listbox (п. 34)
-- [ ] `[Overlay]` Scroll affordances на tag bar (п. 10)
+- [x] `[Overlay]` Scroll affordances на tag bar (п. 10)
 
 ---
 
@@ -144,11 +144,11 @@ Settings (`--surface-page` 96% opaque) менее критичен. См. п. 21
 
 Search + tabs + collections + Exclude + gear в одной строке. Exclude → overflow; search flex-grow.
 
-### 10. Tag filter bar `[Overlay]`
+### ✅ 10. Tag filter bar `[Overlay]`
 
 Скрытый scrollbar; шрифт 11px. Рекомендация: 12–13px; scroll fade.
 
-### 11. Моноширинный шрифт для всего preview `[Overlay]`
+### ✅ 11. Моноширинный шрифт для всего preview `[Overlay]`
 
 SF Mono на всём тексте карточки. HIG: SF Pro для body, Mono только для code.
 
@@ -160,7 +160,7 @@ SF Mono на всём тексте карточки. HIG: SF Pro для body, Mo
 
 Selected card должен быть самым контрастным состоянием.
 
-### 14. Native tooltip на карточке `[Overlay]`
+### ✅ 14. Native tooltip на карточке `[Overlay]`
 
 `title={entry.text_content}` — убрать; Quick Look по `Space` (future).
 
@@ -172,7 +172,7 @@ Custom stroke SVG в overlay и settings.
 
 Clear button, `:focus-within` ring, `role="search"`, `aria-label`.
 
-### 17. Image cards — redundant label `[Overlay]`
+### ✅ 17. Image cards — redundant label `[Overlay]`
 
 «Image preview» → dimensions / file size.
 

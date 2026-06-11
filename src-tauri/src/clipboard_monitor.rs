@@ -1,5 +1,5 @@
 use arboard::Clipboard;
-use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
+use image::{DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Rgba};
 use sha2::{Digest, Sha256};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -19,6 +19,14 @@ pub fn is_gif_bytes(data: &[u8]) -> bool {
     data.len() >= 6 && (data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a"))
 }
 
+struct EncodedImage {
+    full_b64: String,
+    thumb_b64: String,
+    width: i64,
+    height: i64,
+    byte_size: i64,
+}
+
 fn encode_png_thumb(image: &DynamicImage) -> Option<String> {
     let thumb = image.thumbnail(240, 160);
     let mut thumb_buf = Cursor::new(Vec::new());
@@ -29,7 +37,7 @@ fn encode_png_thumb(image: &DynamicImage) -> Option<String> {
     ))
 }
 
-fn encode_stored_gif(raw: &[u8]) -> Option<(String, String)> {
+fn encode_stored_gif(raw: &[u8]) -> Option<EncodedImage> {
     if !is_gif_bytes(raw) || raw.len() as u64 > MAX_IMAGE_FILE_BYTES {
         return None;
     }
@@ -37,12 +45,23 @@ fn encode_stored_gif(raw: &[u8]) -> Option<(String, String)> {
         &base64::engine::general_purpose::STANDARD,
         raw,
     );
-    // Keep the GIF even when the first-frame decode fails; only the thumb is optional.
-    let thumb_b64 = image::load_from_memory(raw)
-        .ok()
-        .and_then(|image| encode_png_thumb(&image))
+    let decoded = image::load_from_memory(raw).ok();
+    let (width, height) = decoded
+        .as_ref()
+        .map(|image| image.dimensions())
+        .map(|(w, h)| (w as i64, h as i64))
+        .unwrap_or((0, 0));
+    let thumb_b64 = decoded
+        .as_ref()
+        .and_then(|image| encode_png_thumb(image))
         .unwrap_or_else(|| full_b64.clone());
-    Some((full_b64, thumb_b64))
+    Some(EncodedImage {
+        full_b64,
+        thumb_b64,
+        width,
+        height,
+        byte_size: raw.len() as i64,
+    })
 }
 
 fn is_image_path(path: &Path) -> bool {
@@ -52,23 +71,31 @@ fn is_image_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn encode_image_from_rgba(bytes: &[u8], width: usize, height: usize) -> Option<(String, String)> {
+fn encode_image_from_rgba(bytes: &[u8], width: usize, height: usize) -> Option<EncodedImage> {
     let rgba = ImageBuffer::<Rgba<u8>, _>::from_raw(width as u32, height as u32, bytes.to_vec())?;
     encode_image_from_dynamic(&DynamicImage::ImageRgba8(rgba))
 }
 
-fn encode_image_from_dynamic(image: &DynamicImage) -> Option<(String, String)> {
+fn encode_image_from_dynamic(image: &DynamicImage) -> Option<EncodedImage> {
     let mut full_buf = Cursor::new(Vec::new());
     image.write_to(&mut full_buf, ImageFormat::Png).ok()?;
+    let full_bytes = full_buf.into_inner();
     let full_b64 = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        full_buf.into_inner(),
+        &full_bytes,
     );
     let thumb_b64 = encode_png_thumb(image)?;
-    Some((full_b64, thumb_b64))
+    let (width, height) = image.dimensions();
+    Some(EncodedImage {
+        full_b64,
+        thumb_b64,
+        width: width as i64,
+        height: height as i64,
+        byte_size: full_bytes.len() as i64,
+    })
 }
 
-fn encode_gif_file(path: &Path) -> Option<(String, String)> {
+fn encode_gif_file(path: &Path) -> Option<EncodedImage> {
     let metadata = std::fs::metadata(path).ok()?;
     if metadata.len() > MAX_IMAGE_FILE_BYTES {
         return None;
@@ -77,7 +104,7 @@ fn encode_gif_file(path: &Path) -> Option<(String, String)> {
     encode_stored_gif(&raw)
 }
 
-fn encode_image_file(path: &Path) -> Option<(String, String)> {
+fn encode_image_file(path: &Path) -> Option<EncodedImage> {
     if path
         .extension()
         .and_then(|e| e.to_str())
@@ -91,7 +118,9 @@ fn encode_image_file(path: &Path) -> Option<(String, String)> {
         return None;
     }
     let image = image::open(path).ok()?;
-    encode_image_from_dynamic(&image)
+    let mut encoded = encode_image_from_dynamic(&image)?;
+    encoded.byte_size = metadata.len() as i64;
+    Some(encoded)
 }
 
 fn hash_bytes(data: &[u8]) -> String {
@@ -180,8 +209,7 @@ struct CaptureContext {
 impl CaptureContext {
     fn try_image(
         &self,
-        image_full_b64: String,
-        image_thumb_b64: String,
+        encoded: EncodedImage,
         base_hash: String,
         source_bundle_id: Option<String>,
         source_app: Option<String>,
@@ -194,15 +222,15 @@ impl CaptureContext {
         let content_hash = entry_content_hash(&base_hash);
         let image_format = format_hint
             .map(|hint| image_format::normalize(hint).to_string())
-            .unwrap_or_else(|| image_format::detect_from_b64(&image_full_b64).to_string());
+            .unwrap_or_else(|| image_format::detect_from_b64(&encoded.full_b64).to_string());
         let format_tag = image_format::tag_from_format(&image_format);
 
         let entry = ClipboardEntry {
             id: 0,
             content_type: "image".to_string(),
             text_content: None,
-            image_data: Some(image_full_b64),
-            image_thumb: Some(image_thumb_b64),
+            image_data: Some(encoded.full_b64),
+            image_thumb: Some(encoded.thumb_b64),
             source_app,
             source_app_icon: None,
             content_hash,
@@ -212,6 +240,9 @@ impl CaptureContext {
             collection_id: None,
             tags: vec![format_tag.clone()],
             image_format: Some(image_format),
+            image_width: Some(encoded.width),
+            image_height: Some(encoded.height),
+            image_byte_size: Some(encoded.byte_size),
         };
 
         match self.db.insert_entry(&entry) {
@@ -257,6 +288,9 @@ impl CaptureContext {
             collection_id: None,
             tags: Vec::new(),
             image_format: None,
+            image_width: None,
+            image_height: None,
+            image_byte_size: None,
         };
 
         match self.db.insert_entry(&entry) {
@@ -296,10 +330,9 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
     // 1. Animated GIF from pasteboard (Telegram/browsers) — keep raw bytes.
     if let Some(gif_bytes) = crate::clipboard_macos::pasteboard_gif_bytes() {
         let base_hash = hash_bytes(&gif_bytes);
-        if let Some((full_b64, thumb_b64)) = encode_stored_gif(&gif_bytes) {
+        if let Some(encoded) = encode_stored_gif(&gif_bytes) {
             return ctx.try_image(
-                full_b64,
-                thumb_b64,
+                encoded,
                 base_hash,
                 source_bundle_id.clone(),
                 source_app.clone(),
@@ -318,13 +351,12 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
                 let Some(base_hash) = hash_file_image(&path) else {
                     continue;
                 };
-                let Some((full_b64, thumb_b64)) = encode_image_file(&path) else {
+                let Some(encoded) = encode_image_file(&path) else {
                     continue;
                 };
                 let format = image_format::detect_from_path(&path);
                 captured |= ctx.try_image(
-                    full_b64,
-                    thumb_b64,
+                    encoded,
                     base_hash,
                     source_bundle_id.clone(),
                     source_app.clone(),
@@ -341,12 +373,11 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
     if let Ok(img) = clipboard.get_image() {
         if !img.bytes.is_empty() {
             let base_hash = hash_raster_image(&img.bytes, img.width, img.height);
-            if let Some((full_b64, thumb_b64)) =
+            if let Some(encoded) =
                 encode_image_from_rgba(&img.bytes, img.width, img.height)
             {
                 return ctx.try_image(
-                    full_b64,
-                    thumb_b64,
+                    encoded,
                     base_hash,
                     source_bundle_id,
                     source_app,
@@ -522,9 +553,9 @@ mod tests {
     #[test]
     fn encode_stored_gif_keeps_bytes_when_thumb_decode_fails() {
         let minimal = b"GIF89a\x01\x00\x01\x00\x00\x00\x00!";
-        let (full, thumb) = encode_stored_gif(minimal).expect("should store minimal gif");
-        assert!(!full.is_empty());
-        assert!(!thumb.is_empty());
+        let encoded = encode_stored_gif(minimal).expect("should store minimal gif");
+        assert!(!encoded.full_b64.is_empty());
+        assert!(!encoded.thumb_b64.is_empty());
     }
 
     #[test]

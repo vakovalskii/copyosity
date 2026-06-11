@@ -13,6 +13,9 @@ export interface ClipboardEntry {
   collection_id: number | null;
   tags: string[];
   image_format?: string | null;
+  image_width?: number | null;
+  image_height?: number | null;
+  image_byte_size?: number | null;
 }
 
 export interface Collection {

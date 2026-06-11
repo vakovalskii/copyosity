@@ -263,6 +263,12 @@ pub fn run() {
                             Ok(_) => {}
                         }
                     }
+                    loop {
+                        match db_backfill.backfill_missing_image_meta(100) {
+                            Ok(0) | Err(_) => break,
+                            Ok(_) => {}
+                        }
+                    }
                 });
             }
             clipboard_monitor::start_clipboard_monitor(app.handle().clone());
@@ -280,6 +286,7 @@ pub fn run() {
             commands::delete_collection,
             commands::clear_history,
             commands::hide_main_window,
+            commands::resize_main_window,
             commands::open_settings_window,
             commands::quit_app,
             commands::get_app_settings,
@@ -344,7 +351,7 @@ fn toggle_window(app: &tauri::AppHandle) {
                 animated_hide_panel(app);
             } else {
                 if let Some(window) = app.get_webview_window("main") {
-                    position_window_bottom(&window);
+                    position_window_bottom(&window, OVERLAY_HEIGHT_COMPACT);
                 }
                 clipboard_macos::remember_paste_target();
                 PANEL_HIDE_SCHEDULED.store(false, Ordering::Release);
@@ -363,7 +370,7 @@ fn toggle_window(app: &tauri::AppHandle) {
             animated_hide_panel(app);
         } else {
             LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
-            position_window_bottom(&window);
+            position_window_bottom(&window, OVERLAY_HEIGHT_COMPACT);
             let _ = window.show();
             let _ = window.set_focus();
             let _ = app.emit("window-show", ());
@@ -603,7 +610,10 @@ fn hide_voice_overlay(app: &tauri::AppHandle) {
     }
 }
 
-pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow) {
+/// Default overlay height (compact tier) until the frontend applies layout.
+pub const OVERLAY_HEIGHT_COMPACT: f64 = 420.0;
+
+pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow, height_px: f64) {
     use tauri::PhysicalPosition;
 
     if let Ok(Some(monitor)) = window.current_monitor() {
@@ -612,7 +622,7 @@ pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow) {
         let bottom_padding = (28.0 * scale) as i32;
         let min_width = (900.0 * scale) as u32;
         let preferred_width = (1180.0 * scale) as u32;
-        let win_height = (420.0 * scale) as u32;
+        let win_height = (height_px * scale) as u32;
         let win_width = preferred_width.min(work_area.size.width).max(min_width);
 
         let x = work_area.position.x + ((work_area.size.width as i32 - win_width as i32) / 2);

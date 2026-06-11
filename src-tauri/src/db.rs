@@ -55,6 +55,12 @@ pub struct ClipboardEntry {
     /// Display format for image entries: GIF, PNG, JPG.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_width: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_height: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_byte_size: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -125,6 +131,50 @@ fn resolve_image_format(entry: &mut ClipboardEntry) {
         .or(entry.image_thumb.as_deref());
     if let Some(b64) = b64 {
         entry.image_format = Some(crate::image_format::detect_from_b64(b64).to_string());
+    }
+}
+
+fn decode_image_dimensions(b64: &str) -> Option<(i64, i64)> {
+    use base64::Engine;
+    use image::GenericImageView;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    let image = image::load_from_memory(&bytes).ok()?;
+    let (width, height) = image.dimensions();
+    Some((width as i64, height as i64))
+}
+
+fn resolve_image_meta(entry: &mut ClipboardEntry) {
+    if entry.content_type != "image" {
+        return;
+    }
+
+    if entry.image_width.is_some()
+        && entry.image_height.is_some()
+        && entry.image_byte_size.is_some()
+    {
+        return;
+    }
+
+    let b64 = entry
+        .image_data
+        .as_deref()
+        .or(entry.image_thumb.as_deref());
+    let Some(b64) = b64 else {
+        return;
+    };
+
+    if entry.image_width.is_none() || entry.image_height.is_none() {
+        if let Some((width, height)) = decode_image_dimensions(b64) {
+            entry.image_width = Some(width);
+            entry.image_height = Some(height);
+        }
+    }
+
+    if entry.image_byte_size.is_none() {
+        use base64::Engine;
+        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) {
+            entry.image_byte_size = Some(bytes.len() as i64);
+        }
     }
 }
 
@@ -211,6 +261,19 @@ impl Database {
             [],
         );
         backfill_text_content_search(&conn)?;
+
+        let _ = conn.execute(
+            "ALTER TABLE clipboard_entries ADD COLUMN image_width INTEGER",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE clipboard_entries ADD COLUMN image_height INTEGER",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE clipboard_entries ADD COLUMN image_byte_size INTEGER",
+            [],
+        );
 
         crate::macos_app::migrate_legacy_excluded_app_names(&conn)?;
 
@@ -375,6 +438,24 @@ impl Database {
                         params![id],
                     )?;
                 }
+                if entry.image_width.is_some() {
+                    conn.execute(
+                        "UPDATE clipboard_entries SET image_width = ?1 WHERE id = ?2 AND image_width IS NULL",
+                        params![entry.image_width, id],
+                    )?;
+                }
+                if entry.image_height.is_some() {
+                    conn.execute(
+                        "UPDATE clipboard_entries SET image_height = ?1 WHERE id = ?2 AND image_height IS NULL",
+                        params![entry.image_height, id],
+                    )?;
+                }
+                if entry.image_byte_size.is_some() {
+                    conn.execute(
+                        "UPDATE clipboard_entries SET image_byte_size = ?1 WHERE id = ?2 AND image_byte_size IS NULL",
+                        params![entry.image_byte_size, id],
+                    )?;
+                }
             }
             return Ok((id, false));
         }
@@ -385,8 +466,8 @@ impl Database {
             .map(lowercase_search_text);
 
         conn.execute(
-            "INSERT INTO clipboard_entries (content_type, text_content, text_content_search, image_data, image_thumb, source_app, source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id, image_format)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO clipboard_entries (content_type, text_content, text_content_search, image_data, image_thumb, source_app, source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id, image_format, image_width, image_height, image_byte_size)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 entry.content_type,
                 entry.text_content,
@@ -401,6 +482,9 @@ impl Database {
                 entry.is_pinned as i32,
                 entry.collection_id,
                 entry.image_format,
+                entry.image_width,
+                entry.image_height,
+                entry.image_byte_size,
             ],
         )?;
 
@@ -413,7 +497,7 @@ impl Database {
         let mut sql = String::from(
             "SELECT id, content_type, text_content, NULL as image_data, COALESCE(image_thumb, image_data) as image_thumb, source_app, NULL as source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id,
              COALESCE((SELECT GROUP_CONCAT(tag, '|') FROM clipboard_tags WHERE entry_id = clipboard_entries.id), '') as tags,
-             image_format
+             image_format, image_width, image_height, image_byte_size
              FROM clipboard_entries WHERE 1=1"
         );
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -463,6 +547,9 @@ impl Database {
                     .map(|tag| tag.to_string())
                     .collect(),
                 image_format: row.get(13)?,
+                image_width: row.get(14)?,
+                image_height: row.get(15)?,
+                image_byte_size: row.get(16)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -715,7 +802,7 @@ impl Database {
             "SELECT id, content_type, text_content, image_data, image_thumb, source_app, source_app_icon,
                     content_hash, char_count, created_at, is_pinned, collection_id,
                     COALESCE((SELECT GROUP_CONCAT(tag, '|') FROM clipboard_tags WHERE entry_id = clipboard_entries.id), '') as tags,
-                    image_format
+                    image_format, image_width, image_height, image_byte_size
              FROM clipboard_entries
              WHERE id = ?1",
             params![entry_id],
@@ -740,6 +827,9 @@ impl Database {
                         .map(|tag| tag.to_string())
                         .collect(),
                     image_format: row.get(13)?,
+                    image_width: row.get(14)?,
+                    image_height: row.get(15)?,
+                    image_byte_size: row.get(16)?,
                 })
             },
         )
@@ -754,6 +844,64 @@ impl Database {
                 entry
             })
         })
+    }
+
+    /// Persist image meta for legacy image rows missing width/height/size. Returns rows updated.
+    pub fn backfill_missing_image_meta(&self, batch_size: i64) -> Result<i64, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, image_data, image_thumb FROM clipboard_entries
+             WHERE content_type = 'image'
+               AND (image_width IS NULL OR image_height IS NULL OR image_byte_size IS NULL)
+             LIMIT ?1",
+        )?;
+        let rows: Vec<(i64, Option<String>, Option<String>)> = stmt
+            .query_map(params![batch_size], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut updated = 0i64;
+        for (id, image_data, image_thumb) in rows {
+            if image_data.as_deref().or(image_thumb.as_deref()).is_none() {
+                continue;
+            }
+            let mut entry = ClipboardEntry {
+                id,
+                content_type: "image".to_string(),
+                text_content: None,
+                image_data,
+                image_thumb,
+                source_app: None,
+                source_app_icon: None,
+                content_hash: String::new(),
+                char_count: None,
+                created_at: String::new(),
+                is_pinned: false,
+                collection_id: None,
+                tags: Vec::new(),
+                image_format: None,
+                image_width: None,
+                image_height: None,
+                image_byte_size: None,
+            };
+            resolve_image_meta(&mut entry);
+            let changed = conn.execute(
+                "UPDATE clipboard_entries
+                 SET image_width = COALESCE(image_width, ?1),
+                     image_height = COALESCE(image_height, ?2),
+                     image_byte_size = COALESCE(image_byte_size, ?3)
+                 WHERE id = ?4",
+                params![
+                    entry.image_width,
+                    entry.image_height,
+                    entry.image_byte_size,
+                    id,
+                ],
+            )?;
+            updated += changed as i64;
+        }
+        Ok(updated)
     }
 
     /// Persist image_format for legacy image rows missing the column. Returns rows updated.
@@ -829,7 +977,10 @@ mod tests {
                 is_pinned INTEGER DEFAULT 0,
                 collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,
                 image_format TEXT,
-                text_content_search TEXT
+                text_content_search TEXT,
+                image_width INTEGER,
+                image_height INTEGER,
+                image_byte_size INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_entries_content_hash ON clipboard_entries(content_hash);
             CREATE TABLE IF NOT EXISTS settings (
@@ -869,10 +1020,20 @@ mod tests {
             collection_id: None,
             tags: Vec::new(),
             image_format: None,
+            image_width: None,
+            image_height: None,
+            image_byte_size: None,
         }
     }
 
-    fn make_image_entry(hash: &str, thumb_b64: &str, image_format: Option<&str>) -> ClipboardEntry {
+    fn make_image_entry(
+        hash: &str,
+        thumb_b64: &str,
+        image_format: Option<&str>,
+        image_width: Option<i64>,
+        image_height: Option<i64>,
+        image_byte_size: Option<i64>,
+    ) -> ClipboardEntry {
         ClipboardEntry {
             id: 0,
             content_type: "image".to_string(),
@@ -888,6 +1049,9 @@ mod tests {
             collection_id: None,
             tags: Vec::new(),
             image_format: image_format.map(str::to_string),
+            image_width,
+            image_height,
+            image_byte_size,
         }
     }
 
@@ -927,11 +1091,11 @@ mod tests {
     fn insert_duplicate_image_backfills_image_format() {
         let db = test_db();
         let thumb = "iVBORw0KGgoAAAANSUhEUg";
-        let e1 = make_image_entry("img_dup", thumb, None);
+        let e1 = make_image_entry("img_dup", thumb, None, None, None, None);
         let (id1, new1) = db.insert_entry(&e1).unwrap();
         assert!(new1);
 
-        let e2 = make_image_entry("img_dup", thumb, Some("PNG"));
+        let e2 = make_image_entry("img_dup", thumb, Some("PNG"), None, None, None);
         let (id2, new2) = db.insert_entry(&e2).unwrap();
         assert!(!new2);
         assert_eq!(id1, id2);
@@ -944,7 +1108,7 @@ mod tests {
     fn get_entries_resolves_image_format_from_thumb() {
         let db = test_db();
         let thumb = "/9j/4AAQSkZJRgABAQAAAQ";
-        let entry = make_image_entry("img_jpg", thumb, None);
+        let entry = make_image_entry("img_jpg", thumb, None, None, None, None);
         let (id, _) = db.insert_entry(&entry).unwrap();
 
         let entries = db.get_entries(10, 0, None, false, None).unwrap();
@@ -956,7 +1120,7 @@ mod tests {
     fn backfill_missing_image_formats_persists_rows() {
         let db = test_db();
         let thumb = "R0lGODlhAQABAIAAAAAAAP";
-        let entry = make_image_entry("img_gif", thumb, None);
+        let entry = make_image_entry("img_gif", thumb, None, None, None, None);
         db.insert_entry(&entry).unwrap();
 
         let updated = db.backfill_missing_image_formats(100).unwrap();
@@ -969,7 +1133,14 @@ mod tests {
     #[test]
     fn image_format_round_trips_on_insert_and_fetch() {
         let db = test_db();
-        let mut entry = make_image_entry("img_png", "iVBORw0KGgoAAAANSUhEUg", Some("PNG"));
+        let mut entry = make_image_entry(
+            "img_png",
+            "iVBORw0KGgoAAAANSUhEUg",
+            Some("PNG"),
+            Some(64),
+            Some(48),
+            Some(12_345),
+        );
         entry.image_data = Some("iVBORw0KGgoAAAANSUhEUg".to_string());
 
         let (id, is_new) = db.insert_entry(&entry).unwrap();
@@ -977,10 +1148,33 @@ mod tests {
 
         let fetched = db.get_entry_by_id(id).unwrap().unwrap();
         assert_eq!(fetched.image_format.as_deref(), Some("PNG"));
+        assert_eq!(fetched.image_width, Some(64));
+        assert_eq!(fetched.image_height, Some(48));
+        assert_eq!(fetched.image_byte_size, Some(12_345));
 
         let listed = db.get_entries(10, 0, None, false, None).unwrap();
         let found = listed.iter().find(|e| e.id == id).unwrap();
         assert_eq!(found.image_format.as_deref(), Some("PNG"));
+        assert_eq!(found.image_width, Some(64));
+        assert_eq!(found.image_height, Some(48));
+        assert_eq!(found.image_byte_size, Some(12_345));
+    }
+
+    #[test]
+    fn backfill_missing_image_meta_persists_rows() {
+        let db = test_db();
+        // Valid 1×1 PNG (decodable for width/height/byte_size backfill).
+        let thumb = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        let entry = make_image_entry("img_meta", thumb, Some("PNG"), None, None, None);
+        db.insert_entry(&entry).unwrap();
+
+        let updated = db.backfill_missing_image_meta(100).unwrap();
+        assert!(updated >= 1);
+
+        let entries = db.get_entries(10, 0, None, false, None).unwrap();
+        assert!(entries[0].image_width.is_some());
+        assert!(entries[0].image_height.is_some());
+        assert!(entries[0].image_byte_size.is_some());
     }
 
     #[test]

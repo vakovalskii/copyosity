@@ -5,7 +5,7 @@ All notable changes to Copyosity are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2026-06-11
+## [0.4.0] - 2026-06-12
 
 ### Added
 
@@ -14,7 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unified clipboard writes** (`clipboard_write.rs`) — copy, activate, paste, and voice flows share one code path with explicit **Copy** and **Paste** modes.
 - **Image capture from Finder** — PNG, JPG/JPEG, and GIF files copied in Finder are stored in history (up to ~20 MB); the app ignores its own pasteboard writes.
 - **Animated GIF support** — capture animated GIFs from the pasteboard or Finder (including Telegram and browsers), show thumbnails in history, and paste back as animated GIF instead of a static raster (file-URL pasteboard path with automatic temp-file cleanup).
-- **Image format metadata** — `image_format` DB column; history cards show the format next to the Image badge (`Image PNG`, `Image GIF`, `Image JPG`); automatic format tags (`png`, `gif`, `jpg`) pinned in the tag filter bar when matching entries exist; shared detection in `image_format.rs`.
+- **Image format metadata** — `image_format` DB column; history cards show the format next to the Image badge (`Image PNG`, `Image GIF`, `Image JPG`); automatic format tags (`png`, `gif`, `jpg`) in the overlay filter bar when matching entries exist; shared detection in `image_format.rs`.
+- **Overlay two-row filters** — Row A Content Kind segment (`All` / `Text` / `Images`) when AI tagging is on; Row B tag chip bar with format chips (muted + photo icon), semantic AI chips, scroll fade, and divider; shared logic in `overlay-filters.ts`, `ContentKindSegment.svelte`, and `TagFilterBar.svelte`.
+- **AI tagging off — collapsed overlay filters** — Row A hidden; Row B shows format chips only when image entries exist; card footers hide all tags (including stale DB tags); filter zone shrinks to format-only chips or hides when nothing applies.
+- **Image dimensions and file size** — `image_width`, `image_height`, and `image_byte_size` DB columns with capture-time persistence, startup backfill, and card meta line (`1920 × 1080 · 245 KB`) via `image-meta.ts`.
+- **Dynamic overlay height** — `resize_main_window` IPC plus `overlay-layout.ts` / `overlay-resize.ts`; compact (420px) / medium (440px) / full (480px) tiers from filter layout; animated bottom-anchored resize while open (instant when Reduce Motion is on).
+- **Overlay settings sync on reveal** — main window reads `get_app_settings` each time the panel opens so AI tagging on/off matches Settings before filters render.
+- **Overlay filter plan** — `docs/plans/03-overlay-content-and-tag-filters.md` (content-kind + tag chip UX, progressive disclosure, height tiers).
 - **Per-window Tauri capabilities** — separate permission sets for `main`, `settings`, and `voice_overlay` instead of a single default capability.
 - **Ollama model name validation** before `ollama pull`.
 - **Release CI checks** — `cargo audit`, `npm run check`, and `cargo test` on tagged releases.
@@ -35,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unicode case-insensitive clipboard search** — `text_content_search` DB column stores lowercase text; legacy rows backfill on startup; queries match Cyrillic and Latin regardless of case.
 - **Text selection tokens** (`--selection-bg`, `--selection-text`) — accent wash for search input and shared form controls.
 - **Motion system** (`motion.ts`, motion tokens in `tokens.css`) — shared panel/HUD durations and Apple-style easings; `prefers-reduced-motion` token overrides; helpers `panelOpenMs`, `panelCloseFallbackMs`, `scrollBehavior`, and `subscribeReducedMotion`.
-- **Unit tests** — **107 tests** in `copyosity_lib` for 0.4.0, with emphasis on clipboard monitor dedup/hash-poisoning, image format and animated GIF paste paths, DB migration and tag backfill, case-insensitive/Cyrillic search and `text_content_search` backfill, settings partial updates (Whisper, voice transcription, AI tagging toggles), `tagging_ready` / `is_ai_tagging_enabled`, Ollama model validation plus `/api/ps` load-unload matching, `open_accessibility_settings` IPC, `macos_app` bundle ID resolution, app-exclusion candidate resolution, and macOS paste helpers (`bundle_prefers_keyboard_paste`, `cmd_v_uses_session_tap`, AX editable-role priority).
+- **Unit tests** — **108 tests** in `copyosity_lib` for 0.4.0, with emphasis on clipboard monitor dedup/hash-poisoning, image format and animated GIF paste paths, image meta backfill, DB migration and tag backfill, case-insensitive/Cyrillic search and `text_content_search` backfill, settings partial updates (Whisper, voice transcription, AI tagging toggles), `tagging_ready` / `is_ai_tagging_enabled`, Ollama model validation plus `/api/ps` load-unload matching, `open_accessibility_settings` IPC, `macos_app` bundle ID resolution, app-exclusion candidate resolution, and macOS paste helpers (`bundle_prefers_keyboard_paste`, `cmd_v_uses_session_tap`, AX editable-role priority).
 
 ### Changed
 
@@ -44,12 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Overlay keyboard selection** — opening the panel or changing search, collection, or tag filters selects the first (newest) entry; `Cmd+Shift+V` then `Enter` pastes the latest item without an extra arrow key; mouse hover highlighting stays separate from keyboard selection.
 - **Overlay search field** — in Tab order (no `tabindex="-1"`); clear button; `:focus-within` ring aligned with Settings; `role="search"` and `aria-label`; `focus()`, `blur()`, and `isFocused()` exported for panel shortcuts.
 - **Overlay arrow keys** — `←/→` always navigate cards, including when the search field is focused (Spotlight-style; left/right do not move the text cursor).
-- **Overlay empty states** — contextual messages for search-only, tag-only, and combined filters with secondary hints and `role="status"`.
+- **Overlay empty states** — contextual messages for search, tag, content-kind, and format filters (including combined filters) with secondary hints and `role="status"`.
 - **Overlay panel motion** — Raycast-style asymmetric open/close via motion tokens; slide with `translate3d` (no scale); native hide waits for frontend close animation (`window-hide-request` → `hide_main_window` after `transitionend` or fallback timeout).
-- **Overlay panel height** — main window 400px → 420px.
+- **Overlay reveal layout** — before the open animation, the panel reloads entries, syncs AI tagging from Settings, and sizes the native window to the correct height tier.
+- **Overlay tag filter bar** — two-row HIG layout replaces the single-row top-8 tag list; progressive disclosure (content-kind segments only when AI tagging is on and history mixes text and images; tag bar stays visible on empty filter results); 12px chips; format vs semantic styling; unified accent active state; vertical divider between chip groups; content-kind-aware chip sets.
+- **Overlay card preview typography** — SF Pro for plain text previews; SF Mono only for code-like entries (`textKind`).
+- **Image history cards** — footer format tags removed; redundant «Image preview» label replaced with dimensions and file size; native `title` tooltip removed from cards.
+- **HIG audit (overlay)** — tag bar scroll affordances, preview typography, image meta labels, and card tooltip removal marked complete in `docs/plans/02-hig-audit.md`.
 - **Reduce Motion** — panel transitions, card hover lift, copied-feedback scale, voice HUD mic pulse and EQ wobble, status-dot pulse, button spinner, and Settings toggle slider respect `prefers-reduced-motion`.
 - **Clipboard card actions** — Copy / Retag / Pin / Delete visible when the card is keyboard-selected or `:focus-within`, not only on hover; `aria-label` replaces `title` tooltips on action buttons.
-- **Plan docs** — macOS Intel pre-release plan renumbered to `03-macos-intel-pre-release-plan.md`.
 - **Accessibility in Settings** — silent checks vs macOS trust dialog are separated; one prompt per Settings visit; live AX probe; **Recheck** confirms when access is still valid; guidance after rebuild or reinstall; `open_accessibility_settings` IPC from Settings.
 - **Settings window** — native title bar (draggable again) with a custom header drag region.
 - **Voice overlay** — pre-created NSPanel with non-activating behavior so showing the overlay no longer steals focus from the target app; audio level meter uses a logarithmic dB scale for quiet laptop mics.
@@ -86,7 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Paste into Messages** — text and images paste into the compose field; `com.apple.MobileSMS` / `com.apple.iChat` skip unreliable `AXPaste` and use keyboard simulation; AX tree walk no longer targets the conversation scroll area ahead of the compose field.
 - **Double paste on activate** — synthetic Cmd+V posts to the session event tap only; posting to session and HID taps together inserted duplicate text/images in Cursor, Messages, and other targets.
 - **Tray menu on first launch** — the hidden main panel no longer competes with the status-bar menu popup on the first click.
-- **Image history backfill** — re-copying the same image updates legacy rows missing full-size `image_data` or `image_format`; existing `jpeg` format labels and tags are normalized to `jpg`.
+- **Image history backfill** — re-copying the same image updates legacy rows missing full-size `image_data`, `image_format`, or image dimensions/size; existing `jpeg` format labels and tags are normalized to `jpg`; startup `backfill_missing_image_meta` fills width/height/byte size for older rows.
 - **Settings partial updates** — changing one field no longer wipes Whisper/voice/microphone settings.
 - **Clipboard card action icons** — copy, retag, pin, and delete use uniform 16×16 SVG icons instead of mismatched Unicode glyphs; pinned star is filled and highlighted.
 - **Clipboard card text preview** — long text no longer bleeds into the inner border or bottom padding; preview uses a fixed-height slot with grid clipping and a CSS ellipsis (`line-clamp`: 8 lines).
@@ -97,9 +106,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings tagging test** — repeatable after success; busy spinner and “Testing…” state render on every run; successful test display requires the model to be loaded in memory.
 - **Settings Ollama status dot** — “Model unloaded” uses a static yellow indicator instead of the pulsing animation reserved for in-progress checks.
 - **Settings status hints** — symmetric vertical padding within checklist rows; hint copy split across lines where it improves readability (model unloaded, tagging test).
-- **Tag filter bar** — image format tags (`jpg`, `gif`, `png`) always appear in filter chips when matching entries exist; previously only the top 8 tags by count were shown, so low-count format tags (e.g. `jpg`) could be missing from the bar while still visible on cards; filtering also matches `image_format` for legacy rows.
+- **Tag filter bar** — format tags (`jpg`, `gif`, `png`) always appear when matching entries exist (previously only the top 8 tags by count were shown); filtering matches `image_format` for legacy rows; superseded by the two-row Content Kind + tag chip bar in this release.
 - **Clipboard self-capture** — clipboard monitor skips capture when Copyosity is frontmost, even when the source bundle ID is unavailable in the pasteboard read path.
-- **Tag-filter empty state** — filtering by tag without a search query now shows tag-specific copy instead of a misleading search message.
+- **Tag-filter empty state** — filtering by tag or format without a search query shows filter-specific copy instead of a misleading search message.
 - **Paste focus race on activate** — Enter and double-click no longer hide the panel from the frontend before paste; automated paste runs only after the close animation and native hide complete.
 - **Invisible cards on panel open** — removed per-card stagger enter animation that could leave cards at `opacity: 0` in WebKit; panel slide now carries open/close motion.
 
@@ -111,7 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Sensitive IPC commands scoped per window (`settings` cannot call paste commands; `voice_overlay` cannot call `clear_history` or `start_ollama_server`; main panel may only read/add the current excludable-app candidate, not open the picker or edit the full exclusion list).
+- Sensitive IPC commands scoped per window (`settings` cannot call paste commands; `voice_overlay` cannot call `clear_history` or `start_ollama_server`; main panel may only read/add the current excludable-app candidate, not open the picker or edit the full exclusion list; main panel may call `get_app_settings` and `resize_main_window` for overlay layout only).
 - `cargo audit` in the release workflow.
 - **Tauri 2.11** — upstream IPC ACL hardening for custom commands from remote origins.
 

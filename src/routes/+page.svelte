@@ -6,6 +6,7 @@
   import {
     getEntries,
     getCollections,
+    getAppSettings,
     hideMainWindow,
     openSettingsWindow,
     activateEntry,
@@ -23,7 +24,26 @@
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
   import CollectionTabs from "$lib/components/CollectionTabs.svelte";
+  import ContentKindSegment from "$lib/components/ContentKindSegment.svelte";
+  import TagFilterBar from "$lib/components/TagFilterBar.svelte";
+  import {
+    type ContentKind,
+    buildTagBarModel,
+    filterKindPool,
+    filterByActiveTag,
+    activeTagCompatibleWithKind,
+    activeTagCompatibleWithAi,
+    isFormatTag,
+    contentKindEmptyLabel,
+    formatTagEmptyLabel,
+  } from "$lib/overlay-filters";
   import { overlayEscapeAction } from "$lib/overlay-search";
+  import { overlayHeightForLayout } from "$lib/overlay-layout";
+  import {
+    animateOverlayResize,
+    resetOverlayResizeState,
+    resizeMainWindow,
+  } from "$lib/overlay-resize";
   import { panelCloseFallbackMs, panelOpenMs, scrollBehavior } from "$lib/motion";
 
   let entries: ClipboardEntry[] = $state([]);
@@ -32,6 +52,8 @@
   let activeCollectionId: number | null = $state(null);
   let pinnedOnly = $state(false);
   let activeTag = $state<string | null>(null);
+  let contentKind = $state<ContentKind>("all");
+  let aiTaggingEnabled = $state(false);
   let selectedIndex = $state(-1);
   let gridEl: HTMLDivElement | undefined = $state();
   let appEl: HTMLDivElement | undefined = $state();
@@ -48,12 +70,44 @@
   let excludeNoticeTone = $state<"neutral" | "warn">("neutral");
   let excludeBusy = $state(false);
   let searchBar: SearchBar | undefined = $state();
-  const hiddenTopTags = new Set(["code", "otp", "token", "log"]);
-  const imageFormatTags = ["gif", "jpg", "png"];
-  const imageFormatTagSet = new Set(imageFormatTags);
+  let settingsLoadError = $state<string | null>(null);
+  let lastLayoutHeight = $state<number | null>(null);
+
+  const SETTINGS_SYNC_USER_NOTICE =
+    "Couldn't load app settings. Tags and filters may not work properly. Restart Copyosity.";
+
+  let settingsSyncNotice = $derived(
+    settingsLoadError !== null ? SETTINGS_SYNC_USER_NOTICE : null,
+  );
 
   async function syncRetagAvailability() {
     retagAvailable = await isTaggingReady();
+  }
+
+  async function syncAiTaggingSettings() {
+    try {
+      const settings = await getAppSettings();
+      settingsLoadError = null;
+      const enabled = settings.ai_tagging_enabled;
+      if (enabled !== aiTaggingEnabled) {
+        if (!enabled) {
+          if (activeTag && !activeTagCompatibleWithAi(activeTag, false)) {
+            activeTag = null;
+          }
+        } else {
+          contentKind = "all";
+          activeTag = null;
+        }
+      }
+      aiTaggingEnabled = enabled;
+    } catch (err) {
+      aiTaggingEnabled = false;
+      settingsLoadError = invokeErrorMessage(err) || "unknown";
+    }
+  }
+
+  async function syncOverlaySettings() {
+    await Promise.all([syncRetagAvailability(), syncAiTaggingSettings()]);
   }
 
   async function loadExcludeCandidate() {
@@ -178,6 +232,26 @@
     clearSearch({ reload: false });
     activeTag = null;
     selectedIndex = -1;
+    resetOverlayResizeState();
+  }
+
+  async function applyOverlayHeight(height: number, animated: boolean) {
+    if (animated && visible) {
+      await animateOverlayResize(height);
+    } else {
+      await resizeMainWindow(height);
+    }
+  }
+
+  async function prepareOverlayLayout() {
+    await syncOverlaySettings();
+    await loadEntries(true, false);
+    const height = overlayHeightForLayout({
+      tagBar: tagBarModel,
+      hasSettingsNotice: settingsSyncNotice !== null,
+    });
+    await applyOverlayHeight(height, false);
+    lastLayoutHeight = height;
   }
 
   function showWindow() {
@@ -188,6 +262,7 @@
     clearRevealTimer();
     clearSearch({ reload: false });
     activeTag = null;
+    resetOverlayResizeState();
 
     isRevealing = true;
     pendingReload = false;
@@ -195,15 +270,16 @@
 
     // Always reset to hidden first so CSS transition replays on every open.
     visible = false;
-    void nextPaint().then(() => {
+    void (async () => {
+      await prepareOverlayLayout();
+      if (seq !== revealSeq) return;
+      await nextPaint();
       if (seq !== revealSeq) return;
       visible = true;
       searchBar?.blur();
-      void loadEntries(true, false);
       revealTimer = setTimeout(finishReveal, panelOpenMs());
-      void syncRetagAvailability();
       void loadExcludeCandidate();
-    });
+    })();
   }
 
   function startVisualHide() {
@@ -224,7 +300,7 @@
   }
 
   onMount(() => {
-    void syncRetagAvailability();
+    void syncOverlaySettings();
     loadEntries();
     loadCollections();
 
@@ -414,10 +490,25 @@
       };
     }
     if (activeTag) {
+      if (isFormatTag(activeTag)) {
+        return {
+          title: formatTagEmptyLabel(activeTag),
+          hint: "Try another format or clear the filter",
+        };
+      }
       return {
         title: `No results for tag “${activeTag}”`,
         hint: "Try another tag or clear the filter",
       };
+    }
+    if (aiTaggingEnabled) {
+      const kindLabel = contentKindEmptyLabel(contentKind);
+      if (kindLabel) {
+        return {
+          title: kindLabel,
+          hint: "Try another content type or clear filters",
+        };
+      }
     }
     return {
       title: "Clipboard history is empty",
@@ -425,47 +516,67 @@
     };
   }
 
-  function sortTagsByCount(tagCounts: [string, number][]) {
-    return tagCounts.sort((a, b) => {
-      if (b[1] !== a[1]) return b[1] - a[1];
-      return a[0].localeCompare(b[0]);
-    });
-  }
+  let tagBarModel = $derived(
+    buildTagBarModel({
+      entries,
+      contentKind,
+      aiTaggingEnabled,
+      activeTag,
+    }),
+  );
 
-  let topTags = $derived.by(() => {
-    const counts = new Map<string, number>();
+  let kindPool = $derived(
+    filterKindPool(entries, aiTaggingEnabled && tagBarModel.showRowA, contentKind),
+  );
 
-    for (const entry of entries) {
-      for (const tag of entry.tags ?? []) {
-        if (hiddenTopTags.has(tag)) continue;
-        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  let overlayLayoutHeight = $derived(
+    overlayHeightForLayout({
+      tagBar: tagBarModel,
+      hasSettingsNotice: settingsSyncNotice !== null,
+    }),
+  );
+
+  $effect(() => {
+    if (!tagBarModel.showRowA && contentKind !== "all") {
+      contentKind = "all";
+      if (activeTag && !activeTagCompatibleWithKind(activeTag, "all")) {
+        activeTag = null;
       }
     }
-
-    const pinnedFormatTags = sortTagsByCount(
-      imageFormatTags
-        .filter((tag) => counts.has(tag))
-        .map((tag) => [tag, counts.get(tag)!] as [string, number]),
-    );
-
-    const contentTags = sortTagsByCount(
-      [...counts.entries()].filter(([tag]) => !imageFormatTagSet.has(tag)),
-    ).slice(0, 8);
-
-    return [...pinnedFormatTags, ...contentTags];
   });
 
-  function entryMatchesTag(entry: ClipboardEntry, tag: string): boolean {
-    if ((entry.tags ?? []).includes(tag)) return true;
-    if (!imageFormatTagSet.has(tag) || entry.content_type !== "image") return false;
-    return entry.image_format?.toLowerCase() === tag;
+  $effect(() => {
+    const height = overlayLayoutHeight;
+    if (!visible) {
+      lastLayoutHeight = null;
+      return;
+    }
+    if (lastLayoutHeight === height) return;
+    const previous = lastLayoutHeight;
+    lastLayoutHeight = height;
+    const animate = previous !== null && !isRevealing;
+    void applyOverlayHeight(height, animate);
+  });
+
+  let filteredEntries = $derived(filterByActiveTag(kindPool, activeTag));
+
+  function handleContentKindChange(kind: ContentKind) {
+    contentKind = kind;
+    if (!activeTagCompatibleWithKind(activeTag, kind)) {
+      activeTag = null;
+    }
+    resetKeyboardSelection();
   }
 
-  let filteredEntries = $derived.by(() => {
-    if (!activeTag) return entries;
-    const tag = activeTag;
-    return entries.filter((entry) => entryMatchesTag(entry, tag));
-  });
+  function handleTagSelect(tag: string) {
+    activeTag = tag;
+    resetKeyboardSelection();
+  }
+
+  function handleTagReset() {
+    activeTag = null;
+    resetKeyboardSelection();
+  }
 
   function resetKeyboardSelection() {
     selectedIndex = filteredEntries.length > 0 ? 0 : -1;
@@ -527,34 +638,33 @@
     </div>
   </header>
 
-  {#if topTags.length > 0}
-    <div class="tag-groups">
-      <button
-        class="tag-group-chip app-btn"
-        class:active={!activeTag}
-        type="button"
-        onclick={() => {
-          activeTag = null;
-          resetKeyboardSelection();
-        }}
-      >
-        All tags
-      </button>
-
-      {#each topTags as [tag, count]}
-        <button
-          class="tag-group-chip app-btn"
-          class:active={activeTag === tag}
-          type="button"
-          onclick={() => {
-            activeTag = tag;
-            resetKeyboardSelection();
-          }}
+  {#if settingsSyncNotice || tagBarModel.showRowA || tagBarModel.showRowB}
+    <div class="filter-zone">
+      {#if settingsSyncNotice}
+        <p
+          class="status-hint settings-sync-notice warn"
+          role="status"
+          aria-live="polite"
         >
-          <span>{tag}</span>
-          <span class="tag-group-count">{count}</span>
-        </button>
-      {/each}
+          {settingsSyncNotice}
+        </p>
+      {/if}
+      {#if tagBarModel.showRowA}
+        <div class="filter-row-a">
+          <ContentKindSegment value={contentKind} onchange={handleContentKindChange} />
+        </div>
+      {/if}
+      {#if tagBarModel.showRowB}
+        <TagFilterBar
+          resetLabel={tagBarModel.resetLabel}
+          {activeTag}
+          formatChips={tagBarModel.formatChips}
+          semanticChips={tagBarModel.semanticChips}
+          showDivider={tagBarModel.showDivider}
+          onreset={handleTagReset}
+          onselect={handleTagSelect}
+        />
+      {/if}
     </div>
   {/if}
 
@@ -573,6 +683,7 @@
           <ClipboardCard
             {entry}
             {retagAvailable}
+            {aiTaggingEnabled}
             selected={i === selectedIndex}
             ondeleted={handleEntryAction}
             onpinned={handleEntryAction}
@@ -652,57 +763,29 @@
     flex-shrink: 0;
   }
 
-  .tag-groups {
+  .filter-zone {
+    flex-shrink: 0;
     display: flex;
+    flex-direction: column;
     gap: 8px;
-    padding: 10px 16px 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .tag-groups::-webkit-scrollbar {
-    display: none;
-  }
-
-  .tag-group-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 7px 11px;
-    border-radius: 999px;
-    border: 1px solid var(--border-soft);
-    background: var(--surface-3);
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    white-space: nowrap;
-    font: inherit;
-    font-size: 11px;
+    padding-top: 10px;
     transition:
-      background var(--duration-fast) var(--ease-interactive),
-      border-color var(--duration-fast) var(--ease-interactive),
-      color var(--duration-fast) var(--ease-interactive);
+      opacity var(--duration-fast) var(--ease-interactive),
+      transform var(--duration-fast) var(--ease-interactive);
   }
 
-  .tag-group-chip:hover:not(:disabled):not([aria-busy="true"]) {
-    background: var(--surface-7);
-    border-color: var(--border-strong);
+  @media (prefers-reduced-motion: reduce) {
+    .filter-zone {
+      transition: none;
+    }
   }
 
-  .tag-group-chip.active {
-    background: var(--surface-accent);
-    border-color: var(--border-accent-soft);
-    color: var(--color-accent-chip);
+  .filter-row-a {
+    padding: 0 16px;
   }
 
-  .tag-group-count {
-    display: inline-flex;
-    min-width: 18px;
-    justify-content: center;
-    padding: 2px 5px;
-    border-radius: 999px;
-    background: var(--surface-8);
-    font-size: 10px;
-    line-height: 1;
+  .settings-sync-notice {
+    margin: 0 16px;
   }
 
   .header-actions {

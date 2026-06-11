@@ -84,6 +84,15 @@ pub fn clear_history(db: State<'_, Arc<Database>>) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn resize_main_window(window: tauri::WebviewWindow, height: f64) -> Result<(), String> {
+    const MIN_HEIGHT: f64 = 360.0;
+    const MAX_HEIGHT: f64 = 560.0;
+    let clamped = height.clamp(MIN_HEIGHT, MAX_HEIGHT);
+    crate::position_window_bottom(&window, clamped);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
     // Frontend played close motion; hide native panel on the main thread.
     crate::PANEL_HIDE_SCHEDULED.store(true, Ordering::Release);

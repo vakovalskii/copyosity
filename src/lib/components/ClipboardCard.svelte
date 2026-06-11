@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { ClipboardEntry } from "$lib/types";
   import { copyEntry, activateEntry, deleteEntry, pinEntry, retagEntry } from "$lib/api";
+  import { cardDisplayTags } from "$lib/overlay-filters";
+  import { formatImageMeta } from "$lib/image-meta";
 
   let {
     entry,
@@ -9,6 +11,7 @@
     onpinned,
     onretagged,
     retagAvailable = false,
+    aiTaggingEnabled = false,
   }: {
     entry: ClipboardEntry;
     selected?: boolean;
@@ -16,6 +19,7 @@
     onpinned?: () => void;
     onretagged?: () => void;
     retagAvailable?: boolean;
+    aiTaggingEnabled?: boolean;
   } = $props();
 
   function timeAgo(dateStr: string): string {
@@ -125,11 +129,27 @@
     onretagged?.();
   }
 
+  const MONO_TEXT_KINDS = new Set([
+    "JSON",
+    "Shell",
+    "Bash",
+    "SQL",
+    "HTML",
+    "JavaScript",
+    "TypeScript",
+    "Python",
+    "Rust",
+  ]);
+
   let textKind = $derived(detectTextKind(entry.text_content));
+  let usesMonoPreview = $derived(MONO_TEXT_KINDS.has(textKind));
   let typeLabel = $derived(entry.content_type === "text" ? textKind : entry.content_type === "image" ? "Image" : "File");
   let imageFormat = $derived(entry.content_type === "image" ? entry.image_format : null);
+  let imageMetaLabel = $derived(
+    formatImageMeta(entry.image_width, entry.image_height, entry.image_byte_size),
+  );
   let charLabel = $derived(entry.char_count ? `${entry.char_count.toLocaleString()} characters` : "");
-  let tags = $derived(entry.tags ?? []);
+  let tags = $derived(cardDisplayTags(entry, aiTaggingEnabled));
 </script>
 
 <div
@@ -141,7 +161,6 @@
   onkeydown={(e) => e.key === "Enter" && handleDoubleClick()}
   role="button"
   tabindex="0"
-  title={entry.text_content ?? ""}
 >
   <div class="card-header">
     <div class="card-type">
@@ -190,7 +209,7 @@
   <div class="card-body">
     {#if entry.content_type === "text"}
       <div class="text-preview">
-        <div class="text-content">{entry.text_content}</div>
+        <div class="text-content" class:mono={usesMonoPreview}>{entry.text_content}</div>
       </div>
     {:else if entry.content_type === "image"}
       <div class="image-preview">
@@ -200,7 +219,7 @@
           <div class="image-placeholder">Image</div>
         {/if}
         <div class="image-meta">
-          Image preview
+          {imageMetaLabel}
         </div>
       </div>
     {/if}
@@ -399,6 +418,14 @@
     overflow: hidden;
   }
 
+  .text-content.mono {
+    font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  }
+
+  .text-content:not(.mono) {
+    font-family: inherit;
+  }
+
   .text-content {
     min-height: 0;
     margin: 0;
@@ -408,7 +435,6 @@
     color: var(--color-text-primary);
     white-space: pre-line;
     word-break: break-word;
-    font-family: "SF Mono", "Menlo", "Monaco", monospace;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 8;
