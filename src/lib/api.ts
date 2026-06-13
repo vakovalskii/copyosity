@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+
 import type {
   AppSettings,
   AudioInputDevice,
@@ -34,7 +35,10 @@ export async function pinEntry(id: number, pinned: boolean): Promise<void> {
   return invoke("pin_entry", { id, pinned });
 }
 
-export async function setEntryCollection(entryId: number, collectionId: number | null): Promise<void> {
+export async function setEntryCollection(
+  entryId: number,
+  collectionId: number | null,
+): Promise<void> {
   return invoke("set_entry_collection", { entryId, collectionId });
 }
 
@@ -102,9 +106,7 @@ export async function getExcludedApps(): Promise<ExcludedApp[]> {
   return invoke("get_excluded_apps");
 }
 
-export async function addExcludedApp(
-  appNameOrBundleId: string,
-): Promise<ExcludeAppResult> {
+export async function addExcludedApp(appNameOrBundleId: string): Promise<ExcludeAppResult> {
   return invoke("add_excluded_app", { appNameOrBundleId });
 }
 

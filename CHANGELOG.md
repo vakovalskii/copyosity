@@ -23,7 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Overlay filter plan** — `docs/plans/03-overlay-content-and-tag-filters.md` (content-kind + tag chip UX, progressive disclosure, height tiers).
 - **Per-window Tauri capabilities** — separate permission sets for `main`, `settings`, and `voice_overlay` instead of a single default capability.
 - **Ollama model name validation** before `ollama pull`.
-- **Release CI checks** — `cargo audit`, `npm run check`, and `cargo test` on tagged releases.
+- **Release CI checks** — `cargo audit`, `npm run check`, Oxlint, Oxfmt (`--check`), `cargo clippy --all-targets -D warnings`, `cargo fmt --check`, and `cargo test` on tagged releases.
+- **Lint and format toolchain** — Oxlint + Oxfmt (`.oxlintrc.json`, `.oxfmtrc.json`) for JS/TS, Svelte `<script>` blocks, and CSS; `cargo clippy` and `rustfmt` for Rust (`src-tauri/clippy.toml`, `rustfmt.toml`, `[lints.clippy]` in `Cargo.toml`); Husky + lint-staged with `--fix` on pre-commit; `make fix`, `make lint`, and expanded `make check`; `.editorconfig` and Oxc VS Code extension (`oxc.oxc-vscode`) for format-on-save; `svelte-check` kept for Svelte/TypeScript types.
 - **README** — Apple Silicon vs Intel install table and dual-architecture DMG guidance.
 - **Voice transcription toggle** — Settings switch (off by default) to enable or disable hold-to-record transcription and its global shortcut without clearing Whisper configuration.
 - **Shared button interaction** (`app-btn`, `button-interaction.css`) — macOS-like press, focus, disabled, and busy states for buttons across Settings, the main window, clipboard cards, and collection tabs; overlay spinner on busy buttons without layout shift; `prepareBusyUi()` yields before blocking IPC so spinners paint reliably.
@@ -41,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HIG audit** — `docs/plans/02-hig-audit.md` with prioritized accessibility, native-feel, and discoverability roadmap across overlay, settings, voice HUD, and shared tokens.
 - **Voice HUD accessibility plan** — `docs/plans/04-voice-hud-accessibility-full-cycle.md` (full screen-reader lifecycle: recording → processing → terminal states; baseline live region shipped in 0.4.0).
 - **Overlay search keyboard shortcuts** — `⌘F` and `/` focus the search field (capture-phase listener, before WebView Find); `overlayEscapeAction` in `overlay-search.ts` for two-step Escape (clear query, then dismiss panel).
+- **Overlay close controls** — explicit header close button plus macOS outside-click dismiss guard (`overlay_dismiss.rs`) using a global mouse monitor with a focus-loss fallback.
 - **Unicode case-insensitive clipboard search** — `text_content_search` DB column stores lowercase text; legacy rows backfill on startup; queries match Cyrillic and Latin regardless of case.
 - **Text selection tokens** (`--selection-bg`, `--selection-text`) — accent wash for search input and shared form controls.
 - **Motion system** (`motion.ts`, motion tokens in `tokens.css`) — shared panel/HUD durations and Apple-style easings; `prefers-reduced-motion` token overrides; helpers `panelOpenMs`, `panelCloseFallbackMs`, `scrollBehavior`, and `subscribeReducedMotion`.
@@ -78,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings window** — native title bar (draggable again) with a custom header drag region.
 - **Voice overlay** — pre-created NSPanel with non-activating behavior so showing the overlay no longer steals focus from the target app; audio level meter uses a logarithmic dB scale for quiet laptop mics.
 - **Tray click** — opens the menu only; use **Open Copyosity** or `Cmd+Shift+V` to show the clipboard panel.
-- **Makefile** — portable `APP_DIR` (`CURDIR`); `make check` runs `cargo test`.
+- **Makefile** — portable `APP_DIR` (`CURDIR`); `make fix` auto-fixes frontend and backend issues; `make lint` verifies lint/format rules without changes; `make check` runs svelte-check, Oxlint, Oxfmt, Clippy, rustfmt, and `cargo test`.
 - **Settings unload feedback** — Ollama step 3 shows three distinct states: model ready (green), model on disk but unloaded (static yellow), model not installed (red); `model_loaded` comes from Ollama `/api/ps`.
 - **Settings Ollama actions** — Unload, Test, Start, and Download run on a background thread (`spawn_blocking`) so the WebView stays responsive; busy buttons use `is-busy` (not `disabled`) so WebKit keeps spinner animations running.
 - **Voice transcription Settings UI** — compact on/off toggle; Whisper fields sit in a disabled fieldset when off; active toggle uses muted `--color-success-control` (no glow).
@@ -129,6 +131,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tag-filter empty state** — filtering by tag or format without a search query shows filter-specific copy instead of a misleading search message.
 - **Paste focus race on activate** — Enter and double-click no longer hide the panel from the frontend before paste; automated paste runs only after the close animation and native hide complete.
 - **Opening Settings with overlay visible** — always-on-top panel is hidden via `finalize_panel_hide` so Settings receives hover, pointer cursor, and focus rings; deferred paste-after-hide still runs when activating an entry.
+- **Overlay dismissal on Space switch** — changing macOS Spaces no longer looks like an outside click/focus loss and accidentally closes the clipboard panel.
 - **Finder image capture** — PNG/JPG/JPEG/GIF copied in Finder are stored as image cards (not filename-only text); failed file encode no longer falls through to `get_text()`; probe vs stored-hash mismatch no longer blocks the first copy or requires copying another item first.
 - **History clear / delete last card** — clearing history or deleting the last unpinned entry no longer loops re-inserting whatever remains on the system clipboard; re-copying the same file after clear/delete adds it back correctly.
 - **Clipboard card timers** — click debounce and copied-feedback timeouts clear on unmount.

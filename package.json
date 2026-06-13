@@ -2,16 +2,28 @@
   "name": "copyosity",
   "version": "0.4.0",
   "description": "",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "svelte-kit sync && vite dev",
     "build": "svelte-kit sync && vite build",
     "preview": "vite preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "tauri": "bash scripts/with-tauri.sh"
+    "check": "npm run typecheck && npm run lint",
+    "check:watch": "npm run typecheck:watch",
+    "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "typecheck:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "lint": "npm run lint:js && npm run format && npm run lint:css",
+    "fix": "npm run format:fix && npm run lint:js:fix && npm run lint:css:fix",
+    "lint:js": "oxlint .",
+    "lint:js:fix": "oxlint --fix .",
+    "lint:css": "stylelint \"src/**/*.{css,svelte}\"",
+    "lint:css:fix": "stylelint --fix \"src/**/*.{css,svelte}\"",
+    "format": "oxfmt --check .",
+    "format:fix": "oxfmt .",
+    "lint-staged": "lint-staged",
+    "tauri": "bash scripts/with-tauri.sh",
+    "prepare": "husky"
   },
-  "license": "MIT",
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-opener": "^2"
@@ -22,12 +34,42 @@
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@tauri-apps/cli": "^2.11.2",
     "@types/node": "^25.9.3",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
+    "postcss-html": "^1.8.1",
+    "stylelint": "^17.13.0",
+    "stylelint-config-html": "^1.1.0",
+    "stylelint-config-standard": "^40.0.0",
+    "stylelint-declaration-strict-value": "^1.11.1",
+    "stylelint-order": "^8.1.1",
     "svelte": "^5.56.0",
-    "svelte-check": "^4.0.0",
-    "typescript": "~5.6.2",
+    "svelte-check": "^4.6.0",
+    "typescript": "^6.0.3",
     "vite": "^6.4.3"
   },
   "overrides": {
     "cookie": "^0.7.2"
+  },
+  "lint-staged": {
+    "*.{js,ts}": [
+      "oxfmt --write --no-error-on-unmatched-pattern",
+      "oxlint --fix",
+      "oxfmt --write --no-error-on-unmatched-pattern"
+    ],
+    "*.svelte": [
+      "oxfmt --write --no-error-on-unmatched-pattern",
+      "oxlint --fix",
+      "stylelint --fix",
+      "oxfmt --write --no-error-on-unmatched-pattern"
+    ],
+    "*.css": [
+      "oxfmt --write --no-error-on-unmatched-pattern",
+      "stylelint --fix",
+      "oxfmt --write --no-error-on-unmatched-pattern"
+    ],
+    "*.{json,md}": "oxfmt --write --no-error-on-unmatched-pattern",
+    "src-tauri/**/*.rs": "bash scripts/lint-staged-rust.sh"
   }
 }

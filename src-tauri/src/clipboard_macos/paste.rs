@@ -6,9 +6,9 @@ use std::sync::atomic::Ordering;
 use objc2_app_kit::NSRunningApplication;
 
 use super::{
-    accessibility_trusted, frontmost_pid, has_paste_focus, paste_log,
-    prefers_keyboard_paste, refresh_paste_focus_if_needed, restore_paste_target,
-    try_ax_paste_for_pid, PASTE_MOUSE_VALID, PASTE_MOUSE_X, PASTE_MOUSE_Y, PASTE_TARGET_PID,
+    accessibility_trusted, frontmost_pid, has_paste_focus, paste_log, prefers_keyboard_paste,
+    refresh_paste_focus_if_needed, restore_paste_target, try_ax_paste_for_pid, PASTE_MOUSE_VALID,
+    PASTE_MOUSE_X, PASTE_MOUSE_Y, PASTE_TARGET_PID,
 };
 
 /// Whether synthetic Cmd+V should use the session event tap (frontmost app) vs `CGEventPostToPid`.
@@ -193,9 +193,7 @@ end tell"#
         }
     }
 
-    run_osascript(
-        r#"tell application "System Events" to key code 9 using command down"#,
-    )
+    run_osascript(r#"tell application "System Events" to key code 9 using command down"#)
 }
 
 #[cfg(target_os = "macos")]
@@ -368,9 +366,7 @@ pub(crate) fn activate_pid(pid: i32) -> bool {
         return false;
     };
     #[allow(deprecated)]
-    app.activateWithOptions(
-        NSApplicationActivationOptions::ActivateIgnoringOtherApps,
-    )
+    app.activateWithOptions(NSApplicationActivationOptions::ActivateIgnoringOtherApps)
 }
 
 #[cfg(not(target_os = "macos"))]

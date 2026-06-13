@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import type { ClipboardEntry, Collection } from "$lib/types";
+  import type { ClipboardEntry, Collection, ExcludableAppCandidate } from "$lib/types";
   import {
     getEntries,
     getCollections,
@@ -14,7 +14,6 @@
     getExcludableAppCandidate,
     addExcludableAppCandidate,
   } from "$lib/api";
-  import type { ExcludableAppCandidate } from "$lib/types";
   import {
     alreadyExcludedFromHistoryLabel,
     excludeFromClipboardHistoryAriaLabel,
@@ -80,7 +79,7 @@
   const SETTINGS_SYNC_USER_NOTICE =
     "Couldn't load app settings. Tags and filters may not work properly. Restart Copyosity.";
 
-  let settingsSyncNotice = $derived(
+  const settingsSyncNotice = $derived(
     settingsLoadError !== null ? SETTINGS_SYNC_USER_NOTICE : null,
   );
 
@@ -641,7 +640,7 @@
     };
   }
 
-  let tagBarModel = $derived(
+  const tagBarModel = $derived(
     buildTagBarModel({
       entries,
       layoutEntries: catalogEntries,
@@ -651,11 +650,11 @@
     }),
   );
 
-  let kindPool = $derived(
+  const kindPool = $derived(
     filterKindPool(entries, aiTaggingEnabled && tagBarModel.showRowA, contentKind),
   );
 
-  let overlayLayoutHeight = $derived(
+  const overlayLayoutHeight = $derived(
     overlayHeightForLayout({
       tagBar: tagBarModel,
       hasSettingsNotice: settingsSyncNotice !== null,
@@ -684,7 +683,7 @@
     void applyOverlayHeight(height, animate);
   });
 
-  let filteredEntries = $derived(filterByActiveTag(kindPool, activeTag));
+  const filteredEntries = $derived(filterByActiveTag(kindPool, activeTag));
 
   function handleContentKindChange(kind: ContentKind) {
     contentKind = kind;
@@ -758,6 +757,16 @@
           <path
             d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.13.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.13-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"
           />
+        </svg>
+      </button>
+      <button
+        class="close-btn app-btn"
+        type="button"
+        aria-label="Close overlay"
+        onclick={() => forceHideWindow()}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6" />
         </svg>
       </button>
     </div>
@@ -952,7 +961,8 @@
     white-space: nowrap;
   }
 
-  .settings-btn {
+  .settings-btn,
+  .close-btn {
     width: 36px;
     height: 36px;
     display: inline-flex;
@@ -965,7 +975,8 @@
     cursor: pointer;
   }
 
-  .settings-btn:hover:not(:disabled):not([aria-busy="true"]) {
+  .settings-btn:hover:not(:disabled, [aria-busy="true"]),
+  .close-btn:hover:not(:disabled, [aria-busy="true"]) {
     background: var(--surface-10);
     border-color: var(--border-emphasis);
   }
@@ -973,7 +984,16 @@
   .settings-btn svg {
     width: 18px;
     height: 18px;
-    fill: currentColor;
+    fill: currentcolor;
+  }
+
+  .close-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 2;
+    stroke-linecap: round;
   }
 
   .grid-container {
@@ -982,8 +1002,7 @@
     gap: 12px;
     padding: 14px 16px var(--space-section);
     scroll-padding-inline: 16px;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: auto hidden;
     align-items: flex-start;
     scrollbar-width: thin;
     scrollbar-color: var(--scrollbar-thumb) transparent;

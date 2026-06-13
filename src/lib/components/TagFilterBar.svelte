@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import type { TagChip } from "$lib/overlay-filters";
 
-  let {
+  const {
     resetLabel = "All tags",
     activeTag = null,
     formatChips = [] as TagChip[],
@@ -42,7 +42,7 @@
     return "linear-gradient(90deg, transparent, #000 16px, #000)";
   }
 
-  let scrollMask = $derived(scrollFadeMask(fadeStart, fadeEnd));
+  const scrollMask = $derived(scrollFadeMask(fadeStart, fadeEnd));
 
   $effect(() => {
     void formatChips;
@@ -158,7 +158,7 @@
     color: var(--color-text-secondary);
   }
 
-  .filter-chip-reset:hover:not(:disabled):not([aria-busy="true"]) {
+  .filter-chip-reset:hover:not(:disabled, [aria-busy="true"]) {
     background: var(--surface-7);
     border-color: var(--border-strong);
   }
@@ -169,7 +169,7 @@
     color: var(--color-accent-chip);
   }
 
-  .filter-chip.active:hover:not(:disabled):not([aria-busy="true"]) {
+  .filter-chip.active:hover:not(:disabled, [aria-busy="true"]) {
     background: var(--surface-accent-hover);
     border-color: var(--border-accent-medium);
     color: var(--color-accent-chip);
@@ -177,23 +177,23 @@
 
   .filter-chip.active .tag-count,
   .filter-chip.active:hover .tag-count {
-    background: rgb(var(--rgb-accent) / 0.28);
+    background: rgb(var(--rgb-accent) / 28%);
     color: var(--color-accent-chip);
   }
 
   .filter-chip.active:hover .tag-count {
-    background: rgb(var(--rgb-accent) / 0.36);
+    background: rgb(var(--rgb-accent) / 36%);
   }
 
   .filter-chip-format {
     background: var(--surface-5);
     border-color: var(--border-default);
     color: var(--color-text-muted);
-    font-family: "SF Mono", "Menlo", "Monaco", monospace;
+    font-family: "SF Mono", Menlo, Monaco, monospace;
     text-transform: lowercase;
   }
 
-  .filter-chip-format:hover:not(:disabled):not([aria-busy="true"]) {
+  .filter-chip-format:hover:not(:disabled, [aria-busy="true"]) {
     background: var(--surface-7);
     border-color: var(--border-strong);
     color: var(--color-text-body);
@@ -209,7 +209,7 @@
     text-transform: lowercase;
   }
 
-  .filter-chip-semantic:hover:not(:disabled):not([aria-busy="true"]) {
+  .filter-chip-semantic:hover:not(:disabled, [aria-busy="true"]) {
     background: var(--surface-7);
     border-color: var(--border-strong);
   }
@@ -241,7 +241,7 @@
     margin: 0 2px;
     border-radius: 1px;
     background: var(--border-emphasis);
-    box-shadow: 0 0 0 1px rgb(var(--rgb-white) / 0.06);
+    box-shadow: 0 0 0 1px rgb(var(--rgb-white) / 6%);
     opacity: 0.95;
   }
 </style>

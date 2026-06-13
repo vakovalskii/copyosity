@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -41,7 +41,7 @@ pub struct ClipboardEntry {
     pub id: i64,
     pub content_type: String, // "text", "image", "file"
     pub text_content: Option<String>,
-    pub image_data: Option<String>, // base64-encoded
+    pub image_data: Option<String>,  // base64-encoded
     pub image_thumb: Option<String>, // base64-encoded thumbnail
     pub source_app: Option<String>,
     pub source_app_icon: Option<String>, // base64-encoded
@@ -95,7 +95,9 @@ fn backfill_text_content_search(conn: &Connection) -> Result<(), rusqlite::Error
            AND text_content IS NOT NULL",
     )?;
     let rows = stmt
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
         .collect::<Result<Vec<_>, _>>()?;
 
     if rows.is_empty() {
@@ -118,19 +120,16 @@ fn resolve_image_format(entry: &mut ClipboardEntry) {
     }
 
     if let Some(ref fmt) = entry.image_format {
-        let normalized = crate::image_format::normalize(fmt).to_string();
+        let normalized = crate::image_format::normalize(fmt).to_owned();
         if normalized != *fmt {
             entry.image_format = Some(normalized);
         }
         return;
     }
 
-    let b64 = entry
-        .image_data
-        .as_deref()
-        .or(entry.image_thumb.as_deref());
+    let b64 = entry.image_data.as_deref().or(entry.image_thumb.as_deref());
     if let Some(b64) = b64 {
-        entry.image_format = Some(crate::image_format::detect_from_b64(b64).to_string());
+        entry.image_format = Some(crate::image_format::detect_from_b64(b64).to_owned());
     }
 }
 
@@ -155,10 +154,7 @@ fn resolve_image_meta(entry: &mut ClipboardEntry) {
         return;
     }
 
-    let b64 = entry
-        .image_data
-        .as_deref()
-        .or(entry.image_thumb.as_deref());
+    let b64 = entry.image_data.as_deref().or(entry.image_thumb.as_deref());
     let Some(b64) = b64 else {
         return;
     };
@@ -184,10 +180,12 @@ impl Database {
         let db_path = app_dir.join("copyosity.db");
         let conn = Connection::open(db_path)?;
 
-        conn.execute_batch("
+        conn.execute_batch(
+            "
             PRAGMA journal_mode=WAL;
             PRAGMA foreign_keys=ON;
-        ")?;
+        ",
+        )?;
 
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS collections (
@@ -277,7 +275,9 @@ impl Database {
 
         crate::macos_app::migrate_legacy_excluded_app_names(&conn)?;
 
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, rusqlite::Error> {
@@ -313,29 +313,25 @@ impl Database {
     pub fn get_app_settings(&self) -> Result<AppSettings, rusqlite::Error> {
         let ollama_model = self
             .get_setting("ollama_model")?
-            .unwrap_or_else(|| "qwen3:4b-instruct-2507-q4_K_M".to_string());
+            .unwrap_or_else(|| "qwen3:4b-instruct-2507-q4_K_M".to_owned());
         let retention_days = self
             .get_setting("retention_days")?
             .and_then(|value| value.parse::<i64>().ok())
             .filter(|days| matches!(*days, 1 | 7 | 30 | 180))
             .unwrap_or(30);
 
-        let whisper_server_url = self
-            .get_setting("whisper_server_url")?
-            .unwrap_or_default();
+        let whisper_server_url = self.get_setting("whisper_server_url")?.unwrap_or_default();
         let whisper_server_token = self
             .get_setting("whisper_server_token")?
             .unwrap_or_default();
         let whisper_server_model = self
             .get_setting("whisper_server_model")?
-            .unwrap_or_else(|| "whisper-1".to_string());
+            .unwrap_or_else(|| "whisper-1".to_owned());
 
         let voice_shortcut = self
             .get_setting("voice_shortcut")?
-            .unwrap_or_else(|| "option+space".to_string());
-        let selected_microphone = self
-            .get_setting("selected_microphone")?
-            .unwrap_or_default();
+            .unwrap_or_else(|| "option+space".to_owned());
+        let selected_microphone = self.get_setting("selected_microphone")?.unwrap_or_default();
         let voice_transcription_enabled = self
             .get_setting("voice_transcription_enabled")?
             .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
@@ -398,10 +394,7 @@ impl Database {
             )?;
         }
         if let Some(enabled) = ai_tagging_enabled {
-            self.set_setting(
-                "ai_tagging_enabled",
-                if enabled { "true" } else { "false" },
-            )?;
+            self.set_setting("ai_tagging_enabled", if enabled { "true" } else { "false" })?;
         }
 
         self.get_app_settings()
@@ -428,7 +421,7 @@ impl Database {
             }
             if entry.content_type == "image" {
                 if let Some(ref fmt) = entry.image_format {
-                    let normalized = crate::image_format::normalize(fmt).to_string();
+                    let normalized = crate::image_format::normalize(fmt).to_owned();
                     conn.execute(
                         "UPDATE clipboard_entries SET image_format = ?1 WHERE id = ?2 AND image_format IS NULL",
                         params![normalized, id],
@@ -460,10 +453,7 @@ impl Database {
             return Ok((id, false));
         }
 
-        let text_content_search = entry
-            .text_content
-            .as_deref()
-            .map(lowercase_search_text);
+        let text_content_search = entry.text_content.as_deref().map(lowercase_search_text);
 
         conn.execute(
             "INSERT INTO clipboard_entries (content_type, text_content, text_content_search, image_data, image_thumb, source_app, source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id, image_format, image_width, image_height, image_byte_size)
@@ -491,7 +481,14 @@ impl Database {
         Ok((conn.last_insert_rowid(), true))
     }
 
-    pub fn get_entries(&self, limit: i64, offset: i64, collection_id: Option<i64>, pinned_only: bool, search: Option<&str>) -> Result<Vec<ClipboardEntry>, rusqlite::Error> {
+    pub fn get_entries(
+        &self,
+        limit: i64,
+        offset: i64,
+        collection_id: Option<i64>,
+        pinned_only: bool,
+        search: Option<&str>,
+    ) -> Result<Vec<ClipboardEntry>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
 
         let mut sql = String::from(
@@ -523,35 +520,38 @@ impl Database {
         param_values.push(Box::new(limit));
         param_values.push(Box::new(offset));
 
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
 
         let mut stmt = conn.prepare(&sql)?;
-        let entries = stmt.query_map(params_ref.as_slice(), |row| {
-            Ok(ClipboardEntry {
-                id: row.get(0)?,
-                content_type: row.get(1)?,
-                text_content: row.get(2)?,
-                image_data: row.get(3)?,
-                image_thumb: row.get(4)?,
-                source_app: row.get(5)?,
-                source_app_icon: row.get(6)?,
-                content_hash: row.get(7)?,
-                char_count: row.get(8)?,
-                created_at: row.get(9)?,
-                is_pinned: row.get::<_, i32>(10)? != 0,
-                collection_id: row.get(11)?,
-                tags: row
-                    .get::<_, String>(12)?
-                    .split('|')
-                    .filter(|tag| !tag.is_empty())
-                    .map(|tag| tag.to_string())
-                    .collect(),
-                image_format: row.get(13)?,
-                image_width: row.get(14)?,
-                image_height: row.get(15)?,
-                image_byte_size: row.get(16)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let entries = stmt
+            .query_map(params_ref.as_slice(), |row| {
+                Ok(ClipboardEntry {
+                    id: row.get(0)?,
+                    content_type: row.get(1)?,
+                    text_content: row.get(2)?,
+                    image_data: row.get(3)?,
+                    image_thumb: row.get(4)?,
+                    source_app: row.get(5)?,
+                    source_app_icon: row.get(6)?,
+                    content_hash: row.get(7)?,
+                    char_count: row.get(8)?,
+                    created_at: row.get(9)?,
+                    is_pinned: row.get::<_, i32>(10)? != 0,
+                    collection_id: row.get(11)?,
+                    tags: row
+                        .get::<_, String>(12)?
+                        .split('|')
+                        .filter(|tag| !tag.is_empty())
+                        .map(|tag| tag.to_owned())
+                        .collect(),
+                    image_format: row.get(13)?,
+                    image_width: row.get(14)?,
+                    image_height: row.get(15)?,
+                    image_byte_size: row.get(16)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         let mut entries = entries;
         for entry in &mut entries {
@@ -590,7 +590,11 @@ impl Database {
         Ok(())
     }
 
-    pub fn set_collection(&self, entry_id: i64, collection_id: Option<i64>) -> Result<(), rusqlite::Error> {
+    pub fn set_collection(
+        &self,
+        entry_id: i64,
+        collection_id: Option<i64>,
+    ) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE clipboard_entries SET collection_id = ?1 WHERE id = ?2",
@@ -602,19 +606,26 @@ impl Database {
     // Collections CRUD
     pub fn get_collections(&self) -> Result<Vec<Collection>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id, name, color, sort_order FROM collections ORDER BY sort_order")?;
-        let cols = stmt.query_map([], |row| {
-            Ok(Collection {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                color: row.get(2)?,
-                sort_order: row.get(3)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let mut stmt = conn
+            .prepare("SELECT id, name, color, sort_order FROM collections ORDER BY sort_order")?;
+        let cols = stmt
+            .query_map([], |row| {
+                Ok(Collection {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                    sort_order: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(cols)
     }
 
-    pub fn create_collection(&self, name: &str, color: Option<&str>) -> Result<i64, rusqlite::Error> {
+    pub fn create_collection(
+        &self,
+        name: &str,
+        color: Option<&str>,
+    ) -> Result<i64, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO collections (name, color) VALUES (?1, ?2)",
@@ -647,7 +658,10 @@ impl Database {
             rows
         };
 
-        let bundle_ids: Vec<&str> = rows.iter().map(|(_, bundle_id)| bundle_id.as_str()).collect();
+        let bundle_ids: Vec<&str> = rows
+            .iter()
+            .map(|(_, bundle_id)| bundle_id.as_str())
+            .collect();
         let display_names = crate::macos_app::display_names_for_bundle_ids(&bundle_ids);
 
         Ok(rows
@@ -701,7 +715,10 @@ impl Database {
     pub fn set_entry_tags(&self, entry_id: i64, tags: &[String]) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let tx = conn.unchecked_transaction()?;
-        tx.execute("DELETE FROM clipboard_tags WHERE entry_id = ?1", params![entry_id])?;
+        tx.execute(
+            "DELETE FROM clipboard_tags WHERE entry_id = ?1",
+            params![entry_id],
+        )?;
 
         for tag in tags {
             tx.execute(
@@ -784,7 +801,7 @@ impl Database {
                     row.get(1)?,
                     tags.split('|')
                         .filter(|tag| !tag.is_empty())
-                        .map(|tag| tag.to_string())
+                        .map(|tag| tag.to_owned())
                         .collect(),
                 ))
             })?
@@ -811,7 +828,10 @@ impl Database {
         })
     }
 
-    pub fn get_entry_by_id(&self, entry_id: i64) -> Result<Option<ClipboardEntry>, rusqlite::Error> {
+    pub fn get_entry_by_id(
+        &self,
+        entry_id: i64,
+    ) -> Result<Option<ClipboardEntry>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT id, content_type, text_content, image_data, image_thumb, source_app, source_app_icon,
@@ -839,7 +859,7 @@ impl Database {
                         .get::<_, String>(12)?
                         .split('|')
                         .filter(|tag| !tag.is_empty())
-                        .map(|tag| tag.to_string())
+                        .map(|tag| tag.to_owned())
                         .collect(),
                     image_format: row.get(13)?,
                     image_width: row.get(14)?,
@@ -883,7 +903,7 @@ impl Database {
             }
             let mut entry = ClipboardEntry {
                 id,
-                content_type: "image".to_string(),
+                content_type: "image".to_owned(),
                 text_content: None,
                 image_data,
                 image_thumb,
@@ -939,7 +959,7 @@ impl Database {
             let Some(b64) = b64 else {
                 continue;
             };
-            let format = crate::image_format::detect_from_b64(b64).to_string();
+            let format = crate::image_format::detect_from_b64(b64).to_owned();
             let changed = conn.execute(
                 "UPDATE clipboard_entries SET image_format = ?1 WHERE id = ?2 AND image_format IS NULL",
                 params![format, id],
@@ -969,7 +989,11 @@ mod tests {
         let db = Database {
             conn: Mutex::new(Connection::open_in_memory().unwrap()),
         };
-        db.conn.lock().unwrap().execute_batch("
+        db.conn
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "
             PRAGMA journal_mode=WAL;
             PRAGMA foreign_keys=ON;
             CREATE TABLE IF NOT EXISTS collections (
@@ -1015,20 +1039,22 @@ mod tests {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bundle_id TEXT NOT NULL UNIQUE
             );
-        ").unwrap();
+        ",
+            )
+            .unwrap();
         db
     }
 
     fn make_entry(text: &str, hash: &str) -> ClipboardEntry {
         ClipboardEntry {
             id: 0,
-            content_type: "text".to_string(),
-            text_content: Some(text.to_string()),
+            content_type: "text".to_owned(),
+            text_content: Some(text.to_owned()),
             image_data: None,
             image_thumb: None,
-            source_app: Some("TestApp".to_string()),
+            source_app: Some("TestApp".to_owned()),
             source_app_icon: None,
-            content_hash: hash.to_string(),
+            content_hash: hash.to_owned(),
             char_count: Some(text.len() as i64),
             created_at: chrono::Utc::now().to_rfc3339(),
             is_pinned: false,
@@ -1051,13 +1077,13 @@ mod tests {
     ) -> ClipboardEntry {
         ClipboardEntry {
             id: 0,
-            content_type: "image".to_string(),
+            content_type: "image".to_owned(),
             text_content: None,
             image_data: None,
-            image_thumb: Some(thumb_b64.to_string()),
-            source_app: Some("TestApp".to_string()),
+            image_thumb: Some(thumb_b64.to_owned()),
+            source_app: Some("TestApp".to_owned()),
             source_app_icon: None,
-            content_hash: hash.to_string(),
+            content_hash: hash.to_owned(),
             char_count: None,
             created_at: chrono::Utc::now().to_rfc3339(),
             is_pinned: false,
@@ -1166,7 +1192,7 @@ mod tests {
             Some(48),
             Some(12_345),
         );
-        entry.image_data = Some("iVBORw0KGgoAAAANSUhEUg".to_string());
+        entry.image_data = Some("iVBORw0KGgoAAAANSUhEUg".to_owned());
 
         let (id, is_new) = db.insert_entry(&entry).unwrap();
         assert!(is_new);
@@ -1251,7 +1277,8 @@ mod tests {
     fn get_entries_respects_limit() {
         let db = test_db();
         for i in 0..10 {
-            db.insert_entry(&make_entry(&format!("text {}", i), &format!("h{}", i))).unwrap();
+            db.insert_entry(&make_entry(&format!("text {}", i), &format!("h{}", i)))
+                .unwrap();
         }
         let entries = db.get_entries(3, 0, None, false, None).unwrap();
         assert_eq!(entries.len(), 3);
@@ -1260,7 +1287,8 @@ mod tests {
     #[test]
     fn get_entries_with_search() {
         let db = test_db();
-        db.insert_entry(&make_entry("rust programming", "h1")).unwrap();
+        db.insert_entry(&make_entry("rust programming", "h1"))
+            .unwrap();
         db.insert_entry(&make_entry("python script", "h2")).unwrap();
         db.insert_entry(&make_entry("rust cargo", "h3")).unwrap();
 
@@ -1274,8 +1302,10 @@ mod tests {
     #[test]
     fn get_entries_search_is_case_insensitive_for_cyrillic() {
         let db = test_db();
-        db.insert_entry(&make_entry("Что учесть при реализации", "h_cyr")).unwrap();
-        db.insert_entry(&make_entry("другой текст", "h_other")).unwrap();
+        db.insert_entry(&make_entry("Что учесть при реализации", "h_cyr"))
+            .unwrap();
+        db.insert_entry(&make_entry("другой текст", "h_other"))
+            .unwrap();
 
         let results = db.get_entries(50, 0, None, false, Some("что уч")).unwrap();
         assert_eq!(results.len(), 1);
@@ -1389,22 +1419,23 @@ mod tests {
     fn set_and_get_tags() {
         let db = test_db();
         let (id, _) = db.insert_entry(&make_entry("tagged text", "h1")).unwrap();
-        db.set_entry_tags(id, &["rust".to_string(), "code".to_string()]).unwrap();
+        db.set_entry_tags(id, &["rust".to_owned(), "code".to_owned()])
+            .unwrap();
 
         let entry = db.get_entry_by_id(id).unwrap().unwrap();
-        assert!(entry.tags.contains(&"rust".to_string()));
-        assert!(entry.tags.contains(&"code".to_string()));
+        assert!(entry.tags.contains(&"rust".to_owned()));
+        assert!(entry.tags.contains(&"code".to_owned()));
     }
 
     #[test]
     fn overwrite_tags() {
         let db = test_db();
         let (id, _) = db.insert_entry(&make_entry("text", "h1")).unwrap();
-        db.set_entry_tags(id, &["old".to_string()]).unwrap();
-        db.set_entry_tags(id, &["new".to_string()]).unwrap();
+        db.set_entry_tags(id, &["old".to_owned()]).unwrap();
+        db.set_entry_tags(id, &["new".to_owned()]).unwrap();
 
         let entry = db.get_entry_by_id(id).unwrap().unwrap();
-        assert_eq!(entry.tags, vec!["new".to_string()]);
+        assert_eq!(entry.tags, vec!["new".to_owned()]);
     }
 
     #[test]
@@ -1412,7 +1443,7 @@ mod tests {
         let db = test_db();
         db.insert_entry(&make_entry("no tags", "h1")).unwrap();
         let (id2, _) = db.insert_entry(&make_entry("has tags", "h2")).unwrap();
-        db.set_entry_tags(id2, &["tagged".to_string()]).unwrap();
+        db.set_entry_tags(id2, &["tagged".to_owned()]).unwrap();
 
         let untagged = db.get_untagged_text_entries(50).unwrap();
         assert_eq!(untagged.len(), 1);
@@ -1486,8 +1517,18 @@ mod tests {
         let db = test_db();
         seed_full_settings(&db);
 
-        db.update_app_settings(None, None, Some("https://new.example"), None, None, None, None, None, None)
-            .unwrap();
+        db.update_app_settings(
+            None,
+            None,
+            Some("https://new.example"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         let s = db.get_app_settings().unwrap();
         assert_eq!(s.whisper_server_url, "https://new.example");
         assert_eq!(s.ollama_model, "custom-model");
@@ -1572,7 +1613,7 @@ mod tests {
         let cols = db.get_collections().unwrap();
         assert_eq!(cols.len(), 1);
         assert_eq!(cols[0].name, "Work");
-        assert_eq!(cols[0].color, Some("#ff0000".to_string()));
+        assert_eq!(cols[0].color, Some("#ff0000".to_owned()));
     }
 
     #[test]

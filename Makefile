@@ -3,10 +3,42 @@ export PATH := $(HOME)/.cargo/bin:$(PATH)
 NPM := env -u npm_config_devdir npm
 OLLAMA_MODEL ?= qwen3:4b-instruct-2507-q4_K_M
 OLLAMA_DEBUG ?= 1
+TAURI_DIR := $(APP_DIR)/src-tauri
 
-.PHONY: dev build check install clean-cache clean-cache-aggressive clean-all \
+.PHONY: help dev build install \
+	check check-frontend check-backend \
+	lint lint-frontend lint-backend \
+	fix fix-frontend fix-backend \
+	_compile-backend _test-backend _lint-rust _lint-rust-fix _fmt-rust _fmt-rust-fix \
+	clean-cache clean-cache-aggressive clean-all \
 	build-macos build-macos-intel build-macos-arm \
 	release-macos release-macos-intel release-macos-arm notarize-wait notarize-info
+
+# --- Public command contract ---
+
+help:
+	@echo "Development:"
+	@echo "  make dev              Run the Tauri development app"
+	@echo "  make build            Build the Tauri app"
+	@echo "  make install          Install npm dependencies"
+	@echo ""
+	@echo "Validation:"
+	@echo "  make fix              Auto-fix frontend and backend issues"
+	@echo "  make lint             Verify lint and formatting without changes"
+	@echo "  make check            Run type checks, compilation, lint, and tests"
+	@echo "  make fix-frontend     Auto-fix frontend issues only"
+	@echo "  make lint-frontend    Verify frontend lint and formatting"
+	@echo "  make check-frontend   Run frontend type checks, lint, and formatting"
+	@echo "  make fix-backend      Auto-fix Rust formatting and Clippy issues"
+	@echo "  make lint-backend     Verify Rust lint and formatting"
+	@echo "  make check-backend    Run Rust compile checks, lint, and tests"
+	@echo ""
+	@echo "Recommended cycles:"
+	@echo "  Frontend-only: make fix-frontend && make check-frontend"
+	@echo "  Backend-only:  make fix-backend && make check-backend"
+	@echo "  Full-stack:    make fix && make check"
+
+# --- App lifecycle ---
 
 dev:
 	cd $(APP_DIR) && COPYOSITY_OLLAMA_MODEL='$(OLLAMA_MODEL)' COPYOSITY_DEBUG_OLLAMA='$(OLLAMA_DEBUG)' $(NPM) run tauri dev
@@ -14,36 +46,79 @@ dev:
 build:
 	cd $(APP_DIR) && COPYOSITY_OLLAMA_MODEL='$(OLLAMA_MODEL)' COPYOSITY_DEBUG_OLLAMA='$(OLLAMA_DEBUG)' $(NPM) run tauri build
 
-check:
-	cd $(APP_DIR) && $(NPM) run check && cd src-tauri && cargo check && cargo test
-
 install:
 	cd $(APP_DIR) && $(NPM) install
 
-# Drop release artifacts and incremental cache; keep debug/deps for faster rebuilds.
+# --- Validation workflows ---
+
+check: check-frontend check-backend
+
+check-frontend:
+	cd $(APP_DIR) && $(NPM) run check
+
+check-backend: _compile-backend lint-backend _test-backend
+
+lint: lint-frontend lint-backend
+
+lint-frontend:
+	cd $(APP_DIR) && $(NPM) run lint
+
+lint-backend: _lint-rust _fmt-rust
+
+fix: fix-frontend fix-backend
+
+fix-frontend:
+	cd $(APP_DIR) && $(NPM) run fix
+
+fix-backend:
+	cd $(TAURI_DIR) && cargo fmt
+	cd $(TAURI_DIR) && cargo clippy --fix --allow-dirty --allow-staged --all-targets -- -D warnings
+	cd $(TAURI_DIR) && cargo fmt
+
+# --- Backend internals ---
+
+_compile-backend:
+	cd $(TAURI_DIR) && cargo check
+
+_test-backend:
+	cd $(TAURI_DIR) && cargo test
+
+_lint-rust:
+	cd $(TAURI_DIR) && cargo clippy --all-targets -- -D warnings
+
+_lint-rust-fix:
+	cd $(TAURI_DIR) && cargo clippy --fix --allow-dirty --allow-staged --all-targets -- -D warnings
+
+_fmt-rust:
+	cd $(TAURI_DIR) && cargo fmt --check
+
+_fmt-rust-fix:
+	cd $(TAURI_DIR) && cargo fmt
+
+# --- Cache cleanup ---
+
 clean-cache:
 	@echo "[clean-cache] release builds, incremental cache, frontend output (debug deps kept)"
-	cd $(APP_DIR)/src-tauri && cargo clean --release
-	find $(APP_DIR)/src-tauri/target -type d -name incremental -exec rm -rf {} + 2>/dev/null || true
-	rm -rf $(APP_DIR)/dist $(APP_DIR)/.svelte-kit $(APP_DIR)/build $(APP_DIR)/src-tauri/bundle
+	cd $(TAURI_DIR) && cargo clean --release
+	find $(TAURI_DIR)/target -type d -name incremental -exec rm -rf {} + 2>/dev/null || true
+	rm -rf $(APP_DIR)/dist $(APP_DIR)/.svelte-kit $(APP_DIR)/build $(TAURI_DIR)/bundle
 	@echo "[clean-cache] done"
 
-# Like clean-cache, plus build-script cache and this app's crate artifacts (~2–3 GB more).
-# Third-party rlibs in debug/deps stay — next cargo check relinks the app, not all deps.
 clean-cache-aggressive: clean-cache
 	@echo "[clean-cache-aggressive] build-script cache + copyosity crate artifacts (third-party deps kept)"
-	find $(APP_DIR)/src-tauri/target -type d -path '*/debug/build' -exec rm -rf {} + 2>/dev/null || true
-	cd $(APP_DIR)/src-tauri && cargo clean -p copyosity
+	find $(TAURI_DIR)/target -type d -path '*/debug/build' -exec rm -rf {} + 2>/dev/null || true
+	cd $(TAURI_DIR) && cargo clean -p copyosity
 	@echo "[clean-cache-aggressive] done"
 
-# Remove all generated artifacts; next build starts from scratch.
 clean-all:
 	@echo "[clean-all] target, node_modules, frontend cache, bundles"
-	cd $(APP_DIR)/src-tauri && cargo clean
+	cd $(TAURI_DIR) && cargo clean
 	rm -rf $(APP_DIR)/node_modules $(APP_DIR)/dist $(APP_DIR)/.svelte-kit $(APP_DIR)/build
-	rm -rf $(APP_DIR)/src-tauri/bundle $(APP_DIR)/.tauri
+	rm -rf $(TAURI_DIR)/bundle $(APP_DIR)/.tauri
 	rm -f $(APP_DIR)/*.dmg
 	@echo "[clean-all] done — run 'make install' before dev/build if node_modules was removed"
+
+# --- macOS release builds ---
 
 build-macos:
 	cd $(APP_DIR) && MACOS_ARCH=auto ./scripts/build-macos.sh

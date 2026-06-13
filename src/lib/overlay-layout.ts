@@ -14,8 +14,7 @@ export function computeOverlayHeightTier(options: {
   showRowB: boolean;
   hasSettingsNotice: boolean;
 }): OverlayHeightTier {
-  const filterRows =
-    (options.showRowA ? 1 : 0) + (options.showRowB ? 1 : 0);
+  const filterRows = (options.showRowA ? 1 : 0) + (options.showRowB ? 1 : 0);
 
   if (filterRows >= 2) return "full";
   if (filterRows >= 1 || options.hasSettingsNotice) return "medium";

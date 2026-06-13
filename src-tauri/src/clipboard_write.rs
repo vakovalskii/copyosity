@@ -219,10 +219,8 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn sweep_stale_gif_temp_files_removes_old_only() {
-        let base_dir = std::env::temp_dir().join(format!(
-            "copyosity-gif-paste-test-{}",
-            std::process::id()
-        ));
+        let base_dir =
+            std::env::temp_dir().join(format!("copyosity-gif-paste-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base_dir);
         std::fs::create_dir_all(&base_dir).unwrap();
 

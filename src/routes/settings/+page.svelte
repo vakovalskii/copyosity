@@ -130,11 +130,11 @@
     return excludableCandidate?.bundleId === bundleId;
   }
 
-  let listedExcludedApps = $derived(
+  const listedExcludedApps = $derived(
     excludedApps.filter((app) => !isActiveApp(app.bundleId)),
   );
 
-  let activeExcludedEntry = $derived.by(() => {
+  const activeExcludedEntry = $derived.by(() => {
     const candidate = excludableCandidate;
     if (!candidate?.alreadyExcluded) return undefined;
     return excludedApps.find((app) => app.bundleId === candidate.bundleId);
@@ -483,7 +483,7 @@
     }
   }
 
-  let modelDirty = $derived(settings.ollama_model !== savedModel);
+  const modelDirty = $derived(settings.ollama_model !== savedModel);
 
   const ollamaBusyActive = $derived(ollamaBusy !== null);
   const taggingSucceeded = $derived(
@@ -1112,7 +1112,6 @@
     color: var(--color-text-body);
     /* Chrome non-selectable; inputs + hints override in form-controls.css */
     user-select: none;
-    -webkit-user-select: none;
   }
 
   :global(*) {
@@ -1191,7 +1190,8 @@
     font-size: var(--font-size-sm);
     color: var(--color-text-primary);
     min-width: 0;
-    word-break: break-word;
+    word-break: normal;
+    overflow-wrap: break-word;
   }
 
   .excluded-apps-row-meta {
@@ -1212,7 +1212,7 @@
     cursor: pointer;
   }
 
-  .excluded-apps-row--action:hover:not(:disabled):not([aria-busy="true"]) {
+  .excluded-apps-row--action:hover:not(:disabled, [aria-busy="true"]) {
     background: var(--surface-5);
     color: var(--color-accent-link-hover);
   }

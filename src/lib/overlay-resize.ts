@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
 import { panelOpenMs } from "$lib/motion";
+import { invoke } from "@tauri-apps/api/core";
 
 let appliedHeight: number | null = null;
 let animFrame: number | null = null;
@@ -14,8 +14,7 @@ export async function resizeMainWindow(height: number): Promise<void> {
 
 function prefersReducedMotion(): boolean {
   return (
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
 }
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ContentKind } from "$lib/overlay-filters";
 
-  let {
+  const {
     value = "all",
     onchange,
   }: {
@@ -64,7 +64,7 @@
       box-shadow var(--duration-fast) var(--ease-interactive);
   }
 
-  .segment-btn:hover:not(:disabled):not([aria-busy="true"]) {
+  .segment-btn:hover:not(:disabled, [aria-busy="true"]) {
     color: var(--color-text-body);
     background: var(--surface-5);
   }
@@ -76,7 +76,7 @@
     border: 1px solid var(--border-default);
   }
 
-  .segment-btn[aria-pressed="true"]:hover:not(:disabled):not([aria-busy="true"]) {
+  .segment-btn[aria-pressed="true"]:hover:not(:disabled, [aria-busy="true"]) {
     background: var(--surface-8);
     color: var(--color-text-primary);
     border-color: var(--border-medium);

@@ -5,6 +5,15 @@ description = "Clipboard history manager"
 authors = ["v.kovalskii"]
 edition = "2021"
 
+[lints.rust]
+unused_must_use = "warn"
+
+[lints.clippy]
+enum_glob_use = "deny"
+todo = "warn"
+unimplemented = "warn"
+redundant_clone = "warn"
+
 [lib]
 name = "copyosity_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -38,6 +47,7 @@ cpal = "0.16"
 hound = "3.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSApplication",
@@ -47,6 +57,9 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSPasteboardItem",
   "NSWorkspace",
   "NSRunningApplication",
+  "NSEvent",
+  "NSWindow",
+  "block2",
 ] }
 objc2-foundation = { version = "0.3", default-features = false, features = [
   "NSArray",
@@ -57,5 +70,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
   "NSData",
   "NSBundle",
   "NSURL",
+  "NSNotification",
+  "NSOperation",
+  "block2",
 ] }
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e89" }

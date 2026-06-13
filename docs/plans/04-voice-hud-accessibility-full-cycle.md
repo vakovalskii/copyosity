@@ -4,14 +4,12 @@
 
 **Принято:** HUD **остаётся видимым** во время транскрипции (не скрывать сразу при отпускании shortcut).
 
-
 | Поверхность          | Файлы                                                                                                                                  |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | Voice HUD            | `[overlay/+page.svelte](../../src/routes/overlay/+page.svelte)`                                                                        |
 | Глобальный announcer | `[VoiceA11yAnnouncer.svelte](../../src/lib/components/VoiceA11yAnnouncer.svelte)`, `[+layout.svelte](../../src/routes/+layout.svelte)` |
 | Shared types         | `[voice-a11y.ts](../../src/lib/voice-a11y.ts)`                                                                                         |
 | Backend lifecycle    | `[lib.rs](../../src-tauri/src/lib.rs)`                                                                                                 |
-
 
 ---
 
@@ -39,7 +37,7 @@ Web live regions работают в webview Copyosity. Когда все окн
 
 ## Чеклист
 
-- [ ] `**voice-a11y.ts`** — типы, константы сообщений, `subscribeVoiceA11y`, helpers дедупа
+- [ ] `**voice-a11y.ts`\*\* — типы, константы сообщений, `subscribeVoiceA11y`, helpers дедупа
 - [ ] **Rust `lib.rs`** — `voice-a11y` events, seq, HUD visible до конца транскрипции, delayed hide
 - [ ] `**overlay/+page.svelte**` — phase state machine, `aria-busy`, processing visuals
 - [ ] `**VoiceA11yAnnouncer.svelte**` — глобальный sr-only announcer
@@ -84,8 +82,6 @@ sequenceDiagram
   end
 ```
 
-
-
 ---
 
 ## Единый payload (Rust + TypeScript)
@@ -103,12 +99,11 @@ type VoiceA11yPhase =
 type VoiceA11yEvent = {
   phase: VoiceA11yPhase;
   message: string; // user-facing English (как весь UI)
-  seq: number;     // монотонный id — дедуп между webviews
+  seq: number; // монотонный id — дедуп между webviews
 };
 ```
 
 ### Сообщения
-
 
 | phase          | message                       |
 | -------------- | ----------------------------- |
@@ -119,7 +114,6 @@ type VoiceA11yEvent = {
 | error          | Voice transcription failed    |
 | not_configured | Whisper server not configured |
 | idle           | (пустая строка — сброс)       |
-
 
 Дополнительно при ошибке старта микрофона: `Could not start microphone`.
 
@@ -153,13 +147,14 @@ type VoiceA11yEvent = {
 ### `handle_voice_event` — Released
 
 1. `session = recording_mutex().take()`; если `None` — return
-2. `**hide_voice_overlay` не вызывать**
+2. `**hide_voice_overlay` не вызывать\*\*
 3. `emit_voice_a11y(app, Overlay, "processing", "Processing speech")`
 4. `spawn` transcription thread (существующая логика), внутри:
-  - `whisper_server_url.is_empty()` → `not_configured` → emit Overlay + All → `sleep(400ms)` → `hide_voice_overlay` → `idle`
-  - `transcribe_audio` Ok + non-empty → paste → `success` → emit Overlay + All → `sleep(400ms)` → hide → `idle`
-  - Ok empty → `empty` → emit → delay → hide → `idle`
-  - Err → `error` → emit → delay → hide → `idle`
+
+- `whisper_server_url.is_empty()` → `not_configured` → emit Overlay + All → `sleep(400ms)` → `hide_voice_overlay` → `idle`
+- `transcribe_audio` Ok + non-empty → paste → `success` → emit Overlay + All → `sleep(400ms)` → hide → `idle`
+- Ok empty → `empty` → emit → delay → hide → `idle`
+- Err → `error` → emit → delay → hide → `idle`
 
 **Задержка ~400 ms** после terminal phase — SR успевает озвучить; HUD показывает terminal state через overlay.
 
@@ -269,12 +264,9 @@ flowchart TD
   ts --> rust --> hud --> ann --> docs --> verify
 ```
 
-
-
 1. `voice-a11y.ts` + типы
 2. Rust: seq + emit helpers + refactor `handle_voice_event`
 3. `overlay/+page.svelte` state machine + processing visuals
 4. `VoiceA11yAnnouncer.svelte` + `+layout.svelte`
 5. HIG audit + CHANGELOG
 6. Compile checks + manual VoiceOver pass
-

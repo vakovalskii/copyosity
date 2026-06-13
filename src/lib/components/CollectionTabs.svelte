@@ -2,7 +2,7 @@
   import type { Collection } from "$lib/types";
   import { createCollection, deleteCollection } from "$lib/api";
 
-  let {
+  const {
     collections = [],
     activeId = null,
     activePinned = false,
@@ -164,7 +164,7 @@
       background var(--duration-fast) var(--ease-interactive);
   }
 
-  .tab:hover:not(:disabled):not([aria-busy="true"]) {
+  .tab:hover:not(:disabled, [aria-busy="true"]) {
     color: var(--color-text-tab-hover);
     background: var(--surface-6);
   }
@@ -198,7 +198,7 @@
     transition: opacity var(--duration-fast) var(--ease-interactive);
   }
 
-  .tab-delete:hover:not(:disabled):not([aria-busy="true"]) {
+  .tab-delete:hover:not(:disabled, [aria-busy="true"]) {
     color: var(--color-danger);
   }
 

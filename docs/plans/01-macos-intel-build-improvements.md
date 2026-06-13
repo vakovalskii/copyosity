@@ -104,9 +104,9 @@ Follow-up и доработки перед релизом — в [05-macos-intel
 
 ## 6. Затронутые области репозитория
 
-| Область | Файлы |
-|---------|--------|
-| Сборка | `Makefile`, `README.md`, `scripts/build-macos.sh`, `macos-target.sh`, `env-rust.sh`, `with-tauri.sh`, `with-npm.sh`, `release-macos.sh`, `tauri.unsigned.json` |
-| Конфиг / deps | `.gitignore`, `.vscode/settings.json`, `package.json`, `package-lock.json` |
-| Rust backend | `clipboard_monitor.rs`, `clipboard_macos.rs`, `clipboard_write.rs`, `commands.rs`, `lib.rs`, `Cargo.toml` |
-| UI | `+page.svelte`, `settings/+page.svelte`, `ClipboardCard.svelte` |
+| Область       | Файлы                                                                                                                                                          |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Сборка        | `Makefile`, `README.md`, `scripts/build-macos.sh`, `macos-target.sh`, `env-rust.sh`, `with-tauri.sh`, `with-npm.sh`, `release-macos.sh`, `tauri.unsigned.json` |
+| Конфиг / deps | `.gitignore`, `.vscode/settings.json`, `package.json`, `package-lock.json`                                                                                     |
+| Rust backend  | `clipboard_monitor.rs`, `clipboard_macos.rs`, `clipboard_write.rs`, `commands.rs`, `lib.rs`, `Cargo.toml`                                                      |
+| UI            | `+page.svelte`, `settings/+page.svelte`, `ClipboardCard.svelte`                                                                                                |

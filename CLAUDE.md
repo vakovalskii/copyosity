@@ -4,16 +4,17 @@ Project workflow rules:
 
 1. After a release is finished, start the next iteration in a new branch.
 2. New features, fixes, and experiments must be pushed to that branch.
-3. After every code generation pass or manual code edit, test compilation of the app.
+3. After every code generation pass or manual code edit, auto-fix the affected area first, then test compilation of the app.
 4. Keep git history and workflow notes up to date by committing changes clearly and updating this file together with `AGENTS.md`.
 
 ## Mandatory Checks
 
-Use these commands after code changes:
+Use the same validation contract as `AGENTS.md`: auto-fix first, then run the narrowest check that covers the edited area.
 
 ```bash
-npm run check
-cd src-tauri && cargo check
+make fix-frontend && make check-frontend # frontend-only changes
+make fix-backend && make check-backend   # Rust/backend-only changes
+make fix && make check                   # full-stack or cross-cutting changes
 ```
 
 ## Expected Practice

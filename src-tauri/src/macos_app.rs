@@ -172,7 +172,7 @@ pub fn resolve_app_identity_from_input(input: &str) -> Option<AppIdentity> {
             return None;
         }
         return Some(AppIdentity {
-            bundle_id: trimmed.to_string(),
+            bundle_id: trimmed.to_owned(),
             display_name: display_name_for_bundle_id(trimmed),
         });
     }
@@ -227,7 +227,9 @@ pub(crate) fn legacy_excluded_app_rows(
 ) -> Result<Vec<(i64, String)>, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT id, bundle_id FROM excluded_apps")?;
     let rows = stmt
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows
         .into_iter()
@@ -284,8 +286,20 @@ fn pick_unique_app_identity(mut matches: Vec<AppIdentity>) -> Option<AppIdentity
 }
 
 const GENERIC_BUNDLE_SEGMENTS: &[&str] = &[
-    "agent", "android", "app", "application", "client", "desktop", "extension", "helper", "ios",
-    "mac", "macos", "osx", "plugin", "service",
+    "agent",
+    "android",
+    "app",
+    "application",
+    "client",
+    "desktop",
+    "extension",
+    "helper",
+    "ios",
+    "mac",
+    "macos",
+    "osx",
+    "plugin",
+    "service",
 ];
 
 fn is_generic_bundle_segment(segment: &str) -> bool {
@@ -308,7 +322,7 @@ fn meaningful_bundle_segment(bundle_id: &str) -> &str {
 
 fn humanize_bundle_id(bundle_id: &str) -> String {
     let segment = meaningful_bundle_segment(bundle_id);
-    title_case_words(&segment.replace('-', " ").replace('_', " "))
+    title_case_words(&segment.replace(['-', '_'], " "))
 }
 
 fn title_case_first_char(value: &str) -> String {
@@ -351,10 +365,7 @@ fn display_name_from_bundle_plist(bundle: &objc2_foundation::NSBundle) -> Option
 }
 
 #[cfg(target_os = "macos")]
-fn display_name_from_plist_key(
-    bundle: &objc2_foundation::NSBundle,
-    key: &str,
-) -> Option<String> {
+fn display_name_from_plist_key(bundle: &objc2_foundation::NSBundle, key: &str) -> Option<String> {
     use objc2_foundation::NSString;
 
     let key = NSString::from_str(key);
@@ -479,9 +490,7 @@ fn find_installed_app_by_display_name(name: &str) -> Option<AppIdentity> {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or_default();
-        if identity.display_name.eq_ignore_ascii_case(name)
-            || stem.eq_ignore_ascii_case(name)
-        {
+        if identity.display_name.eq_ignore_ascii_case(name) || stem.eq_ignore_ascii_case(name) {
             matches.push(identity);
         }
     }
@@ -515,10 +524,11 @@ mod tests {
                 .bundle_id,
             "com.apple.Notes"
         );
-        assert!(
-            pick_unique_app_identity(vec![notes("com.example.notes-a"), notes("com.example.notes-b")])
-                .is_none()
-        );
+        assert!(pick_unique_app_identity(vec![
+            notes("com.example.notes-a"),
+            notes("com.example.notes-b")
+        ])
+        .is_none());
     }
 
     #[test]
@@ -614,21 +624,17 @@ mod tests {
         migrate_legacy_excluded_app_rows(&conn, &legacy_rows, |_| None).unwrap();
 
         let bundle_id: String = conn
-            .query_row(
-                "SELECT bundle_id FROM excluded_apps LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT bundle_id FROM excluded_apps LIMIT 1", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(bundle_id, "Unknown Legacy App");
     }
 
     #[test]
     fn collect_app_bundle_paths_finds_nested_apps() {
-        let root = std::env::temp_dir().join(format!(
-            "copyosity-nested-apps-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("copyosity-nested-apps-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let nested = root.join("Utilities");
         std::fs::create_dir_all(&nested).unwrap();
@@ -669,11 +675,9 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1);
         let bundle_id: String = conn
-            .query_row(
-                "SELECT bundle_id FROM excluded_apps LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT bundle_id FROM excluded_apps LIMIT 1", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(bundle_id, "org.telegram.desktop");
     }

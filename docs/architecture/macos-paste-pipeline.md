@@ -31,11 +31,11 @@ flowchart TD
 
 ### Triggers
 
-| User action | Frontend | Backend |
-| ----------- | -------- | ------- |
-| Double-click card | `activateEntry` | `commands::activate_entry` |
-| Enter on selected card | `activateEntry` | `commands::activate_entry` |
-| Voice transcription complete | — | `lib.rs` → `clipboard_write::write_text` + `spawn_automated_paste(false)` |
+| User action                  | Frontend        | Backend                                                                   |
+| ---------------------------- | --------------- | ------------------------------------------------------------------------- |
+| Double-click card            | `activateEntry` | `commands::activate_entry`                                                |
+| Enter on selected card       | `activateEntry` | `commands::activate_entry`                                                |
+| Voice transcription complete | —               | `lib.rs` → `clipboard_write::write_text` + `spawn_automated_paste(false)` |
 
 Shared path after the pasteboard is ready:
 
@@ -55,13 +55,13 @@ Call this **before** `show_and_make_key`, or focus capture points at Copyosity.
 
 ## Source files
 
-| File | Role |
-| ---- | ---- |
-| `src-tauri/src/clipboard_macos/mod.rs` | Pasteboard `changeCount`, concealed detection, `remember_paste_target` / `restore_paste_target`, module exports |
-| `src-tauri/src/clipboard_macos/paste.rs` | `paste_into_target`, `simulate_cmd_v`, osascript fallback, mouse click fallback, `cmd_v_uses_session_tap` |
-| `src-tauri/src/clipboard_macos/accessibility.rs` | AX focus capture/restore, `try_ax_paste`, `try_ax_paste_for_pid`, editable-role search, Accessibility trust |
-| `src-tauri/src/clipboard_write.rs` | Unified **Copy** / **Paste** write modes; marks own pasteboard writes so the monitor skips them |
-| `src-tauri/src/commands.rs` | `activate_entry`, `finish_paste`, image/text paste entry points |
+| File                                             | Role                                                                                                            |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `src-tauri/src/clipboard_macos/mod.rs`           | Pasteboard `changeCount`, concealed detection, `remember_paste_target` / `restore_paste_target`, module exports |
+| `src-tauri/src/clipboard_macos/paste.rs`         | `paste_into_target`, `simulate_cmd_v`, osascript fallback, mouse click fallback, `cmd_v_uses_session_tap`       |
+| `src-tauri/src/clipboard_macos/accessibility.rs` | AX focus capture/restore, `try_ax_paste`, `try_ax_paste_for_pid`, editable-role search, Accessibility trust     |
+| `src-tauri/src/clipboard_write.rs`               | Unified **Copy** / **Paste** write modes; marks own pasteboard writes so the monitor skips them                 |
+| `src-tauri/src/commands.rs`                      | `activate_entry`, `finish_paste`, image/text paste entry points                                                 |
 
 ## Design decisions
 

@@ -5,7 +5,7 @@
   import "$lib/styles/button-interaction.css";
   import "$lib/styles/form-controls.css";
 
-  let { children } = $props();
+  const { children } = $props();
 
   onMount(initInputModality);
 </script>

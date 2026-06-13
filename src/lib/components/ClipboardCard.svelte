@@ -6,7 +6,7 @@
   import { cardDisplayTags } from "$lib/overlay-filters";
   import { formatBytes, formatImageDimensions } from "$lib/image-meta";
 
-  let {
+  const {
     entry,
     selected = false,
     ondeleted,
@@ -251,20 +251,20 @@
     "Rust",
   ]);
 
-  let textKind = $derived(detectTextKind(entry.text_content));
-  let usesMonoPreview = $derived(MONO_TEXT_KINDS.has(textKind));
-  let typeLabel = $derived(entry.content_type === "text" ? textKind : entry.content_type === "image" ? "Image" : "File");
-  let imageFormat = $derived(entry.content_type === "image" ? entry.image_format : null);
-  let imageDimensions = $derived(
+  const textKind = $derived(detectTextKind(entry.text_content));
+  const usesMonoPreview = $derived(MONO_TEXT_KINDS.has(textKind));
+  const typeLabel = $derived(entry.content_type === "text" ? textKind : entry.content_type === "image" ? "Image" : "File");
+  const imageFormat = $derived(entry.content_type === "image" ? entry.image_format : null);
+  const imageDimensions = $derived(
     formatImageDimensions(entry.image_width, entry.image_height),
   );
-  let imageByteSize = $derived(
+  const imageByteSize = $derived(
     entry.image_byte_size != null && entry.image_byte_size > 0
       ? formatBytes(entry.image_byte_size)
       : null,
   );
-  let charLabel = $derived(entry.char_count ? `${entry.char_count.toLocaleString()} characters` : "");
-  let tags = $derived(cardDisplayTags(entry, aiTaggingEnabled));
+  const charLabel = $derived(entry.char_count ? `${entry.char_count.toLocaleString()} characters` : "");
+  const tags = $derived(cardDisplayTags(entry, aiTaggingEnabled));
 </script>
 
 <div
@@ -559,7 +559,7 @@
     display: block;
   }
 
-  .action-btn:hover:not(:disabled):not([aria-busy="true"]) {
+  .action-btn:hover:not(:disabled, [aria-busy="true"]) {
     color: var(--color-text-bright);
     background: var(--surface-10);
   }
@@ -570,7 +570,7 @@
     color: var(--color-accent-text-soft);
   }
 
-  .action-btn.paste:hover:not(:disabled):not([aria-busy="true"]) {
+  .action-btn.paste:hover:not(:disabled, [aria-busy="true"]) {
     background: var(--surface-accent-hover);
     border-color: var(--border-accent-medium);
     color: var(--color-accent-text);
@@ -584,7 +584,7 @@
     color: var(--color-warning-bright);
   }
 
-  .action-btn.delete:hover:not(:disabled):not([aria-busy="true"]) {
+  .action-btn.delete:hover:not(:disabled, [aria-busy="true"]) {
     color: var(--color-danger);
   }
 
@@ -610,7 +610,7 @@
   }
 
   .text-content.mono {
-    font-family: "SF Mono", "Menlo", "Monaco", monospace;
+    font-family: "SF Mono", Menlo, Monaco, monospace;
   }
 
   .text-content:not(.mono) {
@@ -625,7 +625,8 @@
     line-height: 1.55;
     color: var(--color-text-primary);
     white-space: pre-line;
-    word-break: break-word;
+    word-break: normal;
+    overflow-wrap: break-word;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 8;
@@ -754,7 +755,7 @@
     padding: 0;
     margin: -1px;
     overflow: hidden;
-    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
     white-space: nowrap;
     border: 0;
   }

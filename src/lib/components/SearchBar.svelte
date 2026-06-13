@@ -1,5 +1,5 @@
 <script lang="ts">
-  let {
+  const {
     value = "",
     onchange,
   }: {
@@ -111,7 +111,6 @@
     min-width: 0;
     font-family: inherit;
     user-select: text;
-    -webkit-user-select: text;
   }
 
   input::selection {

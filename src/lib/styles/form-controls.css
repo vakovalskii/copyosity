@@ -192,7 +192,6 @@
   line-height: 1.25;
   outline: none;
   user-select: text;
-  -webkit-user-select: text;
 }
 
 .text-control-host {
@@ -206,8 +205,6 @@
 
 .form-select {
   appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
   padding-right: 32px;
   background-image: var(--gradient-select-chevron);
   background-position:
@@ -275,7 +272,6 @@
   color: var(--color-text-tertiary);
   padding: 2px 0;
   user-select: text;
-  -webkit-user-select: text;
 }
 
 .form-hint code {
@@ -346,7 +342,7 @@
   font-weight: 600;
 }
 
-.form-btn-primary:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+.form-btn-primary:hover:not(.is-busy, .is-locked, :disabled) {
   background: var(--gradient-btn-primary-hover);
   border-color: var(--border-accent-focus);
 }
@@ -357,7 +353,7 @@
   color: var(--color-text-primary);
 }
 
-.form-btn-secondary:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+.form-btn-secondary:hover:not(.is-busy, .is-locked, :disabled) {
   background: var(--surface-accent-hover);
   border-color: var(--border-accent-medium);
 }
@@ -369,7 +365,7 @@
   width: fit-content;
 }
 
-.form-btn-ghost:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+.form-btn-ghost:hover:not(.is-busy, .is-locked, :disabled) {
   background: var(--surface-6);
   border-color: var(--border-strong);
 }
@@ -384,7 +380,7 @@
   color: var(--color-danger-text);
 }
 
-.form-btn-danger:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+.form-btn-danger:hover:not(.is-busy, .is-locked, :disabled) {
   background: var(--surface-danger);
   border-color: var(--border-danger-hover);
   color: var(--color-danger-text-hover);
@@ -401,7 +397,7 @@
   color: var(--color-warning-text);
 }
 
-.form-btn-restrict:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+.form-btn-restrict:hover:not(.is-busy, .is-locked, :disabled) {
   background: var(--surface-warning-subtle);
   border-color: var(--border-warning-hover);
   color: var(--color-warning-bright);
@@ -418,7 +414,7 @@
   white-space: nowrap;
 }
 
-.form-link-accent:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+.form-link-accent:hover:not(.is-busy, .is-locked, :disabled) {
   color: var(--color-accent-link-hover);
 }
 
@@ -433,7 +429,7 @@
   white-space: nowrap;
 }
 
-.form-link-restrict:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+.form-link-restrict:hover:not(.is-busy, .is-locked, :disabled) {
   color: var(--color-warning-bright);
 }
 
@@ -600,7 +596,7 @@
   white-space: nowrap;
 }
 
-.status-action:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+.status-action:hover:not(.is-busy, .is-locked, :disabled) {
   background: var(--surface-accent-strong);
   border-color: var(--border-accent-strong);
 }
@@ -611,7 +607,6 @@
   line-height: 1.5;
   color: var(--color-text-tertiary);
   user-select: text;
-  -webkit-user-select: text;
 }
 
 .status-hint.ok {
@@ -648,7 +643,6 @@
   font-size: var(--font-size-2xs-sm);
   word-break: break-all;
   user-select: text;
-  -webkit-user-select: text;
 }
 
 .link-btn {
@@ -663,6 +657,6 @@
   text-underline-offset: 2px;
 }
 
-.link-btn:hover:not(.is-busy):not(.is-locked):not(:disabled) {
+.link-btn:hover:not(.is-busy, .is-locked, :disabled) {
   color: var(--color-accent-link-hover);
 }

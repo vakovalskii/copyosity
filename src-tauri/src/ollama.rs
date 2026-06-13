@@ -19,10 +19,7 @@ pub struct OllamaStatus {
 /// Retag is available when AI tagging is on and Ollama can reach an installed model.
 /// Unloaded (not in memory) still counts — retag loads the model on demand.
 pub fn tagging_ready(ai_enabled: bool, status: &OllamaStatus) -> bool {
-    ai_enabled
-        && status.cli_installed
-        && status.server_running
-        && status.model_installed
+    ai_enabled && status.cli_installed && status.server_running && status.model_installed
 }
 
 pub fn is_tagging_ready(db: &Database) -> bool {
@@ -33,7 +30,11 @@ pub fn check_status() -> OllamaStatus {
     let model = ollama_model();
     let cli = ollama_cli_available();
     let server = if cli { ollama_available() } else { false };
-    let has_model = if server { model_installed(&model) } else { false };
+    let has_model = if server {
+        model_installed(&model)
+    } else {
+        false
+    };
     let loaded = if server && has_model {
         model_loaded_in_memory(&model)
     } else {
@@ -109,7 +110,8 @@ pub fn unload_model() -> bool {
 pub fn test_tagging() -> Option<Vec<String>> {
     // Use a longer timeout for test — model cold start can take 30+ seconds
     let model = ollama_model();
-    let truncated = "Meeting with John tomorrow at 3pm to discuss the new API design for user authentication";
+    let truncated =
+        "Meeting with John tomorrow at 3pm to discuss the new API design for user authentication";
 
     let request = OllamaChatRequest {
         model: &model,
@@ -118,7 +120,7 @@ pub fn test_tagging() -> Option<Vec<String>> {
         messages: vec![
             OllamaMessage {
                 role: "system",
-                content: "You classify clipboard text. Return strict JSON only in the shape {\"tags\":[\"tag1\",\"tag2\"]}. Use 2 to 5 short lowercase tags.".to_string(),
+                content: "You classify clipboard text. Return strict JSON only in the shape {\"tags\":[\"tag1\",\"tag2\"]}. Use 2 to 5 short lowercase tags.".to_owned(),
             },
             OllamaMessage {
                 role: "user",
@@ -129,11 +131,18 @@ pub fn test_tagging() -> Option<Vec<String>> {
 
     // 60 second read timeout for cold model loading
     let agent = ollama_agent(2, 60);
-    let response = agent.post(DEFAULT_OLLAMA_CHAT_URL).send_json(request).ok()?;
+    let response = agent
+        .post(DEFAULT_OLLAMA_CHAT_URL)
+        .send_json(request)
+        .ok()?;
     let chat: OllamaChatResponse = response.into_json().ok()?;
     let parsed: TagResponse = serde_json::from_str(&chat.message.content).ok()?;
     let tags = normalize_tags(parsed.tags);
-    if tags.is_empty() { None } else { Some(tags) }
+    if tags.is_empty() {
+        None
+    } else {
+        Some(tags)
+    }
 }
 
 const DEFAULT_OLLAMA_CHAT_URL: &str = "http://127.0.0.1:11434/api/chat";
@@ -144,22 +153,22 @@ const DEFAULT_OLLAMA_MODEL: &str = "qwen3:4b-instruct-2507-q4_K_M";
 static ACTIVE_MODEL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 pub fn set_active_model(model: &str) {
-    *ACTIVE_MODEL.lock().unwrap() = Some(model.to_string());
+    *ACTIVE_MODEL.lock().unwrap() = Some(model.to_owned());
 }
 
 /// Reject malformed model names before they reach `ollama pull` or settings storage.
 pub fn validate_model_name(name: &str) -> Result<(), String> {
     let name = name.trim();
     if name.is_empty() || name.len() > 128 {
-        return Err("Invalid Ollama model name".to_string());
+        return Err("Invalid Ollama model name".to_owned());
     }
-    let valid = name.chars().all(|c| {
-        c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_' | '.' | '/')
-    });
+    let valid = name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_' | '.' | '/'));
     if valid {
         Ok(())
     } else {
-        Err("Invalid Ollama model name".to_string())
+        Err("Invalid Ollama model name".to_owned())
     }
 }
 
@@ -354,7 +363,7 @@ fn ollama_model() -> String {
         .unwrap()
         .clone()
         .filter(|v| !v.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_OLLAMA_MODEL.to_string())
+        .unwrap_or_else(|| DEFAULT_OLLAMA_MODEL.to_owned())
 }
 
 fn debug_enabled() -> bool {
@@ -380,7 +389,11 @@ fn ollama_agent(connect_timeout_secs: u64, read_timeout_secs: u64) -> ureq::Agen
 }
 
 fn ollama_available() -> bool {
-    let ok = ollama_agent(1, 2).get(DEFAULT_OLLAMA_TAGS_URL).call().ok().is_some();
+    let ok = ollama_agent(1, 2)
+        .get(DEFAULT_OLLAMA_TAGS_URL)
+        .call()
+        .ok()
+        .is_some();
     log_debug(format!("availability => {}", ok));
     ok
 }
@@ -405,10 +418,10 @@ fn ollama_bin() -> &'static str {
                 .unwrap_or(false)
             {
                 log_debug(format!("found ollama at: {}", path));
-                return path.to_string();
+                return path.to_owned();
             }
         }
-        "ollama".to_string()
+        "ollama".to_owned()
     })
 }
 
@@ -487,10 +500,10 @@ fn pull_model_via_api(model: &str, app: Option<&AppHandle>) {
     }
 
     let agent = ollama_agent(5, 600); // 10 min timeout for large models
-    let response = match agent
-        .post(DEFAULT_OLLAMA_PULL_URL)
-        .send_json(PullRequest { name: model, stream: true })
-    {
+    let response = match agent.post(DEFAULT_OLLAMA_PULL_URL).send_json(PullRequest {
+        name: model,
+        stream: true,
+    }) {
         Ok(r) => r,
         Err(err) => {
             log_debug(format!("pull API request failed: {}", err));
@@ -505,7 +518,9 @@ fn pull_model_via_api(model: &str, app: Option<&AppHandle>) {
     for line in reader.lines() {
         let Ok(line) = line else { continue };
         let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
 
         // Try to parse as JSON
         #[derive(Deserialize)]
@@ -600,8 +615,8 @@ pub fn model_catalog() -> ModelCatalog {
     let options = presets
         .into_iter()
         .map(|(value, label, memory_gb)| ModelOption {
-            value: value.to_string(),
-            label: label.to_string(),
+            value: value.to_owned(),
+            label: label.to_owned(),
             memory_gb,
             fits: memory_gb <= recommended_memory_gb,
             installed: installed.iter().any(|name| name == value),
@@ -676,7 +691,10 @@ pub fn backfill_existing_tags(app: AppHandle, db: Arc<Database>) {
             let batch = match db.get_text_entries_for_retag(100, offset) {
                 Ok(entries) => entries,
                 Err(err) => {
-                    eprintln!("copyosity[ollama]: failed to load entries for retag: {}", err);
+                    eprintln!(
+                        "copyosity[ollama]: failed to load entries for retag: {}",
+                        err
+                    );
                     return;
                 }
             };
@@ -696,7 +714,10 @@ pub fn backfill_existing_tags(app: AppHandle, db: Arc<Database>) {
                             );
                             continue;
                         }
-                        log_debug(format!("retag heuristic entry_id={} tags={:?}", entry_id, next_tags));
+                        log_debug(format!(
+                            "retag heuristic entry_id={} tags={:?}",
+                            entry_id, next_tags
+                        ));
                         let _ = app.emit("entry-tagged", entry_id);
                     } else {
                         let _ = db.set_entry_tag_state(entry_id, "done");
@@ -717,7 +738,10 @@ pub fn backfill_existing_tags(app: AppHandle, db: Arc<Database>) {
             let batch = match db.get_untagged_text_entries(24) {
                 Ok(entries) => entries,
                 Err(err) => {
-                    eprintln!("copyosity[ollama]: failed to load untagged entries: {}", err);
+                    eprintln!(
+                        "copyosity[ollama]: failed to load untagged entries: {}",
+                        err
+                    );
                     return;
                 }
             };
@@ -731,7 +755,10 @@ pub fn backfill_existing_tags(app: AppHandle, db: Arc<Database>) {
 
             for (entry_id, text) in batch {
                 let preview = text.trim().chars().take(80).collect::<String>();
-                log_debug(format!("backfill entry_id={} preview={:?}", entry_id, preview));
+                log_debug(format!(
+                    "backfill entry_id={} preview={:?}",
+                    entry_id, preview
+                ));
 
                 match tag_text(&text) {
                     Some(tags) => {
@@ -743,7 +770,10 @@ pub fn backfill_existing_tags(app: AppHandle, db: Arc<Database>) {
                             continue;
                         }
 
-                        log_debug(format!("backfill saved entry_id={} tags={:?}", entry_id, tags));
+                        log_debug(format!(
+                            "backfill saved entry_id={} tags={:?}",
+                            entry_id, tags
+                        ));
                         let _ = app.emit("entry-tagged", entry_id);
                     }
                     None => {
@@ -767,7 +797,7 @@ fn normalize_tags(tags: Vec<String>) -> Vec<String> {
             .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
             .collect::<String>();
 
-        if cleaned.len() < 1 || cleaned.len() > 24 {
+        if cleaned.is_empty() || cleaned.len() > 24 {
             continue;
         }
 
@@ -792,7 +822,7 @@ fn heuristic_tags(text: &str) -> Option<Vec<String>> {
     let len = trimmed.chars().count();
     let digits_only = trimmed.chars().all(|ch| ch.is_ascii_digit());
     if digits_only && (4..=8).contains(&len) {
-        return Some(vec!["otp".to_string()]);
+        return Some(vec!["otp".to_owned()]);
     }
 
     let ascii_only = trimmed
@@ -803,11 +833,14 @@ fn heuristic_tags(text: &str) -> Option<Vec<String>> {
     let has_dash = trimmed.contains('-') || trimmed.contains('_');
 
     if ascii_only && has_uppercase && has_digits && has_dash && (6..=20).contains(&len) {
-        return Some(vec!["code".to_string()]);
+        return Some(vec!["code".to_owned()]);
     }
 
-    if ascii_only && has_digits && (trimmed.contains('+') || trimmed.contains('/') || trimmed.contains('=')) {
-        return Some(vec!["token".to_string()]);
+    if ascii_only
+        && has_digits
+        && (trimmed.contains('+') || trimmed.contains('/') || trimmed.contains('='))
+    {
+        return Some(vec!["token".to_owned()]);
     }
 
     None
@@ -887,7 +920,7 @@ pub fn tag_text(text: &str) -> Option<Vec<String>> {
         messages: vec![
             OllamaMessage {
                 role: "system",
-                content: "You classify clipboard text. Return strict JSON only in the shape {\"tags\":[\"tag1\",\"tag2\"]}. Use 2 to 5 short lowercase tags. Prefer practical tags like bash, ssh, docker, sql, json, url, ai, meeting, credentials, error, python, rust, javascript, html, api. If the text is just an opaque token, otp, code, short id, password, or random identifier with no semantic meaning, return {\"tags\":[]}. Do not explain.".to_string(),
+                content: "You classify clipboard text. Return strict JSON only in the shape {\"tags\":[\"tag1\",\"tag2\"]}. Use 2 to 5 short lowercase tags. Prefer practical tags like bash, ssh, docker, sql, json, url, ai, meeting, credentials, error, python, rust, javascript, html, api. If the text is just an opaque token, otp, code, short id, password, or random identifier with no semantic meaning, return {\"tags\":[]}. Do not explain.".to_owned(),
             },
             OllamaMessage {
                 role: "user",
@@ -940,13 +973,17 @@ mod tests {
 
     #[test]
     fn normalize_lowercases_and_strips() {
-        let result = normalize_tags(vec!["  Rust ".to_string(), "CODE".to_string()]);
+        let result = normalize_tags(vec!["  Rust ".to_owned(), "CODE".to_owned()]);
         assert_eq!(result, vec!["rust", "code"]);
     }
 
     #[test]
     fn normalize_deduplicates() {
-        let result = normalize_tags(vec!["rust".to_string(), "Rust".to_string(), "RUST".to_string()]);
+        let result = normalize_tags(vec![
+            "rust".to_owned(),
+            "Rust".to_owned(),
+            "RUST".to_owned(),
+        ]);
         assert_eq!(result, vec!["rust"]);
     }
 
@@ -960,8 +997,8 @@ mod tests {
     #[test]
     fn normalize_skips_empty_and_long() {
         let result = normalize_tags(vec![
-            "".to_string(),
-            "a".to_string(),
+            "".to_owned(),
+            "a".to_owned(),
             "x".repeat(25), // too long
         ]);
         assert_eq!(result, vec!["a"]);
@@ -969,7 +1006,7 @@ mod tests {
 
     #[test]
     fn normalize_strips_special_chars() {
-        let result = normalize_tags(vec!["hello world!".to_string()]);
+        let result = normalize_tags(vec!["hello world!".to_owned()]);
         assert_eq!(result, vec!["helloworld"]);
     }
 
@@ -977,12 +1014,12 @@ mod tests {
 
     #[test]
     fn heuristic_otp_4_digits() {
-        assert_eq!(heuristic_tags("1234"), Some(vec!["otp".to_string()]));
+        assert_eq!(heuristic_tags("1234"), Some(vec!["otp".to_owned()]));
     }
 
     #[test]
     fn heuristic_otp_6_digits() {
-        assert_eq!(heuristic_tags("482917"), Some(vec!["otp".to_string()]));
+        assert_eq!(heuristic_tags("482917"), Some(vec!["otp".to_owned()]));
     }
 
     #[test]
@@ -992,12 +1029,15 @@ mod tests {
 
     #[test]
     fn heuristic_code_pattern() {
-        assert_eq!(heuristic_tags("AB3-XY7_Z"), Some(vec!["code".to_string()]));
+        assert_eq!(heuristic_tags("AB3-XY7_Z"), Some(vec!["code".to_owned()]));
     }
 
     #[test]
     fn heuristic_token_with_base64() {
-        assert_eq!(heuristic_tags("abc123+def/ghi="), Some(vec!["token".to_string()]));
+        assert_eq!(
+            heuristic_tags("abc123+def/ghi="),
+            Some(vec!["token".to_owned()])
+        );
     }
 
     #[test]
@@ -1076,8 +1116,17 @@ mod tests {
 
     #[test]
     fn validate_model_name_rejects_shell_injection_chars() {
-        for name in ["; rm -rf", "$(whoami)", "model name", "model@host", "model|tag"] {
-            assert!(validate_model_name(name).is_err(), "expected err for {name}");
+        for name in [
+            "; rm -rf",
+            "$(whoami)",
+            "model name",
+            "model@host",
+            "model|tag",
+        ] {
+            assert!(
+                validate_model_name(name).is_err(),
+                "expected err for {name}"
+            );
         }
     }
 
@@ -1087,7 +1136,7 @@ mod tests {
             server_running: true,
             model_installed: true,
             model_loaded: true,
-            model_name: "qwen3:4b".to_string(),
+            model_name: "qwen3:4b".to_owned(),
         }
     }
 
@@ -1109,7 +1158,7 @@ mod tests {
         no_server.server_running = false;
         assert!(!tagging_ready(true, &no_server));
 
-        let mut no_model = ready.clone();
+        let mut no_model = ready;
         no_model.model_installed = false;
         assert!(!tagging_ready(true, &no_model));
     }
@@ -1139,7 +1188,10 @@ mod tests {
             "qwen3:4b-instruct-2507-q4_K_M:latest",
             "qwen3:4b-instruct-2507-q4_K_M"
         ));
-        assert!(!model_names_match("llama3:8b", "qwen3:4b-instruct-2507-q4_K_M"));
+        assert!(!model_names_match(
+            "llama3:8b",
+            "qwen3:4b-instruct-2507-q4_K_M"
+        ));
     }
 
     fn ps_fixture(json: &str) -> OllamaPsResponse {
@@ -1176,8 +1228,7 @@ mod tests {
 
     #[test]
     fn unload_api_succeeded_rejects_incomplete_response() {
-        let body: OllamaGenerateUnloadResponse =
-            serde_json::from_str(r#"{"done":false}"#).unwrap();
+        let body: OllamaGenerateUnloadResponse = serde_json::from_str(r#"{"done":false}"#).unwrap();
         assert!(!unload_api_succeeded(&body));
     }
 }

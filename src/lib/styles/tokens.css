@@ -6,7 +6,7 @@
 :root {
   /* ── Typography (rem — scales with system / Dynamic Type) ─ */
   --font-size-2xs: 0.625rem;
-  --font-size-2xs-sm: 0.65625rem;
+  --font-size-2xs-sm: 0.6563rem;
   --font-size-xs: 0.6875rem;
   --font-size-sm: 0.75rem;
   --font-size-md: 0.8125rem;
@@ -86,7 +86,7 @@
   --color-text-code: #c8cee0;
   --color-text-tab: #999999;
   --color-text-tab-hover: #dddddd;
-  --color-text-placeholder: rgb(var(--rgb-text-placeholder) / 0.35);
+  --color-text-placeholder: rgb(var(--rgb-text-placeholder) / 35%);
 
   /* ── Accent text ───────────────────────────────────── */
   --color-accent-icon: #8fa8dc;
@@ -113,95 +113,95 @@
   --color-recording: var(--color-danger-soft);
 
   /* ── Surfaces (white alpha) ────────────────────────── */
-  --surface-1: rgb(var(--rgb-white) / 0.015);
-  --surface-2: rgb(var(--rgb-white) / 0.03);
-  --surface-3: rgb(var(--rgb-white) / 0.035);
-  --surface-4: rgb(var(--rgb-white) / 0.04);
-  --surface-5: rgb(var(--rgb-white) / 0.05);
-  --surface-6: rgb(var(--rgb-white) / 0.06);
-  --surface-7: rgb(var(--rgb-white) / 0.07);
-  --surface-8: rgb(var(--rgb-white) / 0.08);
-  --surface-entry-tag: rgb(var(--rgb-white) / 0.065);
-  --surface-10: rgb(var(--rgb-white) / 0.1);
-  --surface-12: rgb(var(--rgb-white) / 0.12);
-  --surface-14: rgb(var(--rgb-white) / 0.14);
-  --surface-15: rgb(var(--rgb-white) / 0.15);
-  --surface-92: rgb(var(--rgb-white) / 0.92);
+  --surface-1: rgb(var(--rgb-white) / 1.5%);
+  --surface-2: rgb(var(--rgb-white) / 3%);
+  --surface-3: rgb(var(--rgb-white) / 3.5%);
+  --surface-4: rgb(var(--rgb-white) / 4%);
+  --surface-5: rgb(var(--rgb-white) / 5%);
+  --surface-6: rgb(var(--rgb-white) / 6%);
+  --surface-7: rgb(var(--rgb-white) / 7%);
+  --surface-8: rgb(var(--rgb-white) / 8%);
+  --surface-entry-tag: rgb(var(--rgb-white) / 6.5%);
+  --surface-10: rgb(var(--rgb-white) / 10%);
+  --surface-12: rgb(var(--rgb-white) / 12%);
+  --surface-14: rgb(var(--rgb-white) / 14%);
+  --surface-15: rgb(var(--rgb-white) / 15%);
+  --surface-92: rgb(var(--rgb-white) / 92%);
 
   /* ── Borders (white alpha) ─────────────────────────── */
-  --border-subtle: rgb(var(--rgb-white) / 0.04);
-  --border-default: rgb(var(--rgb-white) / 0.05);
-  --border-muted: rgb(var(--rgb-white) / 0.06);
-  --border-entry-tag: rgb(var(--rgb-white) / 0.09);
-  --border-soft: rgb(var(--rgb-white) / 0.08);
-  --border-medium: rgb(var(--rgb-white) / 0.11);
-  --border-strong: rgb(var(--rgb-white) / 0.12);
-  --border-input: rgb(var(--rgb-white) / 0.15);
-  --border-emphasis: rgb(var(--rgb-white) / 0.16);
+  --border-subtle: rgb(var(--rgb-white) / 4%);
+  --border-default: rgb(var(--rgb-white) / 5%);
+  --border-muted: rgb(var(--rgb-white) / 6%);
+  --border-entry-tag: rgb(var(--rgb-white) / 9%);
+  --border-soft: rgb(var(--rgb-white) / 8%);
+  --border-medium: rgb(var(--rgb-white) / 11%);
+  --border-strong: rgb(var(--rgb-white) / 12%);
+  --border-input: rgb(var(--rgb-white) / 15%);
+  --border-emphasis: rgb(var(--rgb-white) / 16%);
 
   /* ── Accent surfaces ───────────────────────────────── */
-  --surface-accent-subtle: rgb(var(--rgb-accent) / 0.08);
-  --surface-accent-muted: rgb(var(--rgb-accent) / 0.16);
-  --surface-accent: rgb(var(--rgb-accent-focus) / 0.18);
-  --surface-accent-hover: rgb(var(--rgb-accent) / 0.24);
-  --surface-accent-strong: rgb(var(--rgb-accent) / 0.28);
-  --border-accent: rgb(var(--rgb-accent-border) / 0.22);
-  --border-accent-soft: rgb(var(--rgb-accent-border) / 0.28);
-  --border-accent-medium: rgb(var(--rgb-accent-border) / 0.3);
-  --border-accent-strong: rgb(var(--rgb-accent-border) / 0.32);
-  --border-accent-focus: rgb(var(--rgb-accent-border) / 0.36);
-  --border-accent-hover: rgb(var(--rgb-accent-border) / 0.4);
-  --border-accent-selected: rgb(var(--rgb-accent-border) / 0.45);
-  --border-accent-ring: rgb(var(--rgb-accent-selected) / 0.7);
-  --shadow-accent-selected: rgb(var(--rgb-accent-selected) / 0.3);
+  --surface-accent-subtle: rgb(var(--rgb-accent) / 8%);
+  --surface-accent-muted: rgb(var(--rgb-accent) / 16%);
+  --surface-accent: rgb(var(--rgb-accent-focus) / 18%);
+  --surface-accent-hover: rgb(var(--rgb-accent) / 24%);
+  --surface-accent-strong: rgb(var(--rgb-accent) / 28%);
+  --border-accent: rgb(var(--rgb-accent-border) / 22%);
+  --border-accent-soft: rgb(var(--rgb-accent-border) / 28%);
+  --border-accent-medium: rgb(var(--rgb-accent-border) / 30%);
+  --border-accent-strong: rgb(var(--rgb-accent-border) / 32%);
+  --border-accent-focus: rgb(var(--rgb-accent-border) / 36%);
+  --border-accent-hover: rgb(var(--rgb-accent-border) / 40%);
+  --border-accent-selected: rgb(var(--rgb-accent-border) / 45%);
+  --border-accent-ring: rgb(var(--rgb-accent-selected) / 70%);
+  --shadow-accent-selected: rgb(var(--rgb-accent-selected) / 30%);
 
   /* ── Danger surfaces ───────────────────────────────── */
-  --surface-danger-subtle: rgb(var(--rgb-danger) / 0.06);
-  --surface-danger: rgb(var(--rgb-danger) / 0.12);
-  --border-danger: rgb(var(--rgb-danger) / 0.14);
-  --border-danger-hover: rgb(var(--rgb-danger) / 0.22);
-  --shadow-danger: rgb(var(--rgb-danger-soft) / 0.4);
+  --surface-danger-subtle: rgb(var(--rgb-danger) / 6%);
+  --surface-danger: rgb(var(--rgb-danger) / 12%);
+  --border-danger: rgb(var(--rgb-danger) / 14%);
+  --border-danger-hover: rgb(var(--rgb-danger) / 22%);
+  --shadow-danger: rgb(var(--rgb-danger-soft) / 40%);
 
   /* ── Success surfaces ──────────────────────────────── */
-  --border-success: rgb(var(--rgb-success) / 0.5);
-  --border-success-control: rgb(var(--rgb-success-control) / 0.4);
-  --shadow-success: rgb(var(--rgb-success) / 0.2);
-  --shadow-success-dot: rgb(var(--rgb-success) / 0.22);
-  --ring-success-control: 0 0 0 3px rgb(var(--rgb-success-control) / 0.18);
+  --border-success: rgb(var(--rgb-success) / 50%);
+  --border-success-control: rgb(var(--rgb-success-control) / 40%);
+  --shadow-success: rgb(var(--rgb-success) / 20%);
+  --shadow-success-dot: rgb(var(--rgb-success) / 22%);
+  --ring-success-control: 0 0 0 3px rgb(var(--rgb-success-control) / 18%);
 
   /* ── Warning surfaces ──────────────────────────────── */
-  --surface-warning-subtle: rgb(var(--rgb-warning) / 0.08);
-  --surface-warning: rgb(var(--rgb-warning) / 0.14);
-  --border-warning: rgb(var(--rgb-warning-bright) / 0.32);
-  --border-warning-hover: rgb(var(--rgb-warning-bright) / 0.45);
-  --border-warning-pinned: rgb(var(--rgb-warning-bright) / 0.3);
-  --shadow-warning-dot: rgb(var(--rgb-warning) / 0.35);
+  --surface-warning-subtle: rgb(var(--rgb-warning) / 8%);
+  --surface-warning: rgb(var(--rgb-warning) / 14%);
+  --border-warning: rgb(var(--rgb-warning-bright) / 32%);
+  --border-warning-hover: rgb(var(--rgb-warning-bright) / 45%);
+  --border-warning-pinned: rgb(var(--rgb-warning-bright) / 30%);
+  --shadow-warning-dot: rgb(var(--rgb-warning) / 35%);
 
   /* ── App backgrounds ───────────────────────────────── */
-  --surface-page: rgb(var(--rgb-settings-bg) / 0.96);
+  --surface-page: rgb(var(--rgb-settings-bg) / 96%);
   --surface-app: linear-gradient(
     180deg,
-    rgb(var(--rgb-app-bg-top) / 0.68),
-    rgb(var(--rgb-app-bg-bottom) / 0.58)
+    rgb(var(--rgb-app-bg-top) / 68%),
+    rgb(var(--rgb-app-bg-bottom) / 58%)
   );
   --surface-card: linear-gradient(
     180deg,
-    rgb(var(--rgb-card-top) / 0.92),
-    rgb(var(--rgb-card-bottom) / 0.88)
+    rgb(var(--rgb-card-top) / 92%),
+    rgb(var(--rgb-card-bottom) / 88%)
   );
   --surface-card-hover: linear-gradient(
     180deg,
-    rgb(var(--rgb-card-hover-top) / 0.96),
-    rgb(var(--rgb-card-hover-bottom) / 0.92)
+    rgb(var(--rgb-card-hover-top) / 96%),
+    rgb(var(--rgb-card-hover-bottom) / 92%)
   );
   --surface-card-selected: linear-gradient(
     180deg,
-    rgb(var(--rgb-accent-focus) / 0.035),
-    rgb(var(--rgb-accent) / 0.02)
+    rgb(var(--rgb-accent-focus) / 3.5%),
+    rgb(var(--rgb-accent) / 2%)
   );
-  --surface-overlay: rgb(var(--rgb-overlay) / 0.88);
+  --surface-overlay: rgb(var(--rgb-overlay) / 88%);
   --surface-overlay-opaque: rgb(var(--rgb-overlay));
-  --surface-voice: rgb(var(--rgb-voice-bg) / 0.88);
+  --surface-voice: rgb(var(--rgb-voice-bg) / 88%);
   --surface-voice-opaque: rgb(var(--rgb-voice-bg));
   --surface-app-opaque: linear-gradient(
     180deg,
@@ -211,32 +211,31 @@
   --surface-select-option: #23252c;
 
   /* ── Shadows ───────────────────────────────────────── */
-  --shadow-elevated: 0 18px 50px rgb(var(--rgb-black) / 0.28);
-  --shadow-card: 0 10px 28px rgb(var(--rgb-black) / 0.28);
+  --shadow-elevated: 0 18px 50px rgb(var(--rgb-black) / 28%);
+  --shadow-card: 0 10px 28px rgb(var(--rgb-black) / 28%);
   --shadow-card-selected:
-    0 0 0 2px var(--shadow-accent-selected),
-    0 12px 32px rgb(var(--rgb-black) / 0.34);
-  --shadow-image: 0 8px 20px rgb(var(--rgb-black) / 0.22);
-  --shadow-inset-press: inset 0 1px 2px rgb(var(--rgb-black) / 0.2);
-  --shadow-inset-highlight: inset 0 1px 0 rgb(var(--rgb-white) / 0.08);
-  --shadow-toggle-knob: 0 1px 2px rgb(var(--rgb-black) / 0.28);
+    0 0 0 2px var(--shadow-accent-selected), 0 12px 32px rgb(var(--rgb-black) / 34%);
+  --shadow-image: 0 8px 20px rgb(var(--rgb-black) / 22%);
+  --shadow-inset-press: inset 0 1px 2px rgb(var(--rgb-black) / 20%);
+  --shadow-inset-highlight: inset 0 1px 0 rgb(var(--rgb-white) / 8%);
+  --shadow-toggle-knob: 0 1px 2px rgb(var(--rgb-black) / 28%);
 
   /* ── Text controls (rest → hover → focus → keyboard focus) ─ */
   --surface-control: var(--surface-6);
-  --surface-control-hover: rgb(var(--rgb-white) / 0.075);
-  --surface-control-focus: rgb(var(--rgb-white) / 0.09);
+  --surface-control-hover: rgb(var(--rgb-white) / 7.5%);
+  --surface-control-focus: rgb(var(--rgb-white) / 9%);
   --border-control: var(--border-medium);
-  --border-control-hover: rgb(var(--rgb-white) / 0.18);
-  --border-control-focus: rgb(var(--rgb-accent-border) / 0.38);
+  --border-control-hover: rgb(var(--rgb-white) / 18%);
+  --border-control-focus: rgb(var(--rgb-accent-border) / 38%);
   --border-control-focus-keyboard: var(--border-accent-hover);
-  --ring-control-focus: 0 0 0 1px rgb(var(--rgb-accent-border) / 0.28);
+  --ring-control-focus: 0 0 0 1px rgb(var(--rgb-accent-border) / 28%);
 
   /* ── Focus rings ───────────────────────────────────── */
-  --ring-accent: 0 0 0 3px rgb(var(--rgb-accent-border) / 0.22);
-  --ring-accent-input: 0 0 0 3px rgb(var(--rgb-accent-focus) / 0.15);
+  --ring-accent: 0 0 0 3px rgb(var(--rgb-accent-border) / 22%);
+  --ring-accent-input: 0 0 0 3px rgb(var(--rgb-accent-focus) / 15%);
 
   /* ── Text selection (accent wash, matches card/focus tones) ─ */
-  --selection-bg: rgb(var(--rgb-accent-focus) / 0.36);
+  --selection-bg: rgb(var(--rgb-accent-focus) / 36%);
   --selection-text: var(--color-text-primary);
 
   /* ── Motion (launcher / HUD) ───────────────────────── */
@@ -266,21 +265,18 @@
   /* ── Gradients ─────────────────────────────────────── */
   --gradient-btn-primary: linear-gradient(
     180deg,
-    rgb(var(--rgb-accent) / 0.34) 0%,
-    rgb(var(--rgb-accent-deep) / 0.46) 100%
+    rgb(var(--rgb-accent) / 34%) 0%,
+    rgb(var(--rgb-accent-deep) / 46%) 100%
   );
   --gradient-btn-primary-hover: linear-gradient(
     180deg,
-    rgb(var(--rgb-accent) / 0.42) 0%,
-    rgb(var(--rgb-accent-deep) / 0.52) 100%
+    rgb(var(--rgb-accent) / 42%) 0%,
+    rgb(var(--rgb-accent-deep) / 52%) 100%
   );
-  --gradient-select-chevron: linear-gradient(
-      45deg,
-      transparent 50%,
-      rgb(var(--rgb-text-primary) / 0.9) 50%
-    ),
-    linear-gradient(135deg, rgb(var(--rgb-text-primary) / 0.9) 50%, transparent 50%),
-    linear-gradient(180deg, rgb(var(--rgb-white) / 0.04), rgb(var(--rgb-white) / 0.01));
+  --gradient-select-chevron:
+    linear-gradient(45deg, transparent 50%, rgb(var(--rgb-text-primary) / 90%) 50%),
+    linear-gradient(135deg, rgb(var(--rgb-text-primary) / 90%) 50%, transparent 50%),
+    linear-gradient(180deg, rgb(var(--rgb-white) / 4%), rgb(var(--rgb-white) / 1%));
   --gradient-voice-bar: linear-gradient(
     180deg,
     var(--color-danger-soft),
@@ -288,10 +284,10 @@
   );
 
   /* ── Scrollbar ─────────────────────────────────────── */
-  --scrollbar-thumb: rgb(var(--rgb-white) / 0.1);
+  --scrollbar-thumb: rgb(var(--rgb-white) / 10%);
 
   /* ── Spinner ───────────────────────────────────────── */
-  --spinner-track: rgb(var(--rgb-white) / 0.18);
+  --spinner-track: rgb(var(--rgb-white) / 18%);
   --spinner-head: var(--surface-92);
 
   /* ── Status dot idle ───────────────────────────────── */
@@ -306,7 +302,6 @@
 
 html {
   font-size: 100%;
-  -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
 
@@ -322,12 +317,12 @@ html {
     --color-text-subtle: #a3abb8;
     --color-text-faint: #949dad;
     --color-entry-tag: var(--color-text-label-strong);
-    --surface-entry-tag: rgb(var(--rgb-white) / 0.1);
-    --border-entry-tag: rgb(var(--rgb-white) / 0.14);
-    --border-control-hover: rgb(var(--rgb-white) / 0.24);
-    --border-control-focus: rgb(var(--rgb-accent-border) / 0.5);
-    --ring-control-focus: 0 0 0 1px rgb(var(--rgb-accent-border) / 0.4);
-    --ring-accent-input: 0 0 0 3px rgb(var(--rgb-accent-focus) / 0.28);
+    --surface-entry-tag: rgb(var(--rgb-white) / 10%);
+    --border-entry-tag: rgb(var(--rgb-white) / 14%);
+    --border-control-hover: rgb(var(--rgb-white) / 24%);
+    --border-control-focus: rgb(var(--rgb-accent-border) / 50%);
+    --ring-control-focus: 0 0 0 1px rgb(var(--rgb-accent-border) / 40%);
+    --ring-accent-input: 0 0 0 3px rgb(var(--rgb-accent-focus) / 28%);
   }
 }
 

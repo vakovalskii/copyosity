@@ -4,10 +4,10 @@
 
 ## Два уровня фильтров
 
-| Уровень | UI | Что фильтрует | Пример |
-| ------- | --- | ------------- | ------ |
-| **1. Тип контента** | Row A — сегменты `All` / `Text` / `Images` | Показывает все записи, только текст или только картинки | `Images` → скрывает текстовые карточки |
-| **2. Теги** | Row B — chips | Уточняет внутри выбранного типа | `png` → только PNG; `api` → текст с AI-тегом api |
+| Уровень             | UI                                         | Что фильтрует                                           | Пример                                           |
+| ------------------- | ------------------------------------------ | ------------------------------------------------------- | ------------------------------------------------ |
+| **1. Тип контента** | Row A — сегменты `All` / `Text` / `Images` | Показывает все записи, только текст или только картинки | `Images` → скрывает текстовые карточки           |
+| **2. Теги**         | Row B — chips                              | Уточняет внутри выбранного типа                         | `png` → только PNG; `api` → текст с AI-тегом api |
 
 **Row B — две группы chips** (в режиме `All`, когда AI включён):
 
@@ -80,12 +80,12 @@ entries (API: collection + pinned + search)
   → filteredEntries (kindPool + activeTag если задан)
 ```
 
-| Mode | Row A | Row B | contentKind | Card footer tags |
-| ---- | ----- | ----- | ----------- | ---------------- |
-| **AI ON — All** | All \| Text \| Images | reset + format \| AI | `all` | AI tags on text; none on image |
-| **AI ON — Text** | visible | reset + AI only | `text` | AI tags |
-| **AI ON — Images** | visible | All formats + format | `image` | none |
-| **AI OFF** | hidden | All formats + format only | implicit `all` | **none** (hide all tags) |
+| Mode               | Row A                 | Row B                     | contentKind    | Card footer tags               |
+| ------------------ | --------------------- | ------------------------- | -------------- | ------------------------------ |
+| **AI ON — All**    | All \| Text \| Images | reset + format \| AI      | `all`          | AI tags on text; none on image |
+| **AI ON — Text**   | visible               | reset + AI only           | `text`         | AI tags                        |
+| **AI ON — Images** | visible               | All formats + format      | `image`        | none                           |
+| **AI OFF**         | hidden                | All formats + format only | implicit `all` | **none** (hide all tags)       |
 
 **Segment counts:** без badges на сегментах (счётчики только на chips).
 
@@ -113,20 +113,20 @@ entries (API: collection + pinned + search)
 
 ### Progressive disclosure — когда скрывать полосы
 
-| Row | Показывать когда |
-| --- | ---------------- |
-| **Row A** | AI ON **и** в pool есть **и** text **и** image entries |
+| Row       | Показывать когда                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------------------ |
+| **Row A** | AI ON **и** в pool есть **и** text **и** image entries                                                 |
 | **Row B** | Есть chips (format/semantic) **или** активный `activeTag` **или** выбран сегмент Text/Images при Row A |
 
 При пустом результате фильтра полосы **не скрываем** (sticky `activeTag` / segment).
 
 ### Panel height tiers
 
-| Tier | px | Когда |
-| ---- | -- | ----- |
+| Tier        | px  | Когда                                   |
+| ----------- | --- | --------------------------------------- |
 | **compact** | 420 | Нет filter rows (и нет settings notice) |
-| **medium** | 440 | Одна полоса (Row B или notice) |
-| **full** | 480 | Row A + Row B |
+| **medium**  | 440 | Одна полоса (Row B или notice)          |
+| **full**    | 480 | Row A + Row B                           |
 
 `resize_main_window` при reveal; плавный resize при смене tier с открытым overlay (Reduce Motion → instant).
 
@@ -134,11 +134,11 @@ entries (API: collection + pinned + search)
 
 ## 1. Новые компоненты и shared constants
 
-| Файл | Назначение |
-| ---- | ---------- |
-| [`src/lib/overlay-filters.ts`](../../src/lib/overlay-filters.ts) | Pure logic: `ContentKind`, matching, `buildTagBarModel({ entries, contentKind, aiTaggingEnabled, activeTag, ... })` → `{ showRowA, showRowB, resetLabel, formatChips, semanticChips, showDivider }` |
-| [`src/lib/components/ContentKindSegment.svelte`](../../src/lib/components/ContentKindSegment.svelte) | Row A — только при `aiTaggingEnabled` |
-| [`src/lib/components/TagFilterBar.svelte`](../../src/lib/components/TagFilterBar.svelte) | Row B |
+| Файл                                                                                                 | Назначение                                                                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`src/lib/overlay-filters.ts`](../../src/lib/overlay-filters.ts)                                     | Pure logic: `ContentKind`, matching, `buildTagBarModel({ entries, contentKind, aiTaggingEnabled, activeTag, ... })` → `{ showRowA, showRowB, resetLabel, formatChips, semanticChips, showDivider }` |
+| [`src/lib/components/ContentKindSegment.svelte`](../../src/lib/components/ContentKindSegment.svelte) | Row A — только при `aiTaggingEnabled`                                                                                                                                                               |
+| [`src/lib/components/TagFilterBar.svelte`](../../src/lib/components/TagFilterBar.svelte)             | Row B                                                                                                                                                                                               |
 
 **State в [`+page.svelte`](../../src/routes/+page.svelte):**
 
@@ -182,9 +182,7 @@ const kindPool = aiTaggingEnabled
   ? entries.filter((e) => entryMatchesKind(e, contentKind))
   : entries;
 
-const filteredEntries = kindPool.filter(
-  (e) => !activeTag || entryMatchesTag(e, activeTag),
-);
+const filteredEntries = kindPool.filter((e) => !activeTag || entryMatchesTag(e, activeTag));
 ```
 
 **Empty states** — расширить для contentKind, format tags, AI OFF (no format match).
@@ -209,13 +207,13 @@ const filteredEntries = kindPool.filter(
 
 ## 6. Связанные пункты аудита (02-hig-audit)
 
-| Audit | Действие |
-| ----- | -------- |
-| п.17 Image meta | dimensions + file size |
-| п.10 Tag bar | 12px, scroll fade |
-| п.14 Card tooltip | убрать `title={entry.text_content}` |
-| п.11 Mono for code | font by `textKind` |
-| п.18 Empty state | contentKind + format + AI modes |
+| Audit              | Действие                            |
+| ------------------ | ----------------------------------- |
+| п.17 Image meta    | dimensions + file size              |
+| п.10 Tag bar       | 12px, scroll fade                   |
+| п.14 Card tooltip  | убрать `title={entry.text_content}` |
+| п.11 Mono for code | font by `textKind`                  |
+| п.18 Empty state   | contentKind + format + AI modes     |
 
 **Не в scope:** п.8 History/Starred segmented, п.12 undo, п.19 hints, п.15 SF Symbols, Quick Look (остаётся только в audit п.14, **не** в CHANGELOG).
 

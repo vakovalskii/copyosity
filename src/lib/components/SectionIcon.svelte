@@ -9,7 +9,7 @@
     | "voice"
     | "setup";
 
-  let {
+  const {
     name,
     class: className = "form-title-icon",
   }: {

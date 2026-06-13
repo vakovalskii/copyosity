@@ -4,19 +4,24 @@ These rules are mandatory for all future work in this repository.
 
 1. After each release, create a new development branch before continuing feature work.
 2. Push all new features and fixes to the active development branch, not directly to the release branch.
-3. After every code generation or code change, verify that the application still compiles.
+3. After code changes, run the narrowest fix/check cycle below before claiming done.
 4. Record completed work in git with clear commits and keep project process notes updated in this file and in `CLAUDE.md`.
 
 ## Required Validation
 
-After each meaningful code change, run:
+Command contract: `make fix` auto-fixes, `make lint` checks lint/format only, and `make check` is the final gate (types, compile, lint, format, tests).
 
-```bash
-npm run check
-cd src-tauri && cargo check
-```
+| Changed                      | Run                                        |
+| ---------------------------- | ------------------------------------------ |
+| Frontend only                | `make fix-frontend && make check-frontend` |
+| Rust/backend only            | `make fix-backend && make check-backend`   |
+| Full stack / shared workflow | `make fix && make check`                   |
 
-Do not treat the task as complete until both checks pass, unless a blocker is explicitly documented.
+## Linting stack
+
+- Frontend: `svelte-check`, Oxlint, Oxfmt, Stylelint.
+- Backend: `cargo check`, Clippy (`-D warnings --all-targets`), rustfmt, `cargo test`.
+- Pre-commit: Husky + lint-staged auto-fixes staged files with Oxfmt, Oxlint, Stylelint, `cargo fmt` (staged paths only), and `cargo clippy --fix --lib` (faster than `--all-targets`; full Clippy gate is `make check` / CI).
 
 ## Branching
 
@@ -31,18 +36,18 @@ Do not treat the task as complete until both checks pass, unless a blocker is ex
 
 ## Load by task
 
-| Topic | File |
-| ----- | ---- |
+| Topic                                             | File                                                                                   |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | macOS paste automation (AXPaste, Cmd+V, Messages) | [docs/architecture/macos-paste-pipeline.md](docs/architecture/macos-paste-pipeline.md) |
 
+Security hardening (audit 2026-03-17; completed through 0.4.0):
+
+- [x] Explicit Tauri capabilities for the `settings` window (`src-tauri/capabilities/settings.json`; 0.3.0)
+- [x] Validate Ollama model names before `ollama pull` (`ollama::validate_model_name`; 0.3.0)
+- [x] `cargo audit` step in GitHub Actions release workflow (0.4.0)
+- [x] Per-window IPC command scoping for sensitive commands (`paste_entry`, `clear_history`, `start_ollama_server`; 0.4.0)
+
 ## TODO — Next Iteration
-
-Security hardening (from audit 2026-03-17):
-
-- [ ] Add explicit Tauri capabilities for the `settings` window
-- [ ] Validate ollama model names against a whitelist/regex before passing to `ollama pull`
-- [ ] Add `cargo audit` step to GitHub Actions release workflow
-- [ ] Consider per-window IPC command scoping for sensitive commands (`paste_entry`, `clear_history`, `start_ollama_server`)
 
 Features:
 

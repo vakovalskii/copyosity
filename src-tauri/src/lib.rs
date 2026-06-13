@@ -1,23 +1,24 @@
 #![allow(unexpected_cfgs)]
 
 mod app_exclusion;
-mod macos_app;
 mod clipboard_macos;
 mod clipboard_monitor;
 mod clipboard_write;
 mod commands;
 mod db;
 mod image_format;
+mod macos_app;
 mod ollama;
+mod overlay_dismiss;
 mod whisper;
 
 use db::Database;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{
-    Emitter, Manager,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
+    Emitter, Manager,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -25,14 +26,12 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use tauri_nspanel::{ManagerExt, WebviewWindowExt};
 
 #[cfg(target_os = "macos")]
-tauri_nspanel::tauri_panel!(
-    panel!(CopyosityPanel {
-        config: {
-            can_become_key_window: true,
-            is_floating_panel: true
-        }
-    })
-);
+tauri_nspanel::tauri_panel!(panel!(CopyosityPanel {
+    config: {
+        can_become_key_window: true,
+        is_floating_panel: true
+    }
+}));
 
 static LAST_SHOW_MS: AtomicU64 = AtomicU64::new(0);
 pub(crate) static PANEL_HIDE_SCHEDULED: AtomicBool = AtomicBool::new(false);
@@ -82,15 +81,32 @@ fn parse_shortcut(s: &str) -> Option<Shortcut> {
             k if k.len() == 1 => {
                 let c = k.chars().next().unwrap();
                 key_code = match c {
-                    'a' => Some(Code::KeyA), 'b' => Some(Code::KeyB), 'c' => Some(Code::KeyC),
-                    'd' => Some(Code::KeyD), 'e' => Some(Code::KeyE), 'f' => Some(Code::KeyF),
-                    'g' => Some(Code::KeyG), 'h' => Some(Code::KeyH), 'i' => Some(Code::KeyI),
-                    'j' => Some(Code::KeyJ), 'k' => Some(Code::KeyK), 'l' => Some(Code::KeyL),
-                    'm' => Some(Code::KeyM), 'n' => Some(Code::KeyN), 'o' => Some(Code::KeyO),
-                    'p' => Some(Code::KeyP), 'q' => Some(Code::KeyQ), 'r' => Some(Code::KeyR),
-                    's' => Some(Code::KeyS), 't' => Some(Code::KeyT), 'u' => Some(Code::KeyU),
-                    'v' => Some(Code::KeyV), 'w' => Some(Code::KeyW), 'x' => Some(Code::KeyX),
-                    'y' => Some(Code::KeyY), 'z' => Some(Code::KeyZ),
+                    'a' => Some(Code::KeyA),
+                    'b' => Some(Code::KeyB),
+                    'c' => Some(Code::KeyC),
+                    'd' => Some(Code::KeyD),
+                    'e' => Some(Code::KeyE),
+                    'f' => Some(Code::KeyF),
+                    'g' => Some(Code::KeyG),
+                    'h' => Some(Code::KeyH),
+                    'i' => Some(Code::KeyI),
+                    'j' => Some(Code::KeyJ),
+                    'k' => Some(Code::KeyK),
+                    'l' => Some(Code::KeyL),
+                    'm' => Some(Code::KeyM),
+                    'n' => Some(Code::KeyN),
+                    'o' => Some(Code::KeyO),
+                    'p' => Some(Code::KeyP),
+                    'q' => Some(Code::KeyQ),
+                    'r' => Some(Code::KeyR),
+                    's' => Some(Code::KeyS),
+                    't' => Some(Code::KeyT),
+                    'u' => Some(Code::KeyU),
+                    'v' => Some(Code::KeyV),
+                    'w' => Some(Code::KeyW),
+                    'x' => Some(Code::KeyX),
+                    'y' => Some(Code::KeyY),
+                    'z' => Some(Code::KeyZ),
                     _ => None,
                 };
             }
@@ -123,7 +139,10 @@ pub fn register_voice_shortcut(app: &tauri::AppHandle) -> Result<String, String>
         return Ok(settings.voice_shortcut);
     }
 
-    eprintln!("[voice] registering shortcut: \"{}\"", settings.voice_shortcut);
+    eprintln!(
+        "[voice] registering shortcut: \"{}\"",
+        settings.voice_shortcut
+    );
 
     let new_shortcut = parse_shortcut(&settings.voice_shortcut)
         .ok_or_else(|| format!("Invalid shortcut: {}", settings.voice_shortcut))?;
@@ -142,7 +161,7 @@ pub fn register_voice_shortcut(app: &tauri::AppHandle) -> Result<String, String>
     Ok(settings.voice_shortcut)
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -172,7 +191,10 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+            let app_dir = app
+                .path()
+                .app_data_dir()
+                .expect("Failed to get app data dir");
             let db = Arc::new(Database::new(app_dir).expect("Failed to initialize database"));
             app.manage(db.clone());
 
@@ -183,7 +205,9 @@ pub fn run() {
                 use tauri_nspanel::CollectionBehavior;
 
                 let window = app.get_webview_window("main").unwrap();
-                let panel = window.to_panel::<CopyosityPanel>().expect("Failed to convert window to panel");
+                let panel = window
+                    .to_panel::<CopyosityPanel>()
+                    .expect("Failed to convert window to panel");
 
                 // Keep hidden panel below status-bar menus (level 24 fights first tray click).
                 panel.set_level(PANEL_LEVEL_IDLE);
@@ -200,6 +224,7 @@ pub fn run() {
                         .into(),
                 );
                 panel.set_hides_on_deactivate(false);
+                overlay_dismiss::install_overlay_dismiss_guards();
             }
 
             let tray_menu = build_tray_menu(app.handle())?;
@@ -224,17 +249,22 @@ pub fn run() {
 
             let shortcut = {
                 #[cfg(target_os = "macos")]
-                { Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyV) }
+                {
+                    Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyV)
+                }
                 #[cfg(not(target_os = "macos"))]
-                { Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV) }
+                {
+                    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV)
+                }
             };
 
             let handle = app.handle().clone();
-            app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
-                if event.state == ShortcutState::Pressed {
-                    toggle_window(&handle);
-                }
-            })?;
+            app.global_shortcut()
+                .on_shortcut(shortcut, move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        toggle_window(&handle);
+                    }
+                })?;
 
             // Register voice transcription shortcut from settings
             if let Err(e) = register_voice_shortcut(app.handle()) {
@@ -255,7 +285,7 @@ pub fn run() {
             }
             clipboard_write::sweep_stale_gif_temp_files();
             {
-                let db_backfill = db.clone();
+                let db_backfill = db;
                 std::thread::spawn(move || {
                     loop {
                         match db_backfill.backfill_missing_image_formats(100) {
@@ -319,26 +349,17 @@ pub fn run() {
             tauri::RunEvent::ExitRequested { api, .. } => {
                 api.prevent_exit();
             }
-            tauri::RunEvent::WindowEvent { label, event, .. } => {
-                match (label.as_str(), &event) {
-                    ("main", tauri::WindowEvent::CloseRequested { api, .. }) => {
-                        api.prevent_close();
-                        animated_hide_panel(app);
-                    }
-                    ("main", tauri::WindowEvent::Focused(false)) => {
-                        let last_show = LAST_SHOW_MS.load(Ordering::Relaxed);
-                        if last_show == 0 {
-                            return;
-                        }
-                        let elapsed = now_ms() - last_show;
-                        if elapsed > 500 && main_panel_visible(app) {
-                            animated_hide_panel(app);
-                        }
-                    }
-                    ("settings", tauri::WindowEvent::Destroyed) => {}
-                    _ => {}
+            tauri::RunEvent::WindowEvent { label, event, .. } => match (label.as_str(), &event) {
+                ("main", tauri::WindowEvent::CloseRequested { api, .. }) => {
+                    api.prevent_close();
+                    animated_hide_panel(app);
                 }
-            }
+                ("main", tauri::WindowEvent::Focused(false)) => {
+                    overlay_dismiss::handle_focus_lost(app);
+                }
+                ("settings", tauri::WindowEvent::Destroyed) => {}
+                _ => {}
+            },
             _ => {}
         });
 }
@@ -358,6 +379,7 @@ fn toggle_window(app: &tauri::AppHandle) {
                 LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
                 panel.set_level(PANEL_LEVEL_ACTIVE);
                 panel.show_and_make_key();
+                overlay_dismiss::set_outside_click_dismiss(app, true);
                 let _ = app.emit("window-show", ());
             }
             return;
@@ -389,6 +411,7 @@ pub(crate) fn animated_hide_panel(app: &tauri::AppHandle) {
 fn hide_panel(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
+        overlay_dismiss::set_outside_click_dismiss(app, false);
         if let Ok(panel) = app.get_webview_panel("main") {
             if panel.is_visible() {
                 panel.hide();
@@ -447,10 +470,13 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 }
 
 fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
-    eprintln!("[voice] event: {:?}", match state {
-        ShortcutState::Pressed => "PRESSED",
-        ShortcutState::Released => "RELEASED",
-    });
+    eprintln!(
+        "[voice] event: {:?}",
+        match state {
+            ShortcutState::Pressed => "PRESSED",
+            ShortcutState::Released => "RELEASED",
+        }
+    );
     match state {
         ShortcutState::Pressed => {
             let mut rec = recording_mutex().lock().unwrap();
@@ -464,26 +490,25 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                 eprintln!("[voice] starting recording, mic={:?}", mic_name);
                 match whisper::RecordingSession::start(mic_name.as_deref()) {
                     Ok(session) => {
-                        eprintln!("[voice] recording started, sample_rate={}", session.sample_rate);
+                        eprintln!(
+                            "[voice] recording started, sample_rate={}",
+                            session.sample_rate
+                        );
                         show_voice_overlay(app);
                         let level_arc = session.level.clone();
                         let emit_handle = app.clone();
-                        std::thread::spawn(move || {
-                            loop {
-                                let still_recording =
-                                    recording_mutex().lock().unwrap().is_some();
-                                if !still_recording {
-                                    break;
-                                }
-                                let lvl =
-                                    level_arc.load(std::sync::atomic::Ordering::Relaxed);
-                                if let Some(win) = emit_handle.get_webview_window("voice_overlay") {
-                                    let _ = win.emit("audio-level", lvl);
-                                } else {
-                                    let _ = emit_handle.emit("audio-level", lvl);
-                                }
-                                std::thread::sleep(std::time::Duration::from_millis(60));
+                        std::thread::spawn(move || loop {
+                            let still_recording = recording_mutex().lock().unwrap().is_some();
+                            if !still_recording {
+                                break;
                             }
+                            let lvl = level_arc.load(std::sync::atomic::Ordering::Relaxed);
+                            if let Some(win) = emit_handle.get_webview_window("voice_overlay") {
+                                let _ = win.emit("audio-level", lvl);
+                            } else {
+                                let _ = emit_handle.emit("audio-level", lvl);
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(60));
                         });
                         *rec = Some(session);
                     }
@@ -500,9 +525,12 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                 hide_voice_overlay(&app);
                 std::thread::spawn(move || {
                     let (samples, sample_rate) = session.finish();
-                    eprintln!("[voice] stopped, {} samples at {}Hz ({:.1}s)",
-                        samples.len(), sample_rate,
-                        samples.len() as f64 / sample_rate as f64);
+                    eprintln!(
+                        "[voice] stopped, {} samples at {}Hz ({:.1}s)",
+                        samples.len(),
+                        sample_rate,
+                        samples.len() as f64 / sample_rate as f64
+                    );
                     let db = app.state::<std::sync::Arc<db::Database>>();
                     let settings = match db.get_app_settings() {
                         Ok(s) => s,
@@ -577,8 +605,7 @@ fn ensure_voice_overlay(app: &tauri::AppHandle) {
             if let Ok(panel) = win.to_panel::<CopyosityPanel>() {
                 panel.set_level(24);
                 panel.set_style_mask(
-                    NSWindowStyleMask::Borderless
-                        | NSWindowStyleMask::NonactivatingPanel,
+                    NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel,
                 );
                 panel.set_becomes_key_only_if_needed(true);
             }
@@ -638,7 +665,9 @@ pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow, height_px: f
         let win_width = preferred_width.min(work_area.size.width).max(min_width);
 
         let x = work_area.position.x + ((work_area.size.width as i32 - win_width as i32) / 2);
-        let y = work_area.position.y + work_area.size.height as i32 - win_height as i32 - bottom_padding;
+        let y = work_area.position.y + work_area.size.height as i32
+            - win_height as i32
+            - bottom_padding;
 
         let _ = window.set_size(tauri::PhysicalSize::new(win_width, win_height));
         let _ = window.set_position(PhysicalPosition::new(x, y));

@@ -70,7 +70,7 @@ fn resolve_excludable_from(
 pub fn pick_application_identity_on_main_thread() -> Result<Option<AppIdentity>, &'static str> {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSModalResponseOK, NSOpenPanel};
-    use objc2_foundation::{NSURL, NSString};
+    use objc2_foundation::{NSString, NSURL};
 
     let mtm = MainThreadMarker::new().ok_or("main_thread_required")?;
     let panel = NSOpenPanel::openPanel(mtm);

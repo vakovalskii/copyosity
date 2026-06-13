@@ -5,14 +5,14 @@
 
 ## Принятые решения
 
-| Тема | Решение |
-|------|---------|
-| Дубликаты в истории | Как на `main`: одинаковый контент не плодит записи; copy/paste из приложения не попадают в историю |
-| Интервал монитора | **300 ms**; `changeCount` только триггер опроса, не часть hash |
-| Clipboard write | Единый [`clipboard_write.rs`](../../src-tauri/src/clipboard_write.rs) — режимы **Copy** / **Paste** |
-| Tauri ACL | Отдельные capabilities для `main` / `settings` / `voice_overlay` |
-| objc | Миграция [`clipboard_macos.rs`](../../src-tauri/src/clipboard_macos.rs) на **objc2** в этом же PR |
-| Объём | Всё ниже — один PR / релизный коммит, без отложенного follow-up |
+| Тема                | Решение                                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------------------- |
+| Дубликаты в истории | Как на `main`: одинаковый контент не плодит записи; copy/paste из приложения не попадают в историю  |
+| Интервал монитора   | **300 ms**; `changeCount` только триггер опроса, не часть hash                                      |
+| Clipboard write     | Единый [`clipboard_write.rs`](../../src-tauri/src/clipboard_write.rs) — режимы **Copy** / **Paste** |
+| Tauri ACL           | Отдельные capabilities для `main` / `settings` / `voice_overlay`                                    |
+| objc                | Миграция [`clipboard_macos.rs`](../../src-tauri/src/clipboard_macos.rs) на **objc2** в этом же PR   |
+| Объём               | Всё ниже — один PR / релизный коммит, без отложенного follow-up                                     |
 
 **paste_entry (согласовано):** общий `paste_text_into_target`; `paste_entry` — обёртка как на `main`; текстовый `activate_entry` — тот же pipeline; Enter в UI — `activateEntry`.
 
@@ -85,12 +85,12 @@ enum ClipboardWriteMode {
 
 ## 5. Paste pipeline (`paste_entry` / Enter)
 
-| Действие | Реализация |
-|----------|------------|
-| Один клик | `copy_entry` / `Copy` |
-| Двойной клик | `activate_entry` |
+| Действие                             | Реализация                                  |
+| ------------------------------------ | ------------------------------------------- |
+| Один клик                            | `copy_entry` / `Copy`                       |
+| Двойной клик                         | `activate_entry`                            |
 | Enter + текст (раньше `paste_entry`) | `activate_entry` → `paste_text_into_target` |
-| Enter + image | `activate_entry` (новое, старое не ломаем) |
+| Enter + image                        | `activate_entry` (новое, старое не ломаем)  |
 
 ```rust
 fn paste_text_into_target(app: &AppHandle, text: String) -> Result<(), String> { ... }
@@ -123,13 +123,14 @@ Enter в [`+page.svelte`](../../src/routes/+page.svelte) — `activateEntry`; `p
 
 Заменить общий `core:default` на:
 
-| Файл | Окно | Команды (примерно) |
-|------|------|---------------------|
-| `capabilities/main.json` | `main` | entries, copy, activate, hide, events |
-| `capabilities/settings.json` | `settings` | settings, excluded apps, clear_history, ollama, check_accessibility |
-| `capabilities/voice_overlay.json` | `voice_overlay` | минимум (events) |
+| Файл                              | Окно            | Команды (примерно)                                                  |
+| --------------------------------- | --------------- | ------------------------------------------------------------------- |
+| `capabilities/main.json`          | `main`          | entries, copy, activate, hide, events                               |
+| `capabilities/settings.json`      | `settings`      | settings, excluded apps, clear_history, ollama, check_accessibility |
+| `capabilities/voice_overlay.json` | `voice_overlay` | минимум (events)                                                    |
 
 Проверить `tauri dev` / `tauri build`. Закрыть TODO в AGENTS.md про scoping:
+
 - `settings` не получает `paste_entry`
 - `voice_overlay` не получает `clear_history`, `start_ollama_server`
 

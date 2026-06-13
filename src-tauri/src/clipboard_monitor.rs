@@ -50,10 +50,7 @@ fn encode_stored_gif(raw: &[u8]) -> Option<EncodedImage> {
     if !is_gif_bytes(raw) || raw.len() as u64 > MAX_IMAGE_FILE_BYTES {
         return None;
     }
-    let full_b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        raw,
-    );
+    let full_b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, raw);
     let decoded = image::load_from_memory(raw).ok();
     let (width, height) = decoded
         .as_ref()
@@ -62,7 +59,7 @@ fn encode_stored_gif(raw: &[u8]) -> Option<EncodedImage> {
         .unwrap_or((0, 0));
     let thumb_b64 = decoded
         .as_ref()
-        .and_then(|image| encode_png_thumb(image))
+        .and_then(encode_png_thumb)
         .unwrap_or_else(|| full_b64.clone());
     Some(EncodedImage {
         full_b64,
@@ -118,10 +115,7 @@ fn encode_image_from_dynamic(image: &DynamicImage) -> Option<EncodedImage> {
     let mut full_buf = Cursor::new(Vec::new());
     image.write_to(&mut full_buf, ImageFormat::Png).ok()?;
     let full_bytes = full_buf.into_inner();
-    let full_b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        &full_bytes,
-    );
+    let full_b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &full_bytes);
     let thumb_b64 = encode_png_thumb(image)?;
     let (width, height) = image.dimensions();
     Some(EncodedImage {
@@ -191,7 +185,7 @@ fn hash_raster_image(bytes: &[u8], width: usize, height: usize) -> String {
 }
 
 fn entry_content_hash(base: &str) -> String {
-    base.to_string()
+    base.to_owned()
 }
 
 /// Content fingerprint for dedup when pasteboard changeCount bumps but payload is unchanged.
@@ -257,13 +251,13 @@ impl CaptureContext {
 
         let content_hash = entry_content_hash(&base_hash);
         let image_format = format_hint
-            .map(|hint| image_format::normalize(hint).to_string())
-            .unwrap_or_else(|| image_format::detect_from_b64(&encoded.full_b64).to_string());
+            .map(|hint| image_format::normalize(hint).to_owned())
+            .unwrap_or_else(|| image_format::detect_from_b64(&encoded.full_b64).to_owned());
         let format_tag = image_format::tag_from_format(&image_format);
 
         let entry = ClipboardEntry {
             id: 0,
-            content_type: "image".to_string(),
+            content_type: "image".to_owned(),
             text_content: None,
             image_data: Some(encoded.full_b64),
             image_thumb: Some(encoded.thumb_b64),
@@ -311,7 +305,7 @@ impl CaptureContext {
 
         let entry = ClipboardEntry {
             id: 0,
-            content_type: "text".to_string(),
+            content_type: "text".to_owned(),
             text_content: Some(text.clone()),
             image_data: None,
             image_thumb: None,
@@ -370,8 +364,8 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
             return ctx.try_image(
                 encoded,
                 base_hash,
-                source_bundle_id.clone(),
-                source_app.clone(),
+                source_bundle_id,
+                source_app,
                 Some("GIF"),
             );
         }
@@ -408,16 +402,8 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
     if let Ok(img) = clipboard.get_image() {
         if !img.bytes.is_empty() {
             let base_hash = hash_raster_image(&img.bytes, img.width, img.height);
-            if let Some(encoded) =
-                encode_image_from_rgba(&img.bytes, img.width, img.height)
-            {
-                return ctx.try_image(
-                    encoded,
-                    base_hash,
-                    source_bundle_id,
-                    source_app,
-                    None,
-                );
+            if let Some(encoded) = encode_image_from_rgba(&img.bytes, img.width, img.height) {
+                return ctx.try_image(encoded, base_hash, source_bundle_id, source_app, None);
             }
         }
     }
@@ -469,12 +455,8 @@ impl CaptureRetryState {
     /// One capture attempt after pasteboard change (when `capture_pending` is true).
     /// On failure (e.g. GIF encode error), keeps `capture_pending` so the next tick retries
     /// without advancing `last_content_hash` (hash poisoning fix).
-    fn attempt_capture<F>(
-        &mut self,
-        probe_hash: Option<String>,
-        hash_in_db: bool,
-        try_capture: F,
-    ) where
+    fn attempt_capture<F>(&mut self, probe_hash: Option<String>, hash_in_db: bool, try_capture: F)
+    where
         F: FnOnce() -> Option<String>,
     {
         if !self.capture_pending {
@@ -533,9 +515,9 @@ pub fn start_clipboard_monitor(app: AppHandle) {
             }
 
             let hash_in_db = match (&probe_hash, state.capture_pending) {
-                (Some(h), true) if h == &state.last_content_hash => db
-                    .has_entry_with_content_hash(h)
-                    .unwrap_or(false),
+                (Some(h), true) if h == &state.last_content_hash => {
+                    db.has_entry_with_content_hash(h).unwrap_or(false)
+                }
                 _ => false,
             };
 
@@ -562,12 +544,18 @@ mod tests {
         let db = Database {
             conn: Mutex::new(Connection::open_in_memory().unwrap()),
         };
-        db.conn.lock().unwrap().execute_batch("
+        db.conn
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "
             CREATE TABLE IF NOT EXISTS excluded_apps (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bundle_id TEXT NOT NULL UNIQUE
             );
-        ").unwrap();
+        ",
+            )
+            .unwrap();
         db
     }
 
@@ -629,7 +617,7 @@ mod tests {
         let db = test_db();
         assert!(should_skip_source(
             &db,
-            &Some(crate::macos_app::COPYOSITY_BUNDLE_ID.to_string()),
+            &Some(crate::macos_app::COPYOSITY_BUNDLE_ID.to_owned()),
         ));
         assert_eq!(
             should_skip_source(&db, &None),
@@ -637,13 +625,13 @@ mod tests {
         );
         assert!(!should_skip_source(
             &db,
-            &Some("com.apple.Safari".to_string()),
+            &Some("com.apple.Safari".to_owned()),
         ));
 
         db.add_excluded_app("com.apple.Safari").unwrap();
         assert!(should_skip_source(
             &db,
-            &Some("com.apple.Safari".to_string()),
+            &Some("com.apple.Safari".to_owned()),
         ));
     }
 
@@ -654,7 +642,7 @@ mod tests {
         let probe = "gif-encode-failed-hash";
 
         // Simulates try_capture_from_clipboard returning None (e.g. failed GIF encode).
-        state.attempt_capture(Some(probe.to_string()), false, || None);
+        state.attempt_capture(Some(probe.to_owned()), false, || None);
 
         assert!(
             state.capture_pending,
@@ -672,18 +660,21 @@ mod tests {
         let probe = "finder-jpg-hash";
 
         state.capture_pending = true;
-        state.attempt_capture(Some(probe.to_string()), false, || Some(probe.to_string()));
+        state.attempt_capture(Some(probe.to_owned()), false, || Some(probe.to_owned()));
         assert_eq!(state.last_content_hash, probe);
 
         notify_history_cleared();
-        state.sync_history_clear(Some(&probe.to_string()));
-        assert!(!state.capture_pending, "must not auto-recapture stale clipboard");
+        state.sync_history_clear(Some(&probe.to_owned()));
+        assert!(
+            !state.capture_pending,
+            "must not auto-recapture stale clipboard"
+        );
         assert_eq!(state.last_content_hash, probe);
 
         let mut captured = false;
-        state.attempt_capture(Some(probe.to_string()), false, || {
+        state.attempt_capture(Some(probe.to_owned()), false, || {
             captured = true;
-            Some(probe.to_string())
+            Some(probe.to_owned())
         });
         assert!(!captured, "no pasteboard change yet");
     }
@@ -694,18 +685,18 @@ mod tests {
         let probe = "finder-gif-hash";
 
         state.capture_pending = true;
-        state.attempt_capture(Some(probe.to_string()), false, || Some(probe.to_string()));
+        state.attempt_capture(Some(probe.to_owned()), false, || Some(probe.to_owned()));
         assert_eq!(state.last_content_hash, probe);
 
         notify_history_cleared();
-        state.sync_history_clear(Some(&probe.to_string()));
+        state.sync_history_clear(Some(&probe.to_owned()));
 
         // User copies the same file again (pasteboard changeCount bumped).
         state.capture_pending = true;
         let mut captured = false;
-        state.attempt_capture(Some(probe.to_string()), false, || {
+        state.attempt_capture(Some(probe.to_owned()), false, || {
             captured = true;
-            Some(probe.to_string())
+            Some(probe.to_owned())
         });
         assert!(captured);
         assert_eq!(state.last_content_hash, probe);
@@ -717,7 +708,7 @@ mod tests {
         state.capture_pending = true;
         let probe = "captured-content-hash";
 
-        state.attempt_capture(Some(probe.to_string()), false, || Some(probe.to_string()));
+        state.attempt_capture(Some(probe.to_owned()), false, || Some(probe.to_owned()));
 
         assert!(!state.capture_pending);
         assert_eq!(state.last_content_hash, probe);
@@ -727,13 +718,13 @@ mod tests {
     fn unchanged_clipboard_skipped_when_hash_already_in_db() {
         let mut state = CaptureRetryState::new();
         let probe = "existing-entry-hash";
-        state.last_content_hash = probe.to_string();
+        state.last_content_hash = probe.to_owned();
         state.capture_pending = true;
 
         let mut captured = false;
-        state.attempt_capture(Some(probe.to_string()), true, || {
+        state.attempt_capture(Some(probe.to_owned()), true, || {
             captured = true;
-            Some(probe.to_string())
+            Some(probe.to_owned())
         });
 
         assert!(!captured);
@@ -755,7 +746,7 @@ mod tests {
         let probe = "file-probe-hash";
         let captured = "stored-content-hash";
 
-        state.attempt_capture(Some(probe.to_string()), false, || Some(captured.to_string()));
+        state.attempt_capture(Some(probe.to_owned()), false, || Some(captured.to_owned()));
 
         assert_eq!(state.last_content_hash, captured);
         assert_ne!(state.last_content_hash, probe);
@@ -768,16 +759,16 @@ mod tests {
         let probe = "retry-gif-hash";
         let mut attempts = 0;
 
-        state.attempt_capture(Some(probe.to_string()), false, || {
+        state.attempt_capture(Some(probe.to_owned()), false, || {
             attempts += 1;
             None
         });
         assert!(state.capture_pending);
         assert_eq!(attempts, 1);
 
-        state.attempt_capture(Some(probe.to_string()), false, || {
+        state.attempt_capture(Some(probe.to_owned()), false, || {
             attempts += 1;
-            Some(probe.to_string())
+            Some(probe.to_owned())
         });
         assert!(!state.capture_pending);
         assert_eq!(state.last_content_hash, probe);

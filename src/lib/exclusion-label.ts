@@ -11,9 +11,7 @@ export function excludeFromHistoryLabel(appName: string): string {
 }
 
 /** Settings active-app row — context from `ExcludableAppCandidate.source`. */
-export function excludableCandidateMetaLabel(
-  source: "remembered" | "frontmost",
-): string {
+export function excludableCandidateMetaLabel(source: "remembered" | "frontmost"): string {
   return source === "frontmost" ? "Active app" : "Recent app";
 }
 

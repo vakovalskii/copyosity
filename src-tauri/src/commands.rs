@@ -1,7 +1,5 @@
 use crate::app_exclusion::{self, ExcludableAppSource};
-use crate::db::{
-    AppSettings, ClipboardEntry, Collection, Database, ExcludedApp, ModelCatalog,
-};
+use crate::db::{AppSettings, ClipboardEntry, Collection, Database, ExcludedApp, ModelCatalog};
 use crate::macos_app;
 use serde::{Deserialize, Serialize};
 
@@ -314,8 +312,8 @@ pub fn pick_app_to_exclude(
     .map_err(|e| format!("main_thread_required:{}", e))?;
     let identity = rx
         .recv()
-        .map_err(|_| "main_thread_required:channel".to_string())?
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "main_thread_required:channel".to_owned())?
+        .map_err(|e| e.to_owned())?;
     let Some(identity) = identity else {
         return Ok(None);
     };
@@ -337,7 +335,9 @@ pub fn retag_entry(
     };
 
     match ollama::tag_text(&text) {
-        Some(tags) => db.set_entry_tags(entry_id, &tags).map_err(|e| e.to_string())?,
+        Some(tags) => db
+            .set_entry_tags(entry_id, &tags)
+            .map_err(|e| e.to_string())?,
         None => db
             .set_entry_tag_state(entry_id, "skipped")
             .map_err(|e| e.to_string())?,
@@ -398,7 +398,7 @@ fn image_bytes_from_entry(entry: &ClipboardEntry) -> Result<Vec<u8>, String> {
         .image_data
         .as_ref()
         .or(entry.image_thumb.as_ref())
-        .ok_or_else(|| "Image data is missing".to_string())?;
+        .ok_or_else(|| "Image data is missing".to_owned())?;
     base64::engine::general_purpose::STANDARD
         .decode(encoded)
         .map_err(|e| e.to_string())
@@ -440,7 +440,11 @@ fn paste_text_into_target(app: &tauri::AppHandle, text: String) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn activate_entry(app: tauri::AppHandle, db: State<'_, Arc<Database>>, entry_id: i64) -> Result<(), String> {
+pub fn activate_entry(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<Database>>,
+    entry_id: i64,
+) -> Result<(), String> {
     let Some(entry) = db.get_entry_by_id(entry_id).map_err(|e| e.to_string())? else {
         return Ok(());
     };

@@ -11,7 +11,7 @@ export const IMAGE_FORMAT_TAG_SET = new Set<string>(IMAGE_FORMAT_TAGS);
 const SEMANTIC_TAG_LIMIT = 8;
 
 export function sortTagsByCount(tagCounts: TagChip[]): TagChip[] {
-  return [...tagCounts].sort((a, b) => {
+  return [...tagCounts].toSorted((a, b) => {
     if (b[1] !== a[1]) return b[1] - a[1];
     return a[0].localeCompare(b[0]);
   });
@@ -30,8 +30,7 @@ export function entryMatchesKind(entry: ClipboardEntry, kind: ContentKind): bool
     case "image":
       return entry.content_type === "image";
     default: {
-      const _exhaustive: never = kind;
-      return _exhaustive;
+      return kind satisfies never;
     }
   }
 }
@@ -118,14 +117,7 @@ function tagBarChipsForPool(options: {
   textAvailable: boolean;
   imagesAvailable: boolean;
 }): TagBarChips {
-  const {
-    pool,
-    contentKind,
-    aiTaggingEnabled,
-    showRowA,
-    textAvailable,
-    imagesAvailable,
-  } = options;
+  const { pool, contentKind, aiTaggingEnabled, showRowA, textAvailable, imagesAvailable } = options;
   const kindFilterActive = aiTaggingEnabled && showRowA;
   const kindPool = filterKindPool(pool, kindFilterActive, contentKind);
 
@@ -197,16 +189,10 @@ export function buildTagBarModel(options: {
 
   const stickyActiveTag =
     activeTag !== null &&
-    (isFormatTag(activeTag)
-      ? imagesAvailable
-      : aiTaggingEnabled && textAvailable);
+    (isFormatTag(activeTag) ? imagesAvailable : aiTaggingEnabled && textAvailable);
   const stickySegment = showRowA && contentKind !== "all";
 
-  const showRowB =
-    display.hasChips ||
-    layout.hasChips ||
-    stickyActiveTag ||
-    stickySegment;
+  const showRowB = display.hasChips || layout.hasChips || stickyActiveTag || stickySegment;
 
   return {
     showRowA,
@@ -218,10 +204,7 @@ export function buildTagBarModel(options: {
   };
 }
 
-export function cardDisplayTags(
-  entry: ClipboardEntry,
-  aiTaggingEnabled: boolean,
-): string[] {
+export function cardDisplayTags(entry: ClipboardEntry, aiTaggingEnabled: boolean): string[] {
   if (!aiTaggingEnabled) return [];
   const tags = entry.tags ?? [];
   if (entry.content_type === "image") {

@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -e
+
+# Keep pre-commit fast and focused: auto-fix staged files, then fail on leftovers.
+env -u npm_config_devdir npm run lint-staged

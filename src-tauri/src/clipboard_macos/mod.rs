@@ -10,12 +10,10 @@ pub use accessibility::{accessibility_trusted, open_accessibility_settings};
 pub use paste::{paste_into_target, simulate_cmd_v, spawn_automated_paste};
 
 pub(crate) use accessibility::{
-    capture_focus_for_pid, has_paste_focus, prefers_keyboard_paste,
-    refresh_paste_focus_if_needed, restore_focused_ui_element, store_focused_ui_element,
-    try_ax_paste_for_pid,
+    capture_focus_for_pid, has_paste_focus, prefers_keyboard_paste, refresh_paste_focus_if_needed,
+    restore_focused_ui_element, store_focused_ui_element, try_ax_paste_for_pid,
 };
 pub(crate) use paste::{activate_pid, capture_mouse_location};
-
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64, Ordering};
 #[cfg(target_os = "macos")]
@@ -24,7 +22,7 @@ use std::sync::Mutex;
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSPasteboard, NSURLNSPasteboardSupport, NSWorkspace};
 #[cfg(target_os = "macos")]
-use objc2_foundation::{ns_string, NSArray, NSData, NSURL, NSString};
+use objc2_foundation::{ns_string, NSArray, NSData, NSString, NSURL};
 #[cfg(target_os = "macos")]
 use std::path::PathBuf;
 
@@ -208,7 +206,7 @@ pub fn write_gif_to_pasteboard(bytes: &[u8], exclude_from_history: bool) -> Resu
     let ok = ok_compuserve || ok_public;
 
     if !ok {
-        return Err("Failed to write GIF to pasteboard".to_string());
+        return Err("Failed to write GIF to pasteboard".to_owned());
     }
 
     if exclude_from_history {

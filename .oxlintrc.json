@@ -1,0 +1,71 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "promise", "node"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2024": true,
+    "builtin": true
+  },
+  "ignorePatterns": [
+    "dist/**",
+    "build/**",
+    ".svelte-kit/**",
+    "node_modules/**",
+    "src-tauri/**",
+    "vite.config.js.timestamp-*"
+  ],
+  "rules": {
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "no-debugger": "error",
+    "no-alert": "error",
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
+    "prefer-const": "error",
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "typescript/no-explicit-any": "error",
+    "typescript/no-unused-vars": "off",
+    "typescript/consistent-type-imports": [
+      "error",
+      { "prefer": "type-imports", "fixStyle": "separate-type-imports" }
+    ],
+    "typescript/no-import-type-side-effects": "error",
+    "import/no-cycle": "error",
+    "import/no-self-import": "error",
+    "import/no-duplicates": "error",
+    "import/first": "error",
+    "import/newline-after-import": "error",
+    "promise/no-return-wrap": "error",
+    "promise/param-names": "error",
+    "unicorn/prefer-node-protocol": "error",
+    "unicorn/prefer-module": "off",
+    "unicorn/no-null": "off",
+    "oxc/no-async-await": "off"
+  },
+  "overrides": [
+    {
+      "files": ["scripts/**", "svelte.config.js", "vite.config.js", "vite.config.ts"],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      "files": ["**/*.svelte"],
+      "rules": {
+        "prefer-const": "off",
+        "import/no-unassigned-import": "off"
+      }
+    }
+  ]
+}

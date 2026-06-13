@@ -8,8 +8,7 @@ use objc2_foundation::NSString;
 use super::{paste_log, restore_paste_target, FocusRef, PASTE_TARGET_FOCUS, PASTE_TARGET_PID};
 
 /// Bundle IDs where `AXPaste` is unreliable; use synthetic Cmd+V instead.
-pub(crate) const KEYBOARD_PASTE_BUNDLE_IDS: &[&str] =
-    &["com.apple.MobileSMS", "com.apple.iChat"];
+pub(crate) const KEYBOARD_PASTE_BUNDLE_IDS: &[&str] = &["com.apple.MobileSMS", "com.apple.iChat"];
 
 pub(crate) fn bundle_prefers_keyboard_paste(bundle_id: &str) -> bool {
     KEYBOARD_PASTE_BUNDLE_IDS.contains(&bundle_id)
@@ -93,7 +92,7 @@ pub(crate) fn refresh_paste_focus_if_needed() {}
 #[cfg(target_os = "macos")]
 pub(crate) fn capture_focus_for_pid(pid: i32) -> Option<*mut std::ffi::c_void> {
     copy_focused_ui_element_for_pid(pid)
-        .or_else(|| copy_focused_ui_element_system())
+        .or_else(copy_focused_ui_element_system)
         .or_else(|| find_editable_element_for_pid(pid))
 }
 
@@ -195,7 +194,7 @@ unsafe fn find_best_editable_element(
         if let Some(priority) = editable_role_priority(&role) {
             let replace = best
                 .as_ref()
-                .map_or(true, |(best_priority, _)| priority < *best_priority);
+                .is_none_or(|(best_priority, _)| priority < *best_priority);
             if replace {
                 if let Some((_, old)) = best.take() {
                     release_ax_element(old);
@@ -275,7 +274,11 @@ unsafe fn copy_attribute_as_element_array(
 
     let items = cf_array_to_elements(value);
     cf_release(value);
-    if items.is_empty() { None } else { Some(items) }
+    if items.is_empty() {
+        None
+    } else {
+        Some(items)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -296,7 +299,11 @@ unsafe fn cf_string_to_rust(value: *mut std::ffi::c_void) -> Option<String> {
 
     let direct = CFStringGetCStringPtr(value, K_CF_STRING_ENCODING_UTF8);
     if !direct.is_null() {
-        return Some(std::ffi::CStr::from_ptr(direct).to_string_lossy().into_owned());
+        return Some(
+            std::ffi::CStr::from_ptr(direct)
+                .to_string_lossy()
+                .into_owned(),
+        );
     }
 
     let len = CFStringGetLength(value);
@@ -310,9 +317,11 @@ unsafe fn cf_string_to_rust(value: *mut std::ffi::c_void) -> Option<String> {
         buf.len() as isize,
         K_CF_STRING_ENCODING_UTF8,
     ) {
-        Some(std::ffi::CStr::from_ptr(buf.as_ptr())
-            .to_string_lossy()
-            .into_owned())
+        Some(
+            std::ffi::CStr::from_ptr(buf.as_ptr())
+                .to_string_lossy()
+                .into_owned(),
+        )
     } else {
         None
     }
@@ -325,7 +334,10 @@ unsafe fn cf_array_to_elements(value: *mut std::ffi::c_void) -> Vec<*mut std::ff
         fn CFGetTypeID(cf: *mut std::ffi::c_void) -> usize;
         fn CFArrayGetTypeID() -> usize;
         fn CFArrayGetCount(array: *mut std::ffi::c_void) -> isize;
-        fn CFArrayGetValueAtIndex(array: *mut std::ffi::c_void, idx: isize) -> *const std::ffi::c_void;
+        fn CFArrayGetValueAtIndex(
+            array: *mut std::ffi::c_void,
+            idx: isize,
+        ) -> *const std::ffi::c_void;
     }
 
     if CFGetTypeID(value) != CFArrayGetTypeID() {
@@ -352,11 +364,8 @@ pub(crate) fn restore_focused_ui_element(pid: i32, element: *mut std::ffi::c_voi
         // Prefer system-wide focus restore (works better for Electron webviews).
         if let Some(system) = ax_create_system_wide() {
             let attr = NSString::from_str("AXFocusedUIElement");
-            let err = ax_set_attribute_value(
-                system,
-                objc2::rc::Retained::as_ptr(&attr).cast(),
-                element,
-            );
+            let err =
+                ax_set_attribute_value(system, objc2::rc::Retained::as_ptr(&attr).cast(), element);
             release_ax_element(system);
             if err == K_AX_ERROR_SUCCESS {
                 return;
@@ -367,11 +376,7 @@ pub(crate) fn restore_focused_ui_element(pid: i32, element: *mut std::ffi::c_voi
             return;
         };
         let attr = NSString::from_str("AXFocusedUIElement");
-        let _err = ax_set_attribute_value(
-            app,
-            objc2::rc::Retained::as_ptr(&attr).cast(),
-            element,
-        );
+        let _err = ax_set_attribute_value(app, objc2::rc::Retained::as_ptr(&attr).cast(), element);
         release_ax_element(app);
     }
 }
@@ -550,11 +555,8 @@ fn probe_own_ax_access() -> bool {
         };
         let attr = NSString::from_str("AXRole");
         let mut value: *mut std::ffi::c_void = std::ptr::null_mut();
-        let err = ax_copy_attribute_value(
-            app,
-            objc2::rc::Retained::as_ptr(&attr).cast(),
-            &mut value,
-        );
+        let err =
+            ax_copy_attribute_value(app, objc2::rc::Retained::as_ptr(&attr).cast(), &mut value);
         if !value.is_null() {
             cf_release(value);
         }
@@ -571,7 +573,7 @@ fn accessibility_show_prompt() {
             fn AXIsProcessTrustedWithOptions(options: *const std::ffi::c_void) -> bool;
         }
 
-        use objc2_foundation::{NSDictionary, NSNumber, ns_string};
+        use objc2_foundation::{ns_string, NSDictionary, NSNumber};
 
         let key = ns_string!("AXTrustedCheckOptionPrompt");
         let yes = NSNumber::new_bool(true);
@@ -588,7 +590,11 @@ pub fn open_accessibility_settings() {
         "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
     ];
     for url in URLS {
-        if std::process::Command::new("open").arg(url).status().is_ok_and(|s| s.success()) {
+        if std::process::Command::new("open")
+            .arg(url)
+            .status()
+            .is_ok_and(|s| s.success())
+        {
             return;
         }
     }
