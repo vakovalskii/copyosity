@@ -64,6 +64,13 @@ pub struct ClipboardEntry {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HistoryCounts {
+    pub total: i64,
+    pub unpinned: i64,
+    pub pinned: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Collection {
     pub id: i64,
     pub name: String,
@@ -646,6 +653,29 @@ impl Database {
         Ok(())
     }
 
+    pub fn clear_all_history(&self) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM clipboard_entries", [])?;
+        Ok(())
+    }
+
+    pub fn get_history_counts(&self) -> Result<HistoryCounts, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let total: i64 = conn.query_row("SELECT COUNT(*) FROM clipboard_entries", [], |row| {
+            row.get(0)
+        })?;
+        let pinned: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM clipboard_entries WHERE is_pinned = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(HistoryCounts {
+            total,
+            pinned,
+            unpinned: total - pinned,
+        })
+    }
+
     pub fn get_excluded_apps(&self) -> Result<Vec<ExcludedApp>, rusqlite::Error> {
         let rows: Vec<(i64, String)> = {
             let conn = self.conn.lock().unwrap();
@@ -970,13 +1000,13 @@ impl Database {
     }
 
     #[allow(dead_code)]
-    pub fn cleanup_old_entries(&self, max_age_days: i64) -> Result<(), rusqlite::Error> {
+    pub fn cleanup_old_entries(&self, max_age_days: i64) -> Result<u64, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "DELETE FROM clipboard_entries WHERE is_pinned = 0 AND created_at < datetime('now', ?1)",
             params![format!("-{} days", max_age_days)],
         )?;
-        Ok(())
+        Ok(conn.changes())
     }
 }
 
@@ -1411,6 +1441,32 @@ mod tests {
         let all = db.get_entries(50, 0, None, false, None).unwrap();
         assert_eq!(all.len(), 1);
         assert!(all[0].is_pinned);
+    }
+
+    #[test]
+    fn clear_all_history_removes_pinned() {
+        let db = test_db();
+        let (id1, _) = db.insert_entry(&make_entry("pinned", "h1")).unwrap();
+        db.insert_entry(&make_entry("not pinned", "h2")).unwrap();
+        db.pin_entry(id1, true).unwrap();
+
+        db.clear_all_history().unwrap();
+        let all = db.get_entries(50, 0, None, false, None).unwrap();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn get_history_counts_reports_pinned_and_unpinned() {
+        let db = test_db();
+        let (id1, _) = db.insert_entry(&make_entry("pinned", "h1")).unwrap();
+        db.insert_entry(&make_entry("not pinned", "h2")).unwrap();
+        db.insert_entry(&make_entry("not pinned 2", "h3")).unwrap();
+        db.pin_entry(id1, true).unwrap();
+
+        let counts = db.get_history_counts().unwrap();
+        assert_eq!(counts.total, 3);
+        assert_eq!(counts.pinned, 1);
+        assert_eq!(counts.unpinned, 2);
     }
 
     // --- Tags ---

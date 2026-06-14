@@ -65,8 +65,8 @@ flowchart TB
 
 - [x] `[Overlay]` Empty state fix (фильтр по тегу / search) (п. 18)
 - [x] `[Overlay]` Убрать `title` tooltip с карточки (п. 14)
-- [ ] `[Overlay]` Delete undo / confirm (п. 12)
-- [ ] `[Settings]` Clear history без confirm / undo (п. 23)
+- [x] `[Overlay]` Delete без confirm — продуктовое решение (п. 12)
+- [x] `[Settings]` Clear history menu + confirm (п. 23)
 - [x] `[Shared]` `prefers-reduced-motion` — полное покрытие (п. 21)
 - [x] `[Shared]` `prefers-reduced-transparency` — blur fallback (п. 6, 22)
 - [x] `[Overlay]` Image meta labels (dimensions вместо «Image preview») (п. 17)
@@ -91,6 +91,7 @@ flowchart TB
 | Семантические цвета   | Shared            | danger / warning / success / accent tokens                                                         |
 | Focus ring на кнопках | Shared            | `button.app-btn:focus-visible`                                                                     |
 | Form focus            | Shared            | `form-input:focus` ring (`--ring-accent-input`)                                                    |
+| Clear history         | Settings          | `ActionMenu` + `ConfirmDialog`; live counts via `history-changed` / `clipboard-changed`            |
 | Motion                | Shared            | Reduce Motion: panel, scroll, pulse, spinner, hover, copied, EQ bars, micro-transitions via tokens |
 | Search field          | Overlay           | `role="search"`, clear button, `:focus-within` ring                                                |
 | Empty state           | Overlay           | Контекстные сообщения, `role="status"`                                                             |
@@ -154,9 +155,9 @@ Search + tabs + collections + Exclude + gear в одной строке. Exclude
 
 SF Mono на всём тексте карточки. HIG: SF Pro для body, Mono только для code.
 
-### 12. Delete без подтверждения `[Overlay]`
+### ✅ 12. Delete без подтверждения `[Overlay]` — продуктовое решение
 
-Одно нажатие X удаляет запись. См. единый паттерн п. 30.
+Одно нажатие X удаляет запись без dialog. Launcher-панель: точечное действие на явной кнопке delete; лишний confirm мешает скорости. Bulk clear — только в Settings с confirm (п. 23).
 
 ### ✅ 13. Selection vs Hover states `[Overlay]`
 
@@ -236,11 +237,9 @@ Opaque surface tokens в `tokens.css`; `backdrop-filter: none` в `+page.svelte`
 
 ## Settings (п. 23–30)
 
-### 23. Clear history без подтверждения `[Settings]`
+### ✅ 23. Clear history — меню и confirm `[Settings]`
 
-`form-btn-danger` «Clear unpinned history» — одно нажатие, только toast-notice после. Аналог п. 12.
-
-**Рекомендация:** confirm dialog или «Cleared — Undo».
+**Было:** одна кнопка без подтверждения. **Сделано:** `Clear history` с меню (unpinned / all…); `ConfirmDialog` со счётчиками; neutral confirm (пользователь уже выбрал действие в меню); success notice в action row; `clear_all_history` для pinned; меню disabled при пустой истории.
 
 ### ✅ 24. Form controls: pointer vs keyboard focus `[Shared]`
 
@@ -262,13 +261,13 @@ WebKit в Tauri часто показывает `:focus-visible` при клик
 
 Status steps соответствуют product policy в `CLAUDE.md`. Spinner / checking dots покрыты Reduce Motion.
 
-### ✅ 29. Settings `user-select: none` на body `[Settings]`
+### ✅ 29. Settings selection chrome `[Settings]`
 
-`body`: `user-select: none` (chrome / drag). `.form-input` / `.form-select`: `user-select: text`. `.form-hint`, `.status-hint`, `.status-hint.pull-progress`: `user-select: text` — `<code>` и команды копируются.
+`ui-no-select` / `ui-selectable-text` в `form-controls.css`: chrome (секции, ряды, кнопки) не выделяется; текст — заголовки, лейблы, status lines, hints, meta, inputs — `fit-content`, без заливки паддинга. `.settings-page` несёт `ui-no-select`.
 
-### 30. Danger / destructive actions pattern `[Settings]` `[Overlay]`
+### ✅ 30. Danger / destructive actions pattern `[Settings]`
 
-Единый паттерн: overlay delete (п. 12) и settings clear history (п. 23). Исправлять одним решением (toast + undo).
+**Сделано:** `ConfirmDialog` только в Settings для bulk clear (п. 23); title — один `?`, message — declarative последствия с bold-счётчиками и `\u00A0`; `ActionMenu` (opaque dropdown, full-width в Storage). Overlay single delete — без confirm (п. 12). Inset `form-section-divider` в других секциях Settings; Storage — `form-action-stack` без лишнего divider.
 
 ---
 
@@ -338,12 +337,12 @@ flowchart LR
   P3 --- C2b[Reduce transparency]
 ```
 
-| Приоритет | Задачи                                                                                                                         | Файлы                                                                                                                         |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| **P1**    | focus visible, card actions, contrast, form focus-visible, voice a11y baseline; hit targets; voice SR full cycle               | overlay components, `form-controls.css`, `overlay/+page.svelte`                                                               |
-| **P2**    | keyboard hints, segmented tabs; font by type (п. 11); filter vs metadata badges (п. 20); toggle in form-controls (п. 27)       | `TagFilterBar.svelte`, `ClipboardCard.svelte`, `tokens.css`, overlay components, `settings/+page.svelte`, `form-controls.css` |
-| **P3**    | delete/clear undo; empty state, card tooltip, image meta; reduce motion, reduce transparency; title + aria-label dedup (п. 25) | multiple                                                                                                                      |
-| **P4**    | SF Symbols, light mode, VoiceOver listbox; scroll affordances на tag bar (п. 10)                                               | multiple                                                                                                                      |
+| Приоритет | Задачи                                                                                                                              | Файлы                                                                                                                         |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **P1**    | focus visible, card actions, contrast, form focus-visible, voice a11y baseline; hit targets; voice SR full cycle                    | overlay components, `form-controls.css`, `overlay/+page.svelte`                                                               |
+| **P2**    | keyboard hints, segmented tabs; font by type (п. 11); filter vs metadata badges (п. 20); toggle in form-controls (п. 27)            | `TagFilterBar.svelte`, `ClipboardCard.svelte`, `tokens.css`, overlay components, `settings/+page.svelte`, `form-controls.css` |
+| **P3**    | settings clear confirm; empty state, card tooltip, image meta; reduce motion, reduce transparency; title + aria-label dedup (п. 25) | multiple                                                                                                                      |
+| **P4**    | SF Symbols, light mode, VoiceOver listbox; scroll affordances на tag bar (п. 10)                                                    | multiple                                                                                                                      |
 
 ---
 

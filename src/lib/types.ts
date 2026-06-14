@@ -25,6 +25,12 @@ export interface Collection {
   sort_order: number;
 }
 
+export interface HistoryCounts {
+  total: number;
+  unpinned: number;
+  pinned: number;
+}
+
 export interface AppSettings {
   ollama_model: string;
   retention_days: number;

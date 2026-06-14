@@ -8,6 +8,7 @@ import type {
   ExcludedApp,
   ExcludableAppCandidate,
   ExcludeAppResult,
+  HistoryCounts,
   ModelCatalog,
 } from "./types";
 
@@ -56,6 +57,14 @@ export async function deleteCollection(id: number): Promise<void> {
 
 export async function clearHistory(): Promise<void> {
   return invoke("clear_history");
+}
+
+export async function clearAllHistory(): Promise<void> {
+  return invoke("clear_all_history");
+}
+
+export async function getHistoryCounts(): Promise<HistoryCounts> {
+  return invoke("get_history_counts");
 }
 
 export async function hideMainWindow(): Promise<void> {

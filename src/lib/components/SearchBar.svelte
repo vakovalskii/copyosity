@@ -113,11 +113,6 @@
     user-select: text;
   }
 
-  input::selection {
-    background-color: var(--selection-bg);
-    color: var(--selection-text);
-  }
-
   input::placeholder {
     color: var(--color-text-placeholder);
   }

@@ -14,10 +14,12 @@
   import {
     addExcludedApp,
     addExcludableAppCandidate,
+    clearAllHistory,
     clearHistory,
     getAppSettings,
     getExcludedApps,
     getExcludableAppCandidate,
+    getHistoryCounts,
     getModelCatalog,
     pickAppToExclude,
     removeExcludedApp,
@@ -33,8 +35,15 @@
     testOllamaTagging,
     type OllamaStatus,
   } from "$lib/api";
-  import { openUrl } from "@tauri-apps/plugin-opener";
+  import ActionMenu from "$lib/components/ActionMenu.svelte";
+  import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import SectionIcon from "$lib/components/SectionIcon.svelte";
+  import { confirmDestructive } from "$lib/confirm";
+  import {
+    clearAllConfirmBody,
+    clearUnpinnedConfirmBody,
+    type ClearHistoryAction,
+  } from "$lib/destructive-actions";
   import {
     allowInClipboardHistoryAriaLabel,
     allowedInHistoryNotice,
@@ -52,6 +61,7 @@
     couldNotAddSelectedAppNotice,
     excludedFromHistoryNotice,
   } from "$lib/exclusion-label";
+  import { openUrl } from "@tauri-apps/plugin-opener";
 
   function openOllamaDownload() {
     void openUrl("https://ollama.com/download");
@@ -84,6 +94,7 @@
   let savingSettings = $state(false);
   let settingsNotice = $state("");
   let clearHistoryNotice = $state("");
+  let historyCounts = $state({ total: 0, unpinned: 0, pinned: 0 });
   let savedModel = $state("");
 
   const A11Y_NOTICE_ENABLE = "Enable Copyosity in the list.";
@@ -300,6 +311,7 @@
     // Load everything in parallel instead of sequentially
     loadSettings();
     loadModelCatalog();
+    loadHistoryCounts();
     refreshExcludedAppsSection();
     refreshOllamaStatus();
     listMicrophones().then((m) => (microphones = m));
@@ -321,12 +333,18 @@
       a11yPromptedThisVisit = false;
       void promptAccessibilityIfNeeded();
       void refreshExcludedAppsSection();
+      void syncHistoryCounts();
     });
+
+    const refreshHistoryCounts = () => void syncHistoryCounts();
+    const unlistenClipboard = listen("clipboard-changed", refreshHistoryCounts);
+    const unlistenHistory = listen("history-changed", refreshHistoryCounts);
 
     const unlistenFocus = win.onFocusChanged(({ payload: focused }) => {
       if (focused) {
         void updateAccessibilityStatus();
         void refreshExcludedAppsSection();
+        void syncHistoryCounts();
       }
     });
 
@@ -343,6 +361,8 @@
       unlistenPull.then((fn) => fn());
       unlistenPullDone.then((fn) => fn());
       unlistenShown.then((fn) => fn());
+      unlistenClipboard.then((fn) => fn());
+      unlistenHistory.then((fn) => fn());
       unlistenFocus.then((fn) => fn());
       unlistenEntryTagged.then((fn) => fn());
     };
@@ -469,10 +489,91 @@
     }
   }
 
-  async function handleClearHistory() {
-    await clearHistory();
-    clearHistoryNotice = "History cleared";
+  async function loadHistoryCounts() {
+    historyCounts = await getHistoryCounts();
   }
+
+  async function syncHistoryCounts() {
+    const previous = historyCounts;
+    await loadHistoryCounts();
+    if (
+      historyCounts.total !== previous.total ||
+      historyCounts.unpinned !== previous.unpinned ||
+      historyCounts.pinned !== previous.pinned
+    ) {
+      clearHistoryNotice = "";
+    }
+  }
+
+  async function handleClearHistoryMenu(action: ClearHistoryAction) {
+    await loadHistoryCounts();
+
+    switch (action) {
+      case "unpinned": {
+        if (historyCounts.unpinned === 0) {
+          clearHistoryNotice = "No unpinned history to clear";
+          return;
+        }
+        const confirmed = await confirmDestructive({
+          title: "Clear unpinned history?",
+          messageBody: clearUnpinnedConfirmBody(historyCounts),
+          confirmLabel: "Clear unpinned",
+        });
+        if (!confirmed) return;
+        try {
+          await clearHistory();
+          clearHistoryNotice = "Unpinned history cleared";
+        } catch (err) {
+          clearHistoryNotice =
+            invokeErrorMessage(err) || "Could not clear history. Try again.";
+        }
+        break;
+      }
+      case "all": {
+        if (historyCounts.total === 0) {
+          clearHistoryNotice = "History is already empty";
+          return;
+        }
+        const confirmed = await confirmDestructive({
+          title: "Clear all history?",
+          messageBody: clearAllConfirmBody(historyCounts),
+          confirmLabel: "Clear all",
+        });
+        if (!confirmed) return;
+        try {
+          await clearAllHistory();
+          clearHistoryNotice = "All history cleared";
+        } catch (err) {
+          clearHistoryNotice =
+            invokeErrorMessage(err) || "Could not clear history. Try again.";
+        }
+        break;
+      }
+      default: {
+        const exhaustive: never = action;
+        void exhaustive;
+        return;
+      }
+    }
+
+    await loadHistoryCounts();
+  }
+
+  const clearHistoryMenuDisabled = $derived(historyCounts.total === 0);
+
+  const clearHistoryMenuItems = $derived([
+    {
+      id: "unpinned",
+      label: "Clear unpinned history",
+      disabled: historyCounts.unpinned === 0,
+    },
+    {
+      id: "all",
+      label: "Clear all history…",
+      disabled: historyCounts.total === 0,
+      destructive: true,
+    },
+  ]);
 
   async function handleVoiceToggle(enabled: boolean) {
     settings.voice_transcription_enabled = enabled;
@@ -507,7 +608,7 @@
   </span>
 {/snippet}
 
-<div class="settings-page">
+<div class="settings-page ui-no-select">
   <div class="settings-head" data-tauri-drag-region>
     <div class="settings-title">Settings</div>
     <div class="settings-subtitle">Local AI and history behavior</div>
@@ -815,7 +916,9 @@
         {/each}
         <option value="__custom__">Custom model</option>
       </select>
-      {#if selectedModelPreset === "__custom__"}
+    </div>
+    {#if selectedModelPreset === "__custom__"}
+      <div class="form-field">
         <label class="form-label" for="custom-ollama-model">Model name</label>
         <input
           id="custom-ollama-model"
@@ -825,8 +928,8 @@
           placeholder="qwen3:4b-instruct-2507-q4_K_M"
         />
         <div class="form-hint">Memory use cannot be estimated for custom models.</div>
-      {/if}
-    </div>
+      </div>
+    {/if}
     <div class="form-section-divider" role="separator"></div>
     <div class="form-subsection-title form-subsection-title--with-icon">
       <SectionIcon name="this-mac" />
@@ -859,27 +962,14 @@
         {/each}
       </select>
     </label>
-    <div class="form-section-divider" role="separator"></div>
-    <div class="form-actions">
-      <button class="form-btn form-btn-danger app-btn" type="button" onclick={handleClearHistory}>
-        <svg
-          class="form-btn-icon"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <polyline points="3 6 5 6 21 6" />
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-          <path d="M10 11v6" />
-          <path d="M14 11v6" />
-          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-        </svg>
-        Clear unpinned history
-      </button>
+    <div class="form-action-stack">
+      <ActionMenu
+        block
+        disabled={clearHistoryMenuDisabled}
+        label="Clear history"
+        items={clearHistoryMenuItems}
+        onselect={(id) => void handleClearHistoryMenu(id as ClearHistoryAction)}
+      />
       <div
         class="form-note form-note-neutral"
         class:visible={!!clearHistoryNotice}
@@ -1132,6 +1222,8 @@
       </div>
     </div>
   </footer>
+
+  <ConfirmDialog />
 </div>
 
 <style>
@@ -1141,8 +1233,6 @@
     background: var(--surface-page);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     color: var(--color-text-body);
-    /* Chrome non-selectable; inputs + hints override in form-controls.css */
-    user-select: none;
   }
 
   :global(*) {

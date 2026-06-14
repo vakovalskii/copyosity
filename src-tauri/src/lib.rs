@@ -277,7 +277,9 @@ pub fn run() {
 
             let settings = db.get_app_settings().expect("Failed to load app settings");
             ollama::set_active_model(&settings.ollama_model);
-            let _ = db.cleanup_old_entries(settings.retention_days);
+            if db.cleanup_old_entries(settings.retention_days).unwrap_or(0) > 0 {
+                let _ = app.emit("history-changed", ());
+            }
 
             if settings.ai_tagging_enabled {
                 ollama::ensure_runtime();
@@ -315,6 +317,8 @@ pub fn run() {
             commands::create_collection,
             commands::delete_collection,
             commands::clear_history,
+            commands::clear_all_history,
+            commands::get_history_counts,
             commands::hide_main_window,
             commands::resize_main_window,
             commands::open_settings_window,

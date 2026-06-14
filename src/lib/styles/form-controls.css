@@ -4,6 +4,75 @@
  * Colors: tokens.css
  */
 
+/* ── Interaction: chrome vs copyable text (Settings p.29) ───────────── */
+
+.ui-no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ui-selectable-text {
+  user-select: text;
+  -webkit-user-select: text;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.ui-selectable-text--indented {
+  max-width: calc(100% - 18px);
+}
+
+/* Layout chrome — block drag-select on padding/gaps; text roles opt in below */
+.ui-no-select,
+.form-section,
+.form-section-body,
+.form-field,
+.form-meta,
+.status-list,
+.status-step,
+.status-row,
+.excluded-apps-panel,
+.excluded-apps-row,
+.excluded-apps-stack,
+.form-actions,
+.form-action-stack,
+.toggle,
+.status-dot,
+.form-title-icon,
+.form-subsection-icon {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Copyable settings copy (titles, labels, hints, status lines, meta) */
+.ui-selectable-text,
+.form-section
+  :is(
+    .form-section-title,
+    .form-subsection-title,
+    .form-label,
+    .form-hint,
+    .status-text,
+    .status-hint,
+    .form-note.visible,
+    .excluded-apps-row-label,
+    .excluded-apps-row-meta,
+    .excluded-apps-empty,
+    .form-meta-item dt,
+    .form-meta-item dd
+  ),
+.settings-page :is(.settings-title, .settings-subtitle, .form-note.visible) {
+  user-select: text;
+  -webkit-user-select: text;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.ui-selectable-text--indented,
+.form-section .status-hint {
+  max-width: calc(100% - 18px);
+}
+
 .form-section {
   padding: 14px;
   background: var(--surface-2);
@@ -68,6 +137,7 @@
 
 .form-section-divider {
   height: 1px;
+  margin-inline: 1.25rem;
   background: var(--border-muted);
 }
 
@@ -192,29 +262,19 @@
   line-height: 1.25;
   outline: none;
   user-select: text;
+  -webkit-user-select: text;
 }
 
 .text-control-host {
   box-sizing: border-box;
 }
 
-.form-input::selection {
-  background-color: var(--selection-bg);
-  color: var(--selection-text);
-}
-
 .form-select {
   appearance: none;
-  padding-right: 32px;
-  background-image: var(--gradient-select-chevron);
-  background-position:
-    calc(100% - 14px) calc(50% - 2px),
-    calc(100% - 8px) calc(50% - 2px),
-    0 0;
-  background-size:
-    6px 6px,
-    6px 6px,
-    100% 100%;
+  padding-right: 2rem;
+  background-image: var(--icon-chevron-down);
+  background-position: right var(--space-control-x) center;
+  background-size: 0.75rem 0.75rem;
   background-repeat: no-repeat;
   cursor: pointer;
 }
@@ -267,11 +327,11 @@
 }
 
 .form-hint {
+  margin: 0;
   font-size: var(--font-size-xs);
-  line-height: calc(1em + 8px);
+  line-height: var(--line-height-hint);
   color: var(--color-text-tertiary);
-  padding: 2px 0;
-  user-select: text;
+  padding: var(--padding-hint-y) 0;
 }
 
 .form-hint code {
@@ -549,6 +609,26 @@
   margin-top: 0;
 }
 
+.form-action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-hint);
+  width: 100%;
+}
+
+.form-action-stack .form-note {
+  min-height: 0;
+  margin: 0;
+  text-align: left;
+  white-space: normal;
+  line-height: var(--line-height-hint);
+  padding: var(--padding-hint-y) 0;
+}
+
+.form-action-stack .form-note.visible {
+  min-height: 0;
+}
+
 .form-note {
   flex: 0 0 auto;
   min-width: 3.5rem;
@@ -657,7 +737,8 @@
 }
 
 .status-text {
-  flex: 1;
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
 }
@@ -667,6 +748,7 @@
 }
 
 .status-action {
+  margin-left: auto;
   padding: 4px 12px;
   min-height: 28px;
   border-radius: 8px;
@@ -687,9 +769,9 @@
 .status-hint {
   margin: 0 0 0 18px;
   font-size: var(--font-size-xs);
-  line-height: 1.5;
+  line-height: var(--line-height-hint);
+  padding: var(--padding-hint-y) 0;
   color: var(--color-text-tertiary);
-  user-select: text;
 }
 
 .status-hint.ok {
@@ -725,7 +807,6 @@
   font-family: "SF Mono", Menlo, monospace;
   font-size: var(--font-size-2xs-sm);
   word-break: break-all;
-  user-select: text;
 }
 
 .link-btn {

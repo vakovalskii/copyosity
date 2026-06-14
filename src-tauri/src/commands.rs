@@ -1,5 +1,7 @@
 use crate::app_exclusion::{self, ExcludableAppSource};
-use crate::db::{AppSettings, ClipboardEntry, Collection, Database, ExcludedApp, ModelCatalog};
+use crate::db::{
+    AppSettings, ClipboardEntry, Collection, Database, ExcludedApp, HistoryCounts, ModelCatalog,
+};
 use crate::macos_app;
 use serde::Serialize;
 
@@ -12,7 +14,11 @@ use std::borrow::Cow;
 use crate::clipboard_write::{self, ClipboardWriteMode};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tauri::{Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+fn emit_history_changed(app: &AppHandle) {
+    let _ = app.emit("history-changed", ());
+}
 
 #[tauri::command]
 pub fn get_entries(
@@ -34,17 +40,25 @@ pub fn get_entries(
 }
 
 #[tauri::command]
-pub fn delete_entry(db: State<'_, Arc<Database>>, id: i64) -> Result<(), String> {
+pub fn delete_entry(app: AppHandle, db: State<'_, Arc<Database>>, id: i64) -> Result<(), String> {
     let emptied = db.delete_entry(id).map_err(|e| e.to_string())?;
     if emptied {
         crate::clipboard_monitor::notify_history_cleared();
     }
+    emit_history_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn pin_entry(db: State<'_, Arc<Database>>, id: i64, pinned: bool) -> Result<(), String> {
-    db.pin_entry(id, pinned).map_err(|e| e.to_string())
+pub fn pin_entry(
+    app: AppHandle,
+    db: State<'_, Arc<Database>>,
+    id: i64,
+    pinned: bool,
+) -> Result<(), String> {
+    db.pin_entry(id, pinned).map_err(|e| e.to_string())?;
+    emit_history_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -78,10 +92,24 @@ pub fn delete_collection(db: State<'_, Arc<Database>>, id: i64) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn clear_history(db: State<'_, Arc<Database>>) -> Result<(), String> {
+pub fn clear_history(app: AppHandle, db: State<'_, Arc<Database>>) -> Result<(), String> {
     db.clear_history().map_err(|e| e.to_string())?;
     crate::clipboard_monitor::notify_history_cleared();
+    emit_history_changed(&app);
     Ok(())
+}
+
+#[tauri::command]
+pub fn clear_all_history(app: AppHandle, db: State<'_, Arc<Database>>) -> Result<(), String> {
+    db.clear_all_history().map_err(|e| e.to_string())?;
+    crate::clipboard_monitor::notify_history_cleared();
+    emit_history_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_history_counts(db: State<'_, Arc<Database>>) -> Result<HistoryCounts, String> {
+    db.get_history_counts().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -201,12 +229,13 @@ pub fn update_app_settings(
     if settings.ai_tagging_enabled {
         ollama::ensure_runtime();
         if !was_tagging_enabled {
-            ollama::backfill_existing_tags(app, db.inner().clone());
+            ollama::backfill_existing_tags(app.clone(), db.inner().clone());
         }
     }
 
     db.cleanup_old_entries(settings.retention_days)
         .map_err(|e| e.to_string())?;
+    emit_history_changed(&app);
 
     Ok(settings)
 }

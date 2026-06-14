@@ -14,6 +14,8 @@ commands.allow = [
   "add_excludable_app_candidate",
   "pick_app_to_exclude",
   "clear_history",
+  "clear_all_history",
+  "get_history_counts",
   "check_accessibility",
   "open_accessibility_settings",
   "check_ollama_status",
