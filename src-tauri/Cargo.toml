@@ -19,7 +19,8 @@ name = "copyosity_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [profile.dev]
-# Keep the local crate at Cargo's fastest dev default; dependency hot paths stay optimized below.
+# Fastest local compile (Cargo default). Dependencies stay at opt-level 2 below.
+# Trade-off: local crate code runs unoptimized in dev — use [profile.release] for perf work.
 opt-level = 0
 
 [profile.dev.package."*"]

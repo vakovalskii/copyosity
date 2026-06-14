@@ -116,12 +116,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Voice overlay layout** — mic icon and level meter share a centered row with tighter side padding, 12pt gap between icon and meter, and larger 22/24px proportions in a compact 96×44 HUD window.
 - **Voice overlay mic color** — live recording indicator uses `--color-recording` so it reads as active capture, not an error state.
 - **Clipboard card layout and spacing** — fixed 168px preview slot with a uniform 8-line text clamp (preview height no longer shrinks when tags are present); footer shows AI metadata tags (`.entry-tag`) above the source-app and character-count row, with metadata pinned to the card bottom; card height 288px (+8px) with 8px breathing room between preview and footer.
+
+#### Build and dev toolchain
+
 - **Frontend toolchain** — Vite 8 (Rolldown), `@sveltejs/kit` 2.65, `@sveltejs/vite-plugin-svelte` 7, `svelte` 5.56.3; production builds use Oxc minification by default.
 - **Frontend build** — removed redundant `svelte-kit sync` from `dev`/`build` scripts (Vite plugin syncs internally); Tauri SPA uses `bundleStrategy: "single"`; `reportCompressedSize: false` skips the gzip size pass on production builds.
-- **Rust dev compile** — `[profile.dev]` uses `opt-level = 0` for the local crate (dependencies stay `opt-level = 2`) for faster incremental rebuilds during `tauri dev` and `make check-backend`; release profile unchanged.
-- **Rust compile cache** — `scripts/env-rust.sh` sets `RUSTC_WRAPPER` to `sccache` when installed (`COPYOSITY_DISABLE_SCCACHE=1` to opt out); `Makefile` backend targets (`check-backend`, `fix-backend`, `cargo test`) source the same env as `npm run tauri`.
+- **Rust dev compile** — `[profile.dev]` uses `opt-level = 0` for the local crate (dependencies stay `opt-level = 2`) for faster incremental rebuilds during `tauri dev` and `make check-backend`; local crate runs unoptimized in dev; release profile unchanged.
+- **Rust compile cache** — `scripts/env-rust.sh` sets `RUSTC_WRAPPER` to `sccache` when installed (`COPYOSITY_DISABLE_SCCACHE=1` to opt out, including release scripts); `scripts/run-rust.sh` sources env once per Makefile backend recipe (same contract as `npm run tauri`); `scripts/check-rust-env.sh` smoke-checks the contract in `make check-backend`.
 - **Vite dev** — `server.warmup` pre-transforms overlay, settings, shared components, and lib modules on dev-server start; `optimizeDeps.include` lists the concrete `@tauri-apps/api/*` subpaths and `@tauri-apps/plugin-opener` used by the app.
-- **Local benchmark scripts** — `.local/` gitignored for machine-local build timing scripts (not tracked in the repo).
+- **Local benchmarks** — `.local/bench/` gitignored for machine-local timing scripts and saved results (not tracked in the repo).
 - **Settings form spacing (HIG 8pt grid)** — `--space-stack` token (8pt) for related controls in one group; `--space-section` (12pt) between separate fields; `form-field-group` wraps related controls (for example History retention + Clear history); `excluded-apps-stack` and `form-inline` use the same stack rhythm.
 
 ### Fixed

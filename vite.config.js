@@ -48,7 +48,7 @@ export default defineConfig(async () => ({
         "./src/routes/settings/+page.svelte",
         "./src/routes/overlay/+page.svelte",
         "./src/lib/components/*.svelte",
-        "./src/lib/*.ts",
+        "./src/lib/**/*.ts",
       ],
     },
   },

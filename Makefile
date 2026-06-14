@@ -5,13 +5,13 @@ NPM := env -u npm_config_devdir npm
 OLLAMA_MODEL ?= qwen3:4b-instruct-2507-q4_K_M
 OLLAMA_DEBUG ?= 1
 TAURI_DIR := $(APP_DIR)/src-tauri
-RUST_ENV := source "$(APP_DIR)/scripts/env-rust.sh";
+RUST_RUN = bash "$(APP_DIR)/scripts/run-rust.sh"
 
 .PHONY: help dev build install \
 	check check-frontend check-backend \
 	lint lint-frontend lint-backend \
 	fix fix-frontend fix-backend \
-	_compile-backend _test-backend _lint-rust _lint-rust-fix _fmt-rust _fmt-rust-fix \
+	_verify-rust-env _compile-backend _test-backend \
 	clean-cache clean-cache-aggressive clean-all \
 	build-macos build-macos-intel build-macos-arm \
 	release-macos release-macos-intel release-macos-arm notarize-wait notarize-info
@@ -58,14 +58,15 @@ check: check-frontend check-backend
 check-frontend:
 	cd $(APP_DIR) && $(NPM) run check
 
-check-backend: _compile-backend lint-backend _test-backend
+check-backend: _verify-rust-env _compile-backend lint-backend _test-backend
 
 lint: lint-frontend lint-backend
 
 lint-frontend:
 	cd $(APP_DIR) && $(NPM) run lint
 
-lint-backend: _lint-rust _fmt-rust
+lint-backend:
+	$(RUST_RUN) 'cargo clippy --all-targets -- -D warnings && cargo fmt --check'
 
 fix: fix-frontend fix-backend
 
@@ -73,29 +74,18 @@ fix-frontend:
 	cd $(APP_DIR) && $(NPM) run fix
 
 fix-backend:
-	$(RUST_ENV) cd $(TAURI_DIR) && cargo fmt
-	$(RUST_ENV) cd $(TAURI_DIR) && cargo clippy --fix --allow-dirty --allow-staged --all-targets -- -D warnings
-	$(RUST_ENV) cd $(TAURI_DIR) && cargo fmt
+	$(RUST_RUN) 'cargo fmt && cargo clippy --fix --allow-dirty --allow-staged --all-targets -- -D warnings && cargo fmt'
 
 # --- Backend internals ---
 
+_verify-rust-env:
+	bash "$(APP_DIR)/scripts/check-rust-env.sh"
+
 _compile-backend:
-	$(RUST_ENV) cd $(TAURI_DIR) && cargo check
+	$(RUST_RUN) 'cargo check'
 
 _test-backend:
-	$(RUST_ENV) cd $(TAURI_DIR) && cargo test
-
-_lint-rust:
-	$(RUST_ENV) cd $(TAURI_DIR) && cargo clippy --all-targets -- -D warnings
-
-_lint-rust-fix:
-	$(RUST_ENV) cd $(TAURI_DIR) && cargo clippy --fix --allow-dirty --allow-staged --all-targets -- -D warnings
-
-_fmt-rust:
-	$(RUST_ENV) cd $(TAURI_DIR) && cargo fmt --check
-
-_fmt-rust-fix:
-	$(RUST_ENV) cd $(TAURI_DIR) && cargo fmt
+	$(RUST_RUN) 'cargo test'
 
 # --- Cache cleanup ---
 
