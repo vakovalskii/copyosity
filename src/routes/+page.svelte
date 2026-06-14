@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import type { ClipboardEntry, Collection, ExcludableAppCandidate } from "$lib/types";
@@ -35,8 +35,12 @@
     isFormatTag,
     contentKindEmptyLabel,
     formatTagEmptyLabel,
+    hasImageEntries,
+    hasTextEntries,
+    reconcileOverlayFilters,
   } from "$lib/overlay-filters";
   import { overlayEscapeAction } from "$lib/overlay-search";
+  import { setInputModality } from "$lib/input-modality";
   import { overlayHeightForLayout } from "$lib/overlay-layout";
   import {
     animateOverlayResize,
@@ -273,8 +277,16 @@
     revealTimer = undefined;
     if (pendingReload) {
       pendingReload = false;
-      void loadEntries(true, false);
+      void (async () => {
+        await loadEntries(true, false);
+        scrollToSelected();
+      })();
     }
+  }
+
+  function resetOverlayFilters() {
+    contentKind = "all";
+    activeTag = null;
   }
 
   function resetOverlayMotionState() {
@@ -283,7 +295,7 @@
     isRevealing = false;
     visible = false;
     clearSearch({ reload: false });
-    activeTag = null;
+    resetOverlayFilters();
     selectedIndex = -1;
     resetOverlayResizeState();
   }
@@ -314,7 +326,7 @@
     clearHideTransitionHandler();
     clearRevealTimer();
     clearSearch({ reload: false });
-    activeTag = null;
+    resetOverlayFilters();
     resetOverlayResizeState();
 
     isRevealing = true;
@@ -330,6 +342,9 @@
       if (seq !== revealSeq) return;
       visible = true;
       searchBar?.blur();
+      await nextPaint();
+      if (seq !== revealSeq) return;
+      scrollToSelected();
       revealTimer = setTimeout(finishReveal, panelOpenMs());
       void loadExcludeCandidate();
     })();
@@ -437,6 +452,7 @@
         // ←/→ always browse cards (including while search is focused); block in other text inputs.
         if (typingInField && !searchFocused) return;
         e.preventDefault();
+        setInputModality("keyboard");
         if (e.key === "ArrowRight") {
           selectedIndex = Math.min(selectedIndex + 1, filteredEntries.length - 1);
         } else {
@@ -490,17 +506,27 @@
     };
   }
 
+  function scrollMeasureEl(card: HTMLElement): HTMLElement {
+    const wrapper = card.parentElement;
+    return wrapper instanceof HTMLElement ? wrapper : card;
+  }
+
   function snapCardIntoPaddedViewport(
     card: HTMLElement,
     container: HTMLElement,
     behavior: ScrollBehavior,
   ) {
+    const measureEl = scrollMeasureEl(card);
     const { left: padLeft, right: padRight } = getGridScrollInsets(container);
     const containerRect = container.getBoundingClientRect();
-    const cardRect = card.getBoundingClientRect();
-    const slack = 1;
+    const cardRect = measureEl.getBoundingClientRect();
+    const slack = 2;
     const visibleLeft = containerRect.left + padLeft;
     const visibleRight = containerRect.right - padRight;
+
+    if (cardRect.left >= visibleLeft - slack && cardRect.right <= visibleRight + slack) {
+      return;
+    }
 
     let delta = 0;
     if (cardRect.right > visibleRight + slack) {
@@ -513,44 +539,35 @@
     container.scrollTo({ left: container.scrollLeft + delta, behavior });
   }
 
-  function snapCardToGridEnd(
-    card: HTMLElement,
-    container: HTMLElement,
-    behavior: ScrollBehavior,
-  ) {
-    const { right: padRight } = getGridScrollInsets(container);
-    const containerRect = container.getBoundingClientRect();
-    const cardRect = card.getBoundingClientRect();
-    const visibleRight = containerRect.right - padRight;
-    const delta = cardRect.right - visibleRight;
-    if (Math.abs(delta) <= 1) return;
-    container.scrollTo({ left: container.scrollLeft + delta, behavior });
+  function blurDeselectedCards(cards: NodeListOf<Element>) {
+    cards.forEach((c, i) => {
+      if (i === selectedIndex || !(c instanceof HTMLElement)) return;
+      if (c === document.activeElement || c.contains(document.activeElement)) {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement) active.blur();
+        c.blur();
+      }
+    });
   }
 
   function scrollToSelected() {
-    if (!gridEl) return;
-    const cards = gridEl.querySelectorAll(".card");
-    const card = cards[selectedIndex];
-    if (!(card instanceof HTMLElement)) return;
-    const keepSearchFocus = searchBar?.isFocused() ?? false;
-    if (!keepSearchFocus) {
-      card.focus({ preventScroll: true });
-    }
+    void (async () => {
+      if (!gridEl) return;
+      await tick();
+      const cards = gridEl.querySelectorAll(".card");
+      const card = cards[selectedIndex];
+      if (!(card instanceof HTMLElement)) return;
 
-    const behavior = scrollBehavior();
-    const lastIndex = cards.length - 1;
+      blurDeselectedCards(cards);
 
-    if (selectedIndex === 0) {
-      gridEl.scrollTo({ left: 0, behavior });
-      return;
-    }
+      const behavior = scrollBehavior();
+      snapCardIntoPaddedViewport(card, gridEl, behavior);
 
-    if (selectedIndex === lastIndex) {
-      snapCardToGridEnd(card, gridEl, behavior);
-      return;
-    }
-
-    snapCardIntoPaddedViewport(card, gridEl, behavior);
+      const keepSearchFocus = searchBar?.isFocused() ?? false;
+      if (!keepSearchFocus) {
+        card.focus({ preventScroll: true });
+      }
+    })();
   }
 
   function setSearchQuery(
@@ -640,18 +657,20 @@
     };
   }
 
+  const showContentKindRow = $derived(
+    aiTaggingEnabled && hasTextEntries(catalogEntries) && hasImageEntries(catalogEntries),
+  );
+
+  const kindPool = $derived(filterKindPool(entries, showContentKindRow, contentKind));
+
   const tagBarModel = $derived(
     buildTagBarModel({
-      entries,
+      entries: kindPool,
       layoutEntries: catalogEntries,
       contentKind,
       aiTaggingEnabled,
       activeTag,
     }),
-  );
-
-  const kindPool = $derived(
-    filterKindPool(entries, aiTaggingEnabled && tagBarModel.showRowA, contentKind),
   );
 
   const overlayLayoutHeight = $derived(
@@ -662,12 +681,34 @@
   );
 
   $effect(() => {
-    if (!tagBarModel.showRowA && contentKind !== "all") {
+    if (!showContentKindRow && contentKind !== "all") {
       contentKind = "all";
       if (activeTag && !activeTagCompatibleWithKind(activeTag, "all")) {
         activeTag = null;
       }
     }
+  });
+
+  const filteredEntries = $derived(filterByActiveTag(kindPool, activeTag));
+
+  $effect(() => {
+    const patch = reconcileOverlayFilters({
+      entries,
+      filteredEntries,
+      activeTag,
+      contentKind,
+      kindFilterActive: showContentKindRow,
+    });
+    if (!patch) return;
+    if (patch.activeTag !== activeTag) activeTag = patch.activeTag;
+    if (patch.contentKind !== contentKind) contentKind = patch.contentKind;
+  });
+
+  $effect(() => {
+    if (selectedIndex < 0) return;
+    if (selectedIndex < filteredEntries.length) return;
+    selectedIndex = filteredEntries.length > 0 ? 0 : -1;
+    if (filteredEntries.length > 0) scrollToSelected();
   });
 
   $effect(() => {
@@ -682,8 +723,6 @@
     const animate = previous !== null && !isRevealing;
     void applyOverlayHeight(height, animate);
   });
-
-  const filteredEntries = $derived(filterByActiveTag(kindPool, activeTag));
 
   function handleContentKindChange(kind: ContentKind) {
     contentKind = kind;

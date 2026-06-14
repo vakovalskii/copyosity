@@ -183,7 +183,8 @@
   --surface-warning: rgb(var(--rgb-warning) / 14%);
   --border-warning: rgb(var(--rgb-warning-bright) / 32%);
   --border-warning-hover: rgb(var(--rgb-warning-bright) / 45%);
-  --border-warning-pinned: rgb(var(--rgb-warning-bright) / 30%);
+  --border-warning-pinned: rgb(var(--rgb-warning-bright) / 50%);
+  --border-warning-pinned-hover: rgb(var(--rgb-warning-bright) / 62%);
   --shadow-warning-dot: rgb(var(--rgb-warning) / 35%);
 
   /* ── App backgrounds ───────────────────────────────── */
@@ -236,6 +237,13 @@
   --surface-control: var(--surface-6);
   --surface-control-hover: rgb(var(--rgb-white) / 7.5%);
   --surface-control-focus: rgb(var(--rgb-white) / 9%);
+  /* Overlay search: slightly denser than --surface-control for readability on vibrancy. */
+  --surface-search: rgb(var(--rgb-white) / 10%);
+  --surface-search-hover: rgb(var(--rgb-white) / 12%);
+  --surface-search-focus: rgb(var(--rgb-white) / 14%);
+  --color-search-placeholder: rgb(var(--rgb-text-placeholder) / 58%);
+  --color-search-input: var(--color-text-primary);
+  --color-search-icon: var(--color-text-muted);
   --border-control: var(--border-medium);
   --border-control-hover: rgb(var(--rgb-white) / 18%);
   --border-control-focus: rgb(var(--rgb-accent-border) / 38%);
@@ -337,6 +345,8 @@ html {
     --border-control-focus: rgb(var(--rgb-accent-border) / 50%);
     --ring-control-focus: 0 0 0 1px rgb(var(--rgb-accent-border) / 40%);
     --ring-accent-input: 0 0 0 3px rgb(var(--rgb-accent-focus) / 28%);
+    --border-warning-pinned: rgb(var(--rgb-warning-bright) / 65%);
+    --border-warning-pinned-hover: rgb(var(--rgb-warning-bright) / 75%);
   }
 }
 

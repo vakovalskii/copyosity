@@ -45,7 +45,8 @@ flowchart TB
 - [x] `[Overlay]` Search input в Tab order; focus ring через `:focus-within` на `.search-bar` (п. 4)
 - [x] `[Overlay]` убрать global `outline: none`; `focus-visible` на карточки и non-button табы (п. 1)
 - [x] `[Overlay]` Paste button на карточке — primary action вместо дублирующего Copy; `Space` на card `role="button"`; `aria-busy` при activate (п. 2, 19 partial)
-- [ ] `[Overlay]` hit targets 28px+ — search clear button (20px) и card action buttons (24px) (п. 3)
+- [x] `[Overlay]` hit target 28px+ — только search clear (28px); card actions 24px — осознанный trade-off (п. 3)
+- [x] `[Overlay]` Search field — чуть менее прозрачный фон и placeholder для читаемости на vibrancy (п. 3)
 - [x] `[Shared]` Контраст `--color-text-subtle` / `--color-text-faint`; `prefers-contrast: more` (п. 5)
 - [x] `[Shared]` `form-input` / `form-select`: pointer vs keyboard focus rings через `input-modality` (п. 24)
 - [x] `[Settings]` Custom model input без связанного `<label>` при preset `__custom__` (п. 26)
@@ -66,6 +67,7 @@ flowchart TB
 - [x] `[Overlay]` Empty state fix (фильтр по тегу / search) (п. 18)
 - [x] `[Overlay]` Убрать `title` tooltip с карточки (п. 14)
 - [x] `[Overlay]` Delete без confirm — продуктовое решение (п. 12)
+- [x] `[Overlay]` Фиксированный размер карточек в layout — продуктовое решение (п. 38)
 - [x] `[Settings]` Clear history menu + confirm (п. 23)
 - [x] `[Shared]` `prefers-reduced-motion` — полное покрытие (п. 21)
 - [x] `[Shared]` `prefers-reduced-transparency` — blur fallback (п. 6, 22)
@@ -76,7 +78,7 @@ flowchart TB
 
 - [ ] `[Shared]` SF Symbols вместо custom stroke SVG (п. 15)
 - [ ] `[Shared]` Native vibrancy / light mode (`prefers-color-scheme: light`) (п. 7)
-- [ ] `[Overlay]` VoiceOver listbox (п. 35)
+- [x] `[Overlay]` VoiceOver listbox — продуктовое решение, не делаем (п. 35)
 - [x] `[Overlay]` Scroll affordances на tag bar (п. 10)
 
 ---
@@ -107,13 +109,22 @@ flowchart TB
 
 ### ✅ 2. Действия карточки при keyboard selection `[Overlay]`
 
-`.card-actions` показываются при `.selected`, `:focus-within` и hover; action buttons используют `aria-label`.
+`.card-actions` показываются при hover и при keyboard focus (`:focus-within` + `data-input-modality="keyboard"`); на pinned — звезда всегда видна. `selected` alone не раскрывает toolbar (mouse pin не залипает).
 
 **Сделано в 0.4.0:** redundant Copy заменён на primary **Paste** (`activateEntry`, accent styling, `aria-busy` при activate); клик по карточке по-прежнему копирует; paste также через double-click, Enter, Space на card `role="button"`, и Paste toolbar button.
 
-### 3. Hit targets ниже minimum `[Overlay]`
+### ✅ 3. Hit targets и читаемость search `[Overlay]`
 
-Search clear 20×20 px; card action buttons 24×24 px. HIG: 28×28 pt minimum.
+**HIG:** 28×28 pt minimum для интерактивных контролов; поля ввода должны оставаться читаемыми на vibrancy-фоне.
+
+**Продуктовое решение (hit targets):** довести hit target до 28px **только** у clear в `SearchBar`. Card action buttons (24×24) и прочие плотные toolbar-контролы **не** раздуваем — узкая карточка (~220px) и плотный header не позволяют без потери layout; альтернативные пути (keyboard, клик/double-click по карточке) уже есть.
+
+| Элемент                                  | Было     | Решение                                |
+| ---------------------------------------- | -------- | -------------------------------------- |
+| Search clear                             | 20×20 px | → 28×28 px (единственное место по HIG) |
+| Card actions (paste, retag, pin, delete) | 24×24 px | Оставить; exception задокументирован   |
+
+**Search readability:** `--surface-control` (6% white) на прозрачной панели давал «текст на текст» — placeholder и ввод плохо читались. Overlay search использует чуть более плотный `--surface-search` и усиленный placeholder; визуально по-прежнему glass, но контраст достаточный.
 
 ### ✅ 4. Поиск с клавиатуры `[Overlay]`
 
@@ -295,23 +306,33 @@ Reduce Motion: mic без pulse; bars — uniform height по level, без wobb
 
 Шкала `--font-size-*` в `rem` (от `html { font-size: 100% }`), spacing `--space-*` в `rem`, `@supports (font: -apple-system-body)` на `body` для системного шрифта. Типографика в overlay, settings и `form-controls.css` переведена на токены; размер карточки — `--card-width` / `--card-height` в rem. Радиусы и мелкие icon-hit chrome остаются в px.
 
-**Ограничение:** rem-токены не следуют macOS Dynamic Type Text size slider — для полного следования нужен `em` от `body` или environment-based scale. Адаптация ширины карточки к panel width — отдельно, п. 38.
+**Ограничение:** rem-токены не следуют macOS Dynamic Type Text size slider — для полного следования нужен `em` от `body` или environment-based scale. Фиксированные `--card-width` / `--card-height` в layout — продуктовое решение (п. 38).
 
-### 35. VoiceOver listbox / `aria-label` на карточках `[Overlay]`
+### ❌ 35. VoiceOver listbox / `aria-label` на карточках `[Overlay]` — продуктовое решение
 
-Карточки в horizontal list без listbox-семантики; нет `aria-label` на уровне entry для SR.
+Карточки в horizontal list без listbox-семантики; нет `aria-label` на уровне entry для SR. Затрагивает **только VoiceOver / screen reader** — на визуальный UI, мышь и текущую keyboard navigation (`←/→`, Enter, Space, Paste) не влияет. На данном этапе продуктово такие правки вносить не планируем: overlay уже закрывает P1 a11y (focus, actions, search); listbox — углубление под SR без изменения поведения для остальных пользователей.
 
-### 36. Pin indicator — только border-color `[Overlay]`
+**Отложенный объём работ (для ясности, от чего отказываемся):**
 
-Pinned state выражен только цветом border; нет иконки или второго сигнала.
+| Область                | Что предполагалось                                                                                                   |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `+page.svelte`         | `.grid-container` → `role="listbox"`, `aria-label`, `aria-orientation="horizontal"`, `aria-multiselectable="false"`  |
+| `ClipboardCard.svelte` | `role="option"` вместо `role="button"`; `aria-selected`; `aria-posinset` / `aria-setsize`; стабильный `id` на option |
+| Новый хелпер           | `buildEntryAriaLabel(entry)` — тип, укороченный preview, время, source app, pinned, теги                             |
+| Мелочи                 | `alt=""` на thumb внутри карточки с `aria-label`; `.focus()` на выбранной карточке при `←/→` для следования VO       |
+| Ограничение            | Вложенные action-кнопки (Paste / Pin / Delete) конфликтуют со строгим listbox — потребовал бы отдельного компромисса |
+
+### ✅ 36. Pin indicator — только border-color `[Overlay]`
+
+**Было:** pinned state только через полупрозрачный border. **Сделано:** warning border 50%; звезда всегда на кнопке Pin; selection (fill) отделён от keyboard focus ring (`data-input-modality`); после pointer-action — blur с карточки.
 
 ### 37. Horizontal scroll-snap `[Overlay]`
 
 Scroll container карточек без `scroll-snap` для keyboard / trackpad navigation.
 
-### 38. Card width fixed in layout `[Overlay]`
+### ❌ 38. Card width fixed in layout `[Overlay]` — продуктовое решение
 
-`--card-width` / `--card-height` в rem (≈220×288 при 16px root), но фиксированная ширина в layout — нет адаптации к ширине панели или числу карточек на экране. Не путать с п. 34 (типографика и rem-масштаб от root).
+`--card-width` / `--card-height` в rem (≈220×288 при 16px root) — намеренно фиксированный размер карточки, не баг layout. Весь overlay (превью, типографика, actions, scroll, keyboard navigation) заточен под эту ширину и высоту; горизонтальный скролл — ожидаемый UX при большом числе записей. Адаптация карточек к ширине панели или числу items на экране не планируется. Не путать с п. 34 (типографика и rem-масштаб от root).
 
 ### 39. Collections color dot 8px `[Overlay]`
 
@@ -342,7 +363,7 @@ flowchart LR
 | **P1**    | focus visible, card actions, contrast, form focus-visible, voice a11y baseline; hit targets; voice SR full cycle                    | overlay components, `form-controls.css`, `overlay/+page.svelte`                                                               |
 | **P2**    | keyboard hints, segmented tabs; font by type (п. 11); filter vs metadata badges (п. 20); toggle in form-controls (п. 27)            | `TagFilterBar.svelte`, `ClipboardCard.svelte`, `tokens.css`, overlay components, `settings/+page.svelte`, `form-controls.css` |
 | **P3**    | settings clear confirm; empty state, card tooltip, image meta; reduce motion, reduce transparency; title + aria-label dedup (п. 25) | multiple                                                                                                                      |
-| **P4**    | SF Symbols, light mode, VoiceOver listbox; scroll affordances на tag bar (п. 10)                                                    | multiple                                                                                                                      |
+| **P4**    | SF Symbols, light mode; scroll affordances на tag bar (п. 10) — done; VoiceOver listbox (п. 35) — не делаем                         | multiple                                                                                                                      |
 
 ---
 

@@ -14,21 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unified clipboard writes** (`clipboard_write.rs`) — copy, activate, paste, and voice flows share one path with explicit **Copy** and **Paste** modes.
 - **Image capture** — PNG, JPG/JPEG, and animated GIF from the pasteboard or Finder (up to ~20 MB); paste back animated GIFs; format badges and filter chips (`png`, `gif`, `jpg`); dimensions and file size on cards (`image_format`, `image_width`, `image_height`, `image_byte_size`).
 - **Overlay filters** — two-row layout when AI tagging is on (Content Kind segment + tag chip bar); format-only row when tagging is off; dynamic panel height (420 / 440 / 480 px); settings sync on reveal; header close button and outside-click dismiss.
-- **Overlay search** — `⌘F` and `/` focus search; two-step Escape (clear query, then dismiss); Unicode case-insensitive search (Cyrillic and Latin).
+- **Overlay search** — `⌘F` and `/` focus search; two-step Escape (clear query, then dismiss); Unicode case-insensitive search (Cyrillic and Latin); denser `--surface-search` field for vibrancy readability; clear button 28×28 pt hit target (HIG) with a 20×20 pt visual circle, without growing the search row.
 - **Settings — AI tagging toggle** — off by default; `is_tagging_ready` IPC; merged Setup + Ollama model section; model presets with memory fit and install status; tag backfill when enabled.
 - **Settings — voice transcription toggle** — off by default; Whisper fields in a disabled fieldset when off.
 - **Settings — Privacy excluded apps** — list with native picker, add by name, contextual candidate row (**Active app** / **Recent app**), overlay **Exclude [App]** action; bundle IDs as stable keys with legacy display-name migration.
 - **Settings — clear history** — `get_history_counts` and `clear_all_history` IPC; menu for unpinned or all with confirm dialog; live count sync.
 - **Per-window Tauri capabilities** — separate permission sets for `main`, `settings`, and `voice_overlay`.
 - **Design system** — `tokens.css` (spacing, surfaces, typography, motion, selection); shared `form-controls.css`, `button-interaction.css`, and `.inset-list` grouped rows; section icons; input modality tracking for pointer vs keyboard focus rings.
-- **Accessibility** — `:focus-visible` rings, reduced-motion and reduced-transparency support, voice HUD live region baseline, primary **Paste** on cards with keyboard selection and roving `tabindex`.
+- **Accessibility** — `:focus-visible` rings, reduced-motion and reduced-transparency support, voice HUD live region baseline, primary **Paste** on cards with keyboard selection and roving `tabindex`; card selection chrome separated from keyboard focus ring via `data-input-modality`.
 - **Release and dev toolchain** — Oxlint, Oxfmt, Husky + lint-staged, `make fix` / `make lint` / `make check`; Vite 8 (Rolldown); optional `sccache` for Rust dev builds.
 
 ### Changed
 
 - **Paste pipeline** — Enter and double-click paste the keyboard-selected entry; panel closes before native paste so focus returns to the target app; Messages and similar apps use session-tap Cmd+V; voice transcription uses the same automated paste path.
-- **Overlay** — Raycast-style open/close motion; `←/→` browse cards (arrows in search change selection, not cursor); empty states per filter type; SF Pro / SF Mono preview typography; filter chips visually distinct from card metadata tags.
-- **Clipboard cards** — fixed-height preview and footer layout; Paste / Retag / Pin / Delete on keyboard selection; uniform action icons; success feedback only after a confirmed copy.
+- **Overlay** — Raycast-style open/close motion; `←/→` browse cards (arrows in search change selection, not cursor); empty states per filter type; SF Pro / SF Mono preview typography; filter chips visually distinct from card metadata tags; stale tag or Content Kind filters auto-clear when the grid is empty but history still has entries (`reconcileOverlayFilters`).
+- **Clipboard cards** — fixed-height preview and footer layout; Paste / Retag / Pin / Delete on hover or keyboard focus (not bare selection); pin star always visible with stronger warning card border and resting warning chrome on the star; distinct warning hover for pinned vs unpinned star; Delete hover/active danger chrome; uniform action icons; success feedback only after a confirmed copy; pointer toolbar actions blur the card so focus does not stick.
 - **Clipboard monitor** — captures only on real pasteboard changes; ignores Copyosity's own writes and when Copyosity is frontmost; snapshots hash on history clear so stale clipboard is not re-inserted.
 - **Settings** — native title bar; compact macOS-style forms on an 8 pt grid with subsections; Save-only footer; accessibility check with one prompt per visit and **Recheck**; Ollama actions on background threads with visible busy states; app display names from installed bundle metadata (for example **Visual Studio Code** instead of plist **Code**).
 - **Voice overlay** — non-activating panel (no focus steal); logarithmic mic meter; compact 96×44 HUD layout.
@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - History clear and last-card delete no longer loop stale clipboard content back into history.
 - Image backfill for legacy rows (full-size data, format, dimensions, `jpg` normalization).
 - Settings partial updates no longer wipe Whisper or voice settings; accessibility hint persists until granted; Ollama unload and tagging test reliability; Save button layout jump.
-- Overlay dismissal on Space switch; invisible cards on panel open; selection/focus desync during search; card scroll clipping at grid edges.
+- Overlay dismissal on Space switch; invisible cards on panel open; selection/focus desync during search; card scroll clipping at grid edges; mouse pin no longer leaves the action toolbar stuck open after selection; pinned star hover no longer matches the inactive star hover style.
 - Excluded-app add-by-name errors and bundle-ID resolution; clear-history menu, counts, notices, and confirm-dialog keyboard leak.
 - Settings Storage/Privacy spacing and clear-notice phantom gap.
 

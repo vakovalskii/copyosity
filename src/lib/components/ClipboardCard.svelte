@@ -145,6 +145,18 @@
     }
   }
 
+  /** Pointer-only: drop focus so selection ring does not stick after mouse action. */
+  function releaseMouseActionFocus() {
+    if (document.documentElement.dataset.inputModality === "keyboard") return;
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && cardEl?.contains(active)) {
+        active.blur();
+      }
+      cardEl?.blur();
+    });
+  }
+
   function showCopiedFeedback() {
     if (!mounted) return;
     copied = true;
@@ -209,7 +221,11 @@
   async function handlePaste(e: MouseEvent) {
     e.stopPropagation();
     onselect?.();
-    await activateIntoTargetApp();
+    try {
+      await activateIntoTargetApp();
+    } finally {
+      releaseMouseActionFocus();
+    }
   }
 
   function handleCardKeydown(e: KeyboardEvent) {
@@ -221,22 +237,34 @@
   async function handleDelete(e: MouseEvent) {
     e.stopPropagation();
     onselect?.();
-    await deleteEntry(entry.id);
-    ondeleted?.();
+    try {
+      await deleteEntry(entry.id);
+      ondeleted?.();
+    } finally {
+      releaseMouseActionFocus();
+    }
   }
 
   async function handlePin(e: MouseEvent) {
     e.stopPropagation();
     onselect?.();
-    await pinEntry(entry.id, !entry.is_pinned);
-    onpinned?.();
+    try {
+      await pinEntry(entry.id, !entry.is_pinned);
+      onpinned?.();
+    } finally {
+      releaseMouseActionFocus();
+    }
   }
 
   async function handleRetag(e: MouseEvent) {
     e.stopPropagation();
     onselect?.();
-    await retagEntry(entry.id);
-    onretagged?.();
+    try {
+      await retagEntry(entry.id);
+      onretagged?.();
+    } finally {
+      releaseMouseActionFocus();
+    }
   }
 
   const MONO_TEXT_KINDS = new Set([
@@ -265,10 +293,13 @@
   );
   const charLabel = $derived(entry.char_count ? `${entry.char_count.toLocaleString()} characters` : "");
   const tags = $derived(cardDisplayTags(entry, aiTaggingEnabled));
+
+  let cardEl = $state<HTMLDivElement | null>(null);
 </script>
 
 <div
   class="card"
+  bind:this={cardEl}
   class:selected
   class:pinned={entry.is_pinned}
   class:copied
@@ -420,10 +451,19 @@
     box-shadow: 0 0 0 2px transparent;
   }
 
-  .card:hover:not(.selected) {
+  .card:hover:not(.selected, .copied) {
+    transform: translateY(-2px);
     border-color: var(--border-accent-selected);
     background: var(--surface-card-hover);
+    box-shadow:
+      0 0 0 2px transparent,
+      var(--shadow-card);
+  }
+
+  .card.pinned:hover:not(.selected, .copied) {
     transform: translateY(-2px);
+    border-color: var(--border-warning-pinned-hover);
+    background: var(--surface-card-hover);
     box-shadow:
       0 0 0 2px transparent,
       var(--shadow-card);
@@ -437,19 +477,10 @@
         box-shadow var(--duration-standard) var(--ease-interactive);
     }
 
-    .card:hover:not(.selected) {
-      transform: none;
-    }
-
+    .card:hover:not(.copied),
     .card.selected:hover:not(.copied) {
       transform: none;
     }
-  }
-
-  .card:focus-visible:not(.selected) {
-    outline: none;
-    border-color: var(--border-accent-ring);
-    box-shadow: 0 0 0 2px var(--shadow-accent-selected);
   }
 
   .card.selected {
@@ -468,20 +499,74 @@
   }
 
   .card.selected:hover:not(.copied) {
-    background: var(--surface-card);
-    border-color: var(--border-accent-ring);
+    transform: translateY(-2px);
+    background: var(--surface-card-hover);
+    border-color: var(--border-accent-selected);
     box-shadow: var(--shadow-card-selected);
-    transform: translateY(-1px);
+  }
+
+  .card.selected:hover:not(.copied)::before {
+    display: none;
   }
 
   .card.selected:focus-visible {
     outline: none;
+  }
+
+  :global([data-input-modality="keyboard"]) .card.selected:focus {
+    border-color: var(--border-accent-ring);
+    box-shadow: var(--shadow-card-selected);
+  }
+
+  :global([data-input-modality="keyboard"]) .card.selected:hover:not(.copied),
+  :global([data-input-modality="keyboard"]) .card.selected:focus:hover:not(.copied) {
+    transform: translateY(-2px);
+    background: var(--surface-card-hover);
     border-color: var(--border-accent-ring);
     box-shadow: var(--shadow-card-selected);
   }
 
   .card.pinned {
     border-color: var(--border-warning-pinned);
+  }
+
+  .card.selected.pinned {
+    border-color: var(--border-warning-pinned);
+    box-shadow: 0 0 0 2px transparent;
+  }
+
+  .card.selected.pinned::before {
+    display: none;
+  }
+
+  .card.selected.pinned:hover:not(.copied) {
+    transform: translateY(-2px);
+    border-color: var(--border-warning-pinned-hover);
+    background: var(--surface-card-hover);
+    box-shadow: 0 0 0 2px transparent;
+  }
+
+  /* Keyboard/tab/arrow selection overrides pinned border so focus ring stays visible. */
+  :global([data-input-modality="keyboard"]) .card.selected.pinned {
+    border-color: var(--border-accent-ring);
+    box-shadow: var(--shadow-card-selected);
+  }
+
+  :global([data-input-modality="keyboard"]) .card.selected.pinned::before {
+    display: block;
+  }
+
+  :global([data-input-modality="keyboard"]) .card.selected.pinned:hover:not(.copied),
+  :global([data-input-modality="keyboard"]) .card.selected.pinned:focus:hover:not(.copied) {
+    transform: translateY(-2px);
+    background: var(--surface-card-hover);
+    border-color: var(--border-accent-selected);
+    box-shadow: var(--shadow-card-selected);
+  }
+
+  :global([data-input-modality="keyboard"]) .card.selected.pinned:focus {
+    border-color: var(--border-accent-ring);
+    box-shadow: var(--shadow-card-selected);
   }
 
   .card-header {
@@ -528,14 +613,23 @@
   .card-actions {
     display: flex;
     gap: 2px;
+  }
+
+  .card-actions .action-btn {
     opacity: 0;
+    pointer-events: none;
     transition: opacity var(--duration-fast) var(--ease-interactive);
   }
 
-  .card:hover .card-actions,
-  .card.selected .card-actions,
-  .card:focus-within .card-actions {
+  .card:hover .card-actions .action-btn,
+  :global([data-input-modality="keyboard"]) .card.selected:focus-within .card-actions .action-btn {
     opacity: 1;
+    pointer-events: auto;
+  }
+
+  .card.pinned .card-actions .action-btn.pinned {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .action-btn {
@@ -582,10 +676,25 @@
 
   .action-btn.pinned {
     color: var(--color-warning-bright);
+    background: var(--surface-warning-subtle);
+    box-shadow: inset 0 0 0 1px var(--border-warning);
+    transition:
+      background var(--duration-fast) var(--ease-interactive),
+      box-shadow var(--duration-fast) var(--ease-interactive),
+      color var(--duration-fast) var(--ease-interactive);
   }
 
-  .action-btn.delete:hover:not(:disabled, [aria-busy="true"]) {
+  .action-btn.pinned:hover:not(:disabled, [aria-busy="true"]) {
+    color: var(--color-warning-bright);
+    background: var(--surface-warning);
+    box-shadow: inset 0 0 0 1px var(--border-warning-hover);
+  }
+
+  .action-btn.delete:hover:not(:disabled, [aria-busy="true"]),
+  .action-btn.delete:active:not(:disabled, [aria-busy="true"]) {
     color: var(--color-danger);
+    background: var(--surface-danger);
+    box-shadow: inset 0 0 0 1px var(--border-danger-hover);
   }
 
   .card-body {

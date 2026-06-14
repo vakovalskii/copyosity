@@ -94,10 +94,19 @@
     border-radius: var(--radius-control);
     width: 280px;
     flex: 0 0 280px;
+    background-color: var(--surface-search);
+  }
+
+  .search-bar:hover:not(:focus-within) {
+    background-color: var(--surface-search-hover);
+  }
+
+  .search-bar:focus-within {
+    background-color: var(--surface-search-focus);
   }
 
   .search-icon {
-    color: var(--color-text-subtle);
+    color: var(--color-search-icon);
     flex-shrink: 0;
   }
 
@@ -105,7 +114,7 @@
     background: none;
     border: none;
     outline: none;
-    color: var(--color-text-body);
+    color: var(--color-search-input);
     font-size: var(--font-size-md);
     width: 100%;
     min-width: 0;
@@ -114,7 +123,7 @@
   }
 
   input::placeholder {
-    color: var(--color-text-placeholder);
+    color: var(--color-search-placeholder);
   }
 
   input::-webkit-search-cancel-button {
@@ -122,26 +131,47 @@
   }
 
   .clear-btn {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
+    /* 28px hit target (HIG); layout footprint ~20px via negative margin */
+    width: 28px;
+    height: 28px;
+    margin: -4px;
     padding: 0;
     border: none;
     border-radius: 50%;
-    background: var(--surface-10);
+    background: transparent;
     color: var(--color-text-tertiary);
     cursor: pointer;
     flex-shrink: 0;
-    transition:
-      background var(--duration-fast) var(--ease-interactive),
-      color var(--duration-fast) var(--ease-interactive);
+    transition: color var(--duration-fast) var(--ease-interactive);
+  }
+
+  /* 20px visual circle — separate from the 28px click target */
+  .clear-btn::before {
+    content: "";
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--surface-10);
+    pointer-events: none;
+    transition: background var(--duration-fast) var(--ease-interactive);
   }
 
   .clear-btn:hover {
-    background: var(--surface-12);
     color: var(--color-text-secondary);
+  }
+
+  .clear-btn:hover::before {
+    background: var(--surface-12);
+  }
+
+  .clear-btn svg {
+    position: relative;
+    z-index: 1;
   }
 
   .clear-btn:focus-visible {

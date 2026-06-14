@@ -248,3 +248,25 @@ export function contentKindEmptyLabel(kind: ContentKind): string | null {
   if (kind === "text") return "No text entries in history";
   return null;
 }
+
+/** Drop stale overlay filters when the grid is empty but history still has entries. */
+export function reconcileOverlayFilters(options: {
+  entries: ClipboardEntry[];
+  filteredEntries: ClipboardEntry[];
+  activeTag: string | null;
+  contentKind: ContentKind;
+  kindFilterActive: boolean;
+}): { activeTag: string | null; contentKind: ContentKind } | null {
+  const { entries, filteredEntries, activeTag, contentKind, kindFilterActive } = options;
+  if (entries.length === 0 || filteredEntries.length > 0) return null;
+
+  if (activeTag) {
+    return { activeTag: null, contentKind };
+  }
+
+  if (kindFilterActive && contentKind !== "all") {
+    return { activeTag: null, contentKind: "all" };
+  }
+
+  return null;
+}
