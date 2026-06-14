@@ -36,20 +36,8 @@ Command contract: `make fix` auto-fixes, `make lint` checks lint/format only, an
 
 ## Load by task
 
-| Topic                                             | File                                                                                   |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| macOS paste automation (AXPaste, Cmd+V, Messages) | [docs/architecture/macos-paste-pipeline.md](docs/architecture/macos-paste-pipeline.md) |
-
-Security hardening (audit 2026-03-17; completed through 0.4.0):
-
-- [x] Explicit Tauri capabilities for the `settings` window (`src-tauri/capabilities/settings.json`; 0.3.0)
-- [x] Validate Ollama model names before `ollama pull` (`ollama::validate_model_name`; 0.3.0)
-- [x] `cargo audit` step in GitHub Actions release workflow (0.4.0)
-- [x] Per-window IPC command scoping for sensitive commands (`paste_entry`, `clear_history`, `start_ollama_server`; 0.4.0)
-
-## TODO — Next Iteration
-
-Features:
-
-- [ ] Infinite scroll — lazy loading entries on horizontal scroll (backend already supports limit+offset)
-- [ ] Production build transparency fix — test on macOS 15+ (known Tauri issue #13415)
+| Topic                                             | File                                                                                                 |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| macOS paste automation (AXPaste, Cmd+V, Messages) | [docs/architecture/macos-paste-pipeline.md](docs/architecture/macos-paste-pipeline.md)               |
+| Next iteration backlog (0.4.0)                    | [docs/plans/03-new-features-and-improvements.md](docs/plans/03-new-features-and-improvements.md)     |
+| Overlay content & tag filters                     | [docs/plans/05-overlay-content-and-tag-filters.md](docs/plans/05-overlay-content-and-tag-filters.md) |

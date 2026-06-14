@@ -1,55 +1,55 @@
-# Voice HUD — полный цикл accessibility
+# Voice HUD — full accessibility lifecycle
 
-Полный screen-reader lifecycle для Voice HUD: start → processing → terminal (success / empty / error / not configured). Baseline HUD (статичный live region) — в [02-hig-audit.md](02-hig-audit.md) п. 32; **этот план — источник истины** для полного цикла.
+Full screen-reader lifecycle for Voice HUD: start → processing → terminal (success / empty / error / not configured). Baseline HUD (static live region) — in [02-hig-audit.md](02-hig-audit.md) item 32; **this plan is the source of truth** for the full cycle. Backlog 0.4.0 — [03-new-features-and-improvements.md](03-new-features-and-improvements.md).
 
-**Принято:** HUD **остаётся видимым** во время транскрипции (не скрывать сразу при отпускании shortcut).
+**Decided:** HUD **stays visible** during transcription (do not hide immediately on shortcut release).
 
-| Поверхность          | Файлы                                                                                                                                  |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Voice HUD            | `[overlay/+page.svelte](../../src/routes/overlay/+page.svelte)`                                                                        |
-| Глобальный announcer | `[VoiceA11yAnnouncer.svelte](../../src/lib/components/VoiceA11yAnnouncer.svelte)`, `[+layout.svelte](../../src/routes/+layout.svelte)` |
-| Shared types         | `[voice-a11y.ts](../../src/lib/voice-a11y.ts)`                                                                                         |
-| Backend lifecycle    | `[lib.rs](../../src-tauri/src/lib.rs)`                                                                                                 |
-
----
-
-## Проблема
-
-Сейчас `[overlay/+page.svelte](../../src/routes/overlay/+page.svelte)` объявляет статичное «Recording voice», но:
-
-- на macOS панель `voice_overlay` **не уничтожается** при `hide()` — повторная запись не переозвучивается;
-- при `Released` HUD **скрывается сразу** (`[hide_voice_overlay](../../src-tauri/src/lib.rs)`) — screen reader не слышит processing / result;
-- `audio-level` (каждые ~60 ms) **нельзя** класть в live region (спам, против HIG).
-
-## Цель
-
-Полный цикл для screen readers без спама уровнем звука:
-
-1. **Recording** — «Recording voice», `aria-busy`
-2. **Processing** — «Processing speech», HUD видим
-3. **Terminal** — success / empty / error / not configured → озвучка → задержка → hide
-
-### Ограничение (не в scope)
-
-Web live regions работают в webview Copyosity. Когда все окна скрыты и фокус в другом приложении, VoiceOver может не получить финальное объявление. Follow-up: нативные AX announcements (`NSAccessibilityPostNotification`) — отдельная итерация.
+| Surface           | Files                                                                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Voice HUD         | `[overlay/+page.svelte](../../src/routes/overlay/+page.svelte)`                                                                        |
+| Global announcer  | `[VoiceA11yAnnouncer.svelte](../../src/lib/components/VoiceA11yAnnouncer.svelte)`, `[+layout.svelte](../../src/routes/+layout.svelte)` |
+| Shared types      | `[voice-a11y.ts](../../src/lib/voice-a11y.ts)`                                                                                         |
+| Backend lifecycle | `[lib.rs](../../src-tauri/src/lib.rs)`                                                                                                 |
 
 ---
 
-## Чеклист
+## Problem
 
-- [ ] `**voice-a11y.ts`\*\* — типы, константы сообщений, `subscribeVoiceA11y`, helpers дедупа
-- [ ] **Rust `lib.rs`** — `voice-a11y` events, seq, HUD visible до конца транскрипции, delayed hide
+Currently `[overlay/+page.svelte](../../src/routes/overlay/+page.svelte)` announces static "Recording voice", but:
+
+- on macOS the `voice_overlay` panel is **not destroyed** on `hide()` — repeated recordings are not re-announced;
+- on `Released` the HUD **hides immediately** (`[hide_voice_overlay](../../src-tauri/src/lib.rs)`) — screen reader does not hear processing / result;
+- `audio-level` (every ~60 ms) **must not** go into the live region (spam, against HIG).
+
+## Goal
+
+Full cycle for screen readers without audio-level spam:
+
+1. **Recording** — "Recording voice", `aria-busy`
+2. **Processing** — "Processing speech", HUD visible
+3. **Terminal** — success / empty / error / not configured → announce → delay → hide
+
+### Limitation (out of scope)
+
+Web live regions work in the Copyosity webview. When all windows are hidden and focus is in another app, VoiceOver may not receive the final announcement. Follow-up: native AX announcements (`NSAccessibilityPostNotification`) — separate iteration.
+
+---
+
+## Checklist
+
+- [ ] `**voice-a11y.ts`\*\* — types, message constants, `subscribeVoiceA11y`, dedup helpers
+- [ ] **Rust `lib.rs`** — `voice-a11y` events, seq, HUD visible until transcription ends, delayed hide
 - [ ] `**overlay/+page.svelte**` — phase state machine, `aria-busy`, processing visuals
-- [ ] `**VoiceA11yAnnouncer.svelte**` — глобальный sr-only announcer
+- [ ] `**VoiceA11yAnnouncer.svelte**` — global sr-only announcer
 - [ ] `**+layout.svelte**` — mount announcer (main + settings + overlay routes)
-- [ ] **Permissions** — описание в `voice-overlay-commands.toml`
-- [x] **HIG audit** — п. 32 baseline в [02-hig-audit.md](02-hig-audit.md); полный цикл — этот план
+- [ ] **Permissions** — description in `voice-overlay-commands.toml`
+- [x] **HIG audit** — item 32 baseline in [02-hig-audit.md](02-hig-audit.md); full cycle — this plan
 - [ ] **CHANGELOG** — Unreleased: voice a11y lifecycle
-- [ ] **Верификация** — `npm run check`, `cargo check`, ручный VoiceOver pass
+- [ ] **Verification** — `npm run check`, `cargo check`, manual VoiceOver pass
 
 ---
 
-## Архитектура
+## Architecture
 
 ```mermaid
 sequenceDiagram
@@ -84,7 +84,7 @@ sequenceDiagram
 
 ---
 
-## Единый payload (Rust + TypeScript)
+## Unified payload (Rust + TypeScript)
 
 ```ts
 type VoiceA11yPhase =
@@ -98,12 +98,12 @@ type VoiceA11yPhase =
 
 type VoiceA11yEvent = {
   phase: VoiceA11yPhase;
-  message: string; // user-facing English (как весь UI)
-  seq: number; // монотонный id — дедуп между webviews
+  message: string; // user-facing English (like the rest of the UI)
+  seq: number; // monotonic id — dedup across webviews
 };
 ```
 
-### Сообщения
+### Messages
 
 | phase          | message                       |
 | -------------- | ----------------------------- |
@@ -113,17 +113,17 @@ type VoiceA11yEvent = {
 | empty          | No speech detected            |
 | error          | Voice transcription failed    |
 | not_configured | Whisper server not configured |
-| idle           | (пустая строка — сброс)       |
+| idle           | (empty string — reset)        |
 
-Дополнительно при ошибке старта микрофона: `Could not start microphone`.
+Additionally on microphone start error: `Could not start microphone`.
 
-Для `error` после транскрипции — в UI только generic message; детали только в `eprintln!` (без URL/token в live region).
+For `error` after transcription — generic message only in UI; details only in `eprintln!` (no URL/token in live region).
 
 ---
 
 ## Backend — `[src-tauri/src/lib.rs](../../src-tauri/src/lib.rs)`
 
-### Новые хелперы
+### New helpers
 
 - `static VOICE_A11Y_SEQ: AtomicU64`
 - `enum VoiceA11yTarget { Overlay, All }`
@@ -133,42 +133,42 @@ type VoiceA11yEvent = {
 
 ### `handle_voice_event` — Pressed
 
-После успешного `RecordingSession::start`:
+After successful `RecordingSession::start`:
 
 1. `show_voice_overlay(app)`
 2. `emit_voice_a11y(app, Overlay, "recording", "Recording voice")`
-3. audio-level thread — без изменений
+3. audio-level thread — unchanged
 
-При ошибке старта микрофона:
+On microphone start error:
 
 - `emit_voice_a11y(app, All, "error", "Could not start microphone")`
-- HUD не показывать
+- do not show HUD
 
 ### `handle_voice_event` — Released
 
-1. `session = recording_mutex().take()`; если `None` — return
-2. `**hide_voice_overlay` не вызывать\*\*
+1. `session = recording_mutex().take()`; if `None` — return
+2. `**hide_voice_overlay` must not be called\*\*
 3. `emit_voice_a11y(app, Overlay, "processing", "Processing speech")`
-4. `spawn` transcription thread (существующая логика), внутри:
+4. `spawn` transcription thread (existing logic), inside:
 
 - `whisper_server_url.is_empty()` → `not_configured` → emit Overlay + All → `sleep(400ms)` → `hide_voice_overlay` → `idle`
 - `transcribe_audio` Ok + non-empty → paste → `success` → emit Overlay + All → `sleep(400ms)` → hide → `idle`
 - Ok empty → `empty` → emit → delay → hide → `idle`
 - Err → `error` → emit → delay → hide → `idle`
 
-**Задержка ~400 ms** после terminal phase — SR успевает озвучить; HUD показывает terminal state через overlay.
+**~400 ms delay** after terminal phase — SR has time to announce; HUD shows terminal state via overlay.
 
 ### Non-macOS
 
-`hide_voice_overlay` закрывает окно — при следующем `show` webview remount → re-announce. Lifecycle тот же.
+`hide_voice_overlay` closes the window — on next `show` webview remounts → re-announce. Same lifecycle.
 
 ---
 
 ## Frontend — shared `[src/lib/voice-a11y.ts](../../src/lib/voice-a11y.ts)`
 
-- Экспорт `VoiceA11yPhase`, `VoiceA11yEvent`
-- `VOICE_A11Y_MESSAGES` — константы
-- `shouldAnnounceGlobally(phase)` — terminal phases + error на старте
+- Export `VoiceA11yPhase`, `VoiceA11yEvent`
+- `VOICE_A11Y_MESSAGES` — constants
+- `shouldAnnounceGlobally(phase)` — terminal phases + error on start
 - `shouldAnnounceInOverlay(phase)` — recording, processing, terminal
 - `subscribeVoiceA11y(handler)` — `listen("voice-a11y", ...)`
 
@@ -189,69 +189,69 @@ State: `phase`, `statusMessage`, `busy`.
 </div>
 ```
 
-- `onMount`: слушать `voice-a11y`, обновлять state (`shouldAnnounceInOverlay`)
-- При `processing` / terminal: mic без pulse, bars static (reuse reduced-motion path)
-- `audio-level` listener — **не** трогать live region
+- `onMount`: listen to `voice-a11y`, update state (`shouldAnnounceInOverlay`)
+- On `processing` / terminal: mic without pulse, bars static (reuse reduced-motion path)
+- `audio-level` listener — **do not** touch live region
 
 ---
 
-## Frontend — глобальный announcer
+## Frontend — global announcer
 
 ### `[VoiceA11yAnnouncer.svelte](../../src/lib/components/VoiceA11yAnnouncer.svelte)`
 
 - sr-only `role="status" aria-live="polite" aria-atomic="true"`
-- Слушает `voice-a11y` если `shouldAnnounceGlobally(phase)` **и** `document.visibilityState === "visible"`
-- Дедуп по `seq` (пропуск повторов между webviews)
-- Terminal message → показать → через ~3 s сброс в `""`
+- Listens to `voice-a11y` if `shouldAnnounceGlobally(phase)` **and** `document.visibilityState === "visible"`
+- Dedup by `seq` (skip repeats across webviews)
+- Terminal message → show → reset to `""` after ~3 s
 
 ### `[+layout.svelte](../../src/routes/+layout.svelte)`
 
-- `<VoiceA11yAnnouncer />` рядом с `{@render children()}`
+- `<VoiceA11yAnnouncer />` next to `{@render children()}`
 
 ---
 
 ## Capabilities
 
-- `[voice-overlay-commands.toml](../../src-tauri/permissions/voice-overlay-commands.toml)` — обновить description: audio-level + voice-a11y
-- `core:event:default` уже в `main.json` / `voice_overlay.json` — новых ACL не нужно
+- `[voice-overlay-commands.toml](../../src-tauri/permissions/voice-overlay-commands.toml)` — update description: audio-level + voice-a11y
+- `core:event:default` already in `main.json` / `voice_overlay.json` — no new ACL needed
 
 ---
 
 ## HIG audit
 
-Обновить [02-hig-audit.md](02-hig-audit.md) п. 32:
+Update [02-hig-audit.md](02-hig-audit.md) item 32:
 
-- Полный lifecycle recording → processing → terminal
+- Full lifecycle recording → processing → terminal
 - HUD visible during processing
-- `aria-busy` на overlay
-- Глобальный announcer в layout (fallback при открытых settings)
-- audio-level не в live region
-- Ограничение web-only announcements
+- `aria-busy` on overlay
+- Global announcer in layout (fallback when settings are open)
+- audio-level not in live region
+- Web-only announcements limitation
 
 ---
 
 ## CHANGELOG
 
-В Unreleased `[CHANGELOG.md](../../CHANGELOG.md)`:
+In Unreleased `[CHANGELOG.md](../../CHANGELOG.md)`:
 
 - Voice: full screen-reader lifecycle for recording HUD
 - Voice: HUD stays visible during transcription
 
 ---
 
-## Тест-план (ручной)
+## Test plan (manual)
 
-1. **VoiceOver + запись:** hold shortcut → «Recording voice»; release → «Processing speech»; success → «Text copied to clipboard»; HUD скрывается.
-2. **Повторная запись** (macOS): каждый цикл озвучивается (`seq` меняется).
-3. **Пустой Whisper URL** → «Whisper server not configured».
-4. **Пустая транскрипция** → «No speech detected».
-5. **Settings открыты, main скрыт:** announcer в settings webview (`visibilityState === visible`).
-6. **Reduce Motion:** bars static при processing.
+1. **VoiceOver + recording:** hold shortcut → "Recording voice"; release → "Processing speech"; success → "Text copied to clipboard"; HUD hides.
+2. **Repeated recording** (macOS): each cycle is announced (`seq` changes).
+3. **Empty Whisper URL** → "Whisper server not configured".
+4. **Empty transcription** → "No speech detected".
+5. **Settings open, main hidden:** announcer in settings webview (`visibilityState === visible`).
+6. **Reduce Motion:** bars static during processing.
 7. `npm run check` + `cd src-tauri && cargo check`.
 
 ---
 
-## Порядок реализации
+## Implementation order
 
 ```mermaid
 flowchart TD
@@ -264,7 +264,7 @@ flowchart TD
   ts --> rust --> hud --> ann --> docs --> verify
 ```
 
-1. `voice-a11y.ts` + типы
+1. `voice-a11y.ts` + types
 2. Rust: seq + emit helpers + refactor `handle_voice_event`
 3. `overlay/+page.svelte` state machine + processing visuals
 4. `VoiceA11yAnnouncer.svelte` + `+layout.svelte`

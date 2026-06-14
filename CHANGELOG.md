@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-window IPC command scoping** — sensitive commands (`paste_entry`, `clear_history`, `start_ollama_server`, exclusion list editing) limited to the appropriate window via per-window Tauri capabilities (`main`, `settings`, `voice_overlay`).
+- **`cargo audit` in release workflow** — dependency audit step in GitHub Actions before release artifacts ship.
 - **macOS Intel (x86_64) builds** — separate DMG artifacts for Apple Silicon and Intel Macs; `Makefile` targets and release scripts for arch-specific builds.
 - **macOS clipboard stack** — `clipboard_macos/` on **objc2** (pasteboard monitoring, concealed-pasteboard detection, paste-target remember/restore, AX tree walk, synthetic Cmd+V, Accessibility trust checks); replaces legacy `objc`/`cocoa`.
 - **Unified clipboard writes** (`clipboard_write.rs`) — copy, activate, paste, and voice flows share one path with explicit **Copy** and **Paste** modes.
@@ -19,7 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings — voice transcription toggle** — off by default; Whisper fields in a disabled fieldset when off.
 - **Settings — Privacy excluded apps** — list with native picker, add by name, contextual candidate row (**Active app** / **Recent app**), overlay **Exclude [App]** action; bundle IDs as stable keys with legacy display-name migration.
 - **Settings — clear history** — `get_history_counts` and `clear_all_history` IPC; menu for unpinned or all with confirm dialog; live count sync.
-- **Per-window Tauri capabilities** — separate permission sets for `main`, `settings`, and `voice_overlay`.
 - **Design system** — `tokens.css` (spacing, surfaces, typography, motion, selection); shared `form-controls.css`, `button-interaction.css`, and `.inset-list` grouped rows; section icons; input modality tracking for pointer vs keyboard focus rings.
 - **Accessibility** — `:focus-visible` rings, reduced-motion and reduced-transparency support, voice HUD live region baseline, primary **Paste** on cards with keyboard selection and roving `tabindex`; card selection chrome separated from keyboard focus ring via `data-input-modality`.
 - **Release and dev toolchain** — Oxlint, Oxfmt, Husky + lint-staged, `make fix` / `make lint` / `make check`; Vite 8 (Rolldown); optional `sccache` for Rust dev builds.
@@ -53,15 +54,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Sensitive IPC commands scoped per window (paste, clear history, Ollama server, exclusion list editing).
-- `cargo audit` in the release workflow.
-- Ollama model name validation before `ollama pull`.
 - Tauri 2.11 upstream IPC ACL hardening.
 
 ## [0.3.0] - 2026-04-10
 
 ### Added
 
+- **Explicit Tauri capabilities for settings window** — `src-tauri/capabilities/settings.json`; scoped permissions for settings-only IPC (including window opener).
+- **Ollama model name validation** — `ollama::validate_model_name` rejects invalid names before `ollama pull`.
 - **Voice transcription** — dictate from the voice overlay into the active app.
 - **Model pull progress** — non-blocking Ollama download via REST API with live progress in Settings.
 - **Accessibility permission check** in Settings with explicit request action.
@@ -78,7 +78,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Model presets, pull error handling, and unload-model button behavior.
 - Tagging test timeout (60 s for cold model load); status refresh after save.
 - Quit button uses `std::process::exit` to bypass `prevent_exit`.
-- Settings window opener permission via Tauri capabilities.
 
 ## [0.2.1]
 
