@@ -201,9 +201,11 @@ impl Database {
 
         let hub_url = self
             .get_setting("hub_url")?
-            .unwrap_or_else(|| "https://neuraldeep.ru".to_string());
+            .unwrap_or_else(|| "https://api.neuraldeep.ru".to_string());
         let hub_token = self.get_setting("hub_token")?.unwrap_or_default();
-        let hub_chat_model = self.get_setting("hub_chat_model")?.unwrap_or_default();
+        let hub_chat_model = self
+            .get_setting("hub_chat_model")?
+            .unwrap_or_else(|| "gpt-oss-120b".to_string());
         let hub_tagging_enabled = self
             .get_setting("hub_tagging_enabled")?
             .map(|v| v == "true")

@@ -32,9 +32,9 @@
     whisper_server_model: "whisper-1",
     voice_shortcut: "option+space",
     selected_microphone: "",
-    hub_url: "https://neuraldeep.ru",
+    hub_url: "https://api.neuraldeep.ru",
     hub_token: "",
-    hub_chat_model: "",
+    hub_chat_model: "gpt-oss-120b",
     hub_tagging_enabled: false,
     hub_transcribe_enabled: false,
     hub_search_enabled: false,
@@ -560,16 +560,16 @@
     <div class="settings-hint" style="margin-bottom: 10px;">
       Connect your NeuralDeep account to tag and transcribe via the hub instead of
       local models. Each user configures their own token.
-      <button class="link-btn" type="button" onclick={() => openUrl(settings.hub_url || "https://neuraldeep.ru")}>Open hub</button>
+      <button class="link-btn" type="button" onclick={() => openUrl("https://hub.neuraldeep.ru/app")}>Get API key</button>
     </div>
 
     <label class="settings-field">
-      <span class="settings-label">Hub URL</span>
+      <span class="settings-label">API base URL</span>
       <input
         class="settings-input"
         type="text"
         bind:value={settings.hub_url}
-        placeholder="https://neuraldeep.ru"
+        placeholder="https://api.neuraldeep.ru"
       />
     </label>
     <label class="settings-field" style="margin-top: 8px;">
@@ -578,17 +578,26 @@
         class="settings-input"
         type="password"
         bind:value={settings.hub_token}
-        placeholder="Bearer token"
+        placeholder="sk-... Bearer token"
       />
     </label>
     <label class="settings-field" style="margin-top: 8px;">
-      <span class="settings-label">Chat model (for tagging)</span>
+      <span class="settings-label">Chat model (for tagging & search)</span>
       <input
         class="settings-input"
         type="text"
+        list="hub-models"
         bind:value={settings.hub_chat_model}
-        placeholder="e.g. gpt-4o-mini"
+        placeholder="gpt-oss-120b"
       />
+      <datalist id="hub-models">
+        <option value="gpt-oss-120b"></option>
+        <option value="qwen3.6-35b-a3b"></option>
+        <option value="gemma-4-31b"></option>
+      </datalist>
+      <div class="settings-hint">
+        Available: <code>gpt-oss-120b</code>, <code>qwen3.6-35b-a3b</code>, <code>gemma-4-31b</code>
+      </div>
     </label>
 
     <div class="settings-field" style="margin-top: 10px;">
