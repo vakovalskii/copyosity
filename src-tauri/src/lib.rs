@@ -5,7 +5,7 @@ mod ollama;
 mod whisper;
 
 use db::Database;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{
     Emitter, Manager,
@@ -28,6 +28,11 @@ tauri_nspanel::tauri_panel!(
 );
 
 static LAST_SHOW_MS: AtomicU64 = AtomicU64::new(0);
+
+/// PID of the app that was frontmost when the voice hotkey was pressed.
+/// Used to deliver the synthesized Cmd+V directly to that app instead of
+/// whatever is frontmost at paste time (which may be Copyosity itself).
+static VOICE_TARGET_PID: AtomicI32 = AtomicI32::new(0);
 
 static RECORDING: std::sync::OnceLock<std::sync::Mutex<Option<whisper::RecordingSession>>> =
     std::sync::OnceLock::new();
@@ -365,6 +370,15 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
     });
     match state {
         ShortcutState::Pressed => {
+            // Capture the app that is frontmost right now, before we touch any
+            // of our own windows — that's where the transcript must be pasted.
+            #[cfg(target_os = "macos")]
+            if let Some(pid) = frontmost_app_pid() {
+                if pid != std::process::id() as i32 {
+                    VOICE_TARGET_PID.store(pid, Ordering::Relaxed);
+                    eprintln!("[voice] captured target pid={}", pid);
+                }
+            }
             let mut rec = recording_mutex().lock().unwrap();
             if rec.is_none() {
                 // Read selected microphone from settings
@@ -441,7 +455,8 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                                 let _ = clipboard.set_text(&text);
                             }
                             std::thread::sleep(std::time::Duration::from_millis(100));
-                            simulate_cmd_v();
+                            let target_pid = VOICE_TARGET_PID.swap(0, Ordering::Relaxed);
+                            simulate_cmd_v(target_pid);
                         }
                         Ok(_) => eprintln!("[voice] transcription returned empty text"),
                         Err(e) => eprintln!("[voice] transcription ERROR: {}", e),
@@ -527,8 +542,35 @@ fn hide_voice_overlay(app: &tauri::AppHandle) {
     }
 }
 
+/// PID of the application that is frontmost right now, via NSWorkspace.
 #[cfg(target_os = "macos")]
-fn simulate_cmd_v() {
+fn frontmost_app_pid() -> Option<i32> {
+    use objc::runtime::Object;
+    use objc::{msg_send, sel, sel_impl};
+    unsafe {
+        let workspace_cls = objc::runtime::Class::get("NSWorkspace")?;
+        let workspace: *mut Object = msg_send![workspace_cls, sharedWorkspace];
+        if workspace.is_null() {
+            return None;
+        }
+        let app: *mut Object = msg_send![workspace, frontmostApplication];
+        if app.is_null() {
+            return None;
+        }
+        let pid: i32 = msg_send![app, processIdentifier];
+        if pid > 0 {
+            Some(pid)
+        } else {
+            None
+        }
+    }
+}
+
+/// Synthesize Cmd+V. When `target_pid` is a valid pid, the event is delivered
+/// straight to that process so it works regardless of which app is frontmost
+/// (the recording overlay can briefly make Copyosity itself frontmost).
+#[cfg(target_os = "macos")]
+fn simulate_cmd_v(target_pid: i32) {
     unsafe {
         type CGEventSourceRef = *mut std::ffi::c_void;
         type CGEventRef = *mut std::ffi::c_void;
@@ -537,6 +579,7 @@ fn simulate_cmd_v() {
             fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, keycode: u16, key_down: bool) -> CGEventRef;
             fn CGEventSetFlags(event: CGEventRef, flags: u64);
             fn CGEventPost(tap: u32, event: CGEventRef);
+            fn CGEventPostToPid(pid: i32, event: CGEventRef);
             fn CFRelease(cf: *mut std::ffi::c_void);
         }
         let down = CGEventCreateKeyboardEvent(std::ptr::null_mut(), 9, true);
@@ -544,8 +587,13 @@ fn simulate_cmd_v() {
         if !down.is_null() && !up.is_null() {
             CGEventSetFlags(down, 0x00100000);
             CGEventSetFlags(up, 0x00100000);
-            CGEventPost(0, down);
-            CGEventPost(0, up);
+            if target_pid > 0 {
+                CGEventPostToPid(target_pid as i32, down);
+                CGEventPostToPid(target_pid as i32, up);
+            } else {
+                CGEventPost(0, down);
+                CGEventPost(0, up);
+            }
             CFRelease(down);
             CFRelease(up);
         }
@@ -553,7 +601,7 @@ fn simulate_cmd_v() {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn simulate_cmd_v() {}
+fn simulate_cmd_v(_target_pid: i32) {}
 
 pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow) {
     use tauri::PhysicalPosition;

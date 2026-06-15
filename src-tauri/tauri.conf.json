@@ -40,7 +40,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "signingIdentity": "Developer ID Application: Valeriy Kovalsky (A933C2TJXU)"
+      "signingIdentity": "Developer ID Application: Valeriy Kovalsky (A933C2TJXU)",
+      "entitlements": "Entitlements.plist"
     }
   }
 }
