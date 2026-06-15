@@ -61,6 +61,12 @@ export async function updateAppSettings(opts: {
   whisper_server_model?: string | null;
   voice_shortcut?: string | null;
   selected_microphone?: string | null;
+  hub_url?: string | null;
+  hub_token?: string | null;
+  hub_chat_model?: string | null;
+  hub_tagging_enabled?: boolean | null;
+  hub_transcribe_enabled?: boolean | null;
+  hub_search_enabled?: boolean | null;
 }): Promise<AppSettings> {
   return invoke("update_app_settings", {
     ollamaModel: opts.ollama_model ?? null,
@@ -70,7 +76,18 @@ export async function updateAppSettings(opts: {
     whisperServerModel: opts.whisper_server_model ?? null,
     voiceShortcut: opts.voice_shortcut ?? null,
     selectedMicrophone: opts.selected_microphone ?? null,
+    hubUrl: opts.hub_url ?? null,
+    hubToken: opts.hub_token ?? null,
+    hubChatModel: opts.hub_chat_model ?? null,
+    hubTaggingEnabled: opts.hub_tagging_enabled ?? null,
+    hubTranscribeEnabled: opts.hub_transcribe_enabled ?? null,
+    hubSearchEnabled: opts.hub_search_enabled ?? null,
   });
+}
+
+/** Test the NeuralDeep hub connection. Returns the number of available models. */
+export async function hubTestConnection(url?: string, token?: string): Promise<number> {
+  return invoke("hub_test_connection", { url: url ?? null, token: token ?? null });
 }
 
 export async function listMicrophones(): Promise<AudioInputDevice[]> {

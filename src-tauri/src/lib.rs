@@ -1,7 +1,9 @@
 mod clipboard_monitor;
 mod commands;
 mod db;
+mod hub;
 mod ollama;
+mod tagging;
 mod whisper;
 
 use db::Database;
@@ -277,6 +279,7 @@ pub fn run() {
             commands::test_ollama_tagging,
             commands::rebind_voice_shortcut,
             commands::list_microphones,
+            commands::hub_test_connection,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -437,16 +440,35 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                             return;
                         }
                     };
-                    if settings.whisper_server_url.is_empty() {
-                        eprintln!("[voice] ERROR: Whisper server URL is not configured");
+                    // Route to the hub's transcription endpoint when enabled,
+                    // otherwise use the standalone Whisper server config.
+                    let use_hub = settings.hub_transcribe_enabled
+                        && !settings.hub_token.is_empty()
+                        && !settings.hub_url.trim().is_empty();
+                    let (whisper_url, whisper_token) = if use_hub {
+                        (
+                            format!(
+                                "{}/v1/audio/transcriptions",
+                                settings.hub_url.trim_end_matches('/')
+                            ),
+                            settings.hub_token.clone(),
+                        )
+                    } else {
+                        (
+                            settings.whisper_server_url.clone(),
+                            settings.whisper_server_token.clone(),
+                        )
+                    };
+                    if whisper_url.is_empty() {
+                        eprintln!("[voice] ERROR: transcription endpoint is not configured");
                         return;
                     }
-                    eprintln!("[voice] sending to {}", settings.whisper_server_url);
+                    eprintln!("[voice] sending to {}", whisper_url);
                     match whisper::transcribe_audio(
                         samples,
                         sample_rate,
-                        &settings.whisper_server_url,
-                        &settings.whisper_server_token,
+                        &whisper_url,
+                        &whisper_token,
                         &settings.whisper_server_model,
                     ) {
                         Ok(text) if !text.is_empty() => {

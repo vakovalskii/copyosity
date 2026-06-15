@@ -7,7 +7,6 @@ use tauri::{AppHandle, Emitter, Manager};
 
 
 use crate::db::{ClipboardEntry, Database};
-use crate::ollama;
 
 fn encode_image_from_rgba(bytes: &[u8], width: usize, height: usize) -> Option<(String, String)> {
     let rgba = ImageBuffer::<Rgba<u8>, _>::from_raw(width as u32, height as u32, bytes.to_vec())?;
@@ -104,7 +103,7 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                         let db = db.clone();
                         let app = app.clone();
                         std::thread::spawn(move || {
-                            if let Some(tags) = ollama::tag_text(&text) {
+                            if let Some(tags) = crate::tagging::tag(&db, &text) {
                                 if db.set_entry_tags(id, &tags).is_ok() {
                                     let _ = app.emit("entry-tagged", id);
                                 }

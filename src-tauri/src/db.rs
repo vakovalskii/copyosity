@@ -14,6 +14,19 @@ pub struct AppSettings {
     pub voice_shortcut: String,
     /// Selected microphone device name (empty = default)
     pub selected_microphone: String,
+    // --- NeuralDeep hub integration ---
+    /// Base URL of the NeuralDeep hub (OpenAI-compatible), e.g. https://neuraldeep.ru
+    pub hub_url: String,
+    /// Per-user API token for the hub (Bearer).
+    pub hub_token: String,
+    /// Chat model id used for tagging via the hub.
+    pub hub_chat_model: String,
+    /// Use the hub (instead of local Ollama) for clipboard tagging.
+    pub hub_tagging_enabled: bool,
+    /// Use the hub for voice transcription.
+    pub hub_transcribe_enabled: bool,
+    /// Enable the hub agent quick-search command palette.
+    pub hub_search_enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -186,6 +199,24 @@ impl Database {
             .get_setting("selected_microphone")?
             .unwrap_or_default();
 
+        let hub_url = self
+            .get_setting("hub_url")?
+            .unwrap_or_else(|| "https://neuraldeep.ru".to_string());
+        let hub_token = self.get_setting("hub_token")?.unwrap_or_default();
+        let hub_chat_model = self.get_setting("hub_chat_model")?.unwrap_or_default();
+        let hub_tagging_enabled = self
+            .get_setting("hub_tagging_enabled")?
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let hub_transcribe_enabled = self
+            .get_setting("hub_transcribe_enabled")?
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let hub_search_enabled = self
+            .get_setting("hub_search_enabled")?
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
         Ok(AppSettings {
             ollama_model,
             retention_days,
@@ -194,6 +225,12 @@ impl Database {
             whisper_server_model,
             voice_shortcut,
             selected_microphone,
+            hub_url,
+            hub_token,
+            hub_chat_model,
+            hub_tagging_enabled,
+            hub_transcribe_enabled,
+            hub_search_enabled,
         })
     }
 
@@ -206,6 +243,12 @@ impl Database {
         whisper_server_model: Option<&str>,
         voice_shortcut: Option<&str>,
         selected_microphone: Option<&str>,
+        hub_url: Option<&str>,
+        hub_token: Option<&str>,
+        hub_chat_model: Option<&str>,
+        hub_tagging_enabled: Option<bool>,
+        hub_transcribe_enabled: Option<bool>,
+        hub_search_enabled: Option<bool>,
     ) -> Result<AppSettings, rusqlite::Error> {
         if let Some(model) = ollama_model {
             self.set_setting("ollama_model", model.trim())?;
@@ -227,6 +270,24 @@ impl Database {
         }
         if let Some(mic) = selected_microphone {
             self.set_setting("selected_microphone", mic.trim())?;
+        }
+        if let Some(url) = hub_url {
+            self.set_setting("hub_url", url.trim())?;
+        }
+        if let Some(token) = hub_token {
+            self.set_setting("hub_token", token.trim())?;
+        }
+        if let Some(model) = hub_chat_model {
+            self.set_setting("hub_chat_model", model.trim())?;
+        }
+        if let Some(enabled) = hub_tagging_enabled {
+            self.set_setting("hub_tagging_enabled", if enabled { "true" } else { "false" })?;
+        }
+        if let Some(enabled) = hub_transcribe_enabled {
+            self.set_setting("hub_transcribe_enabled", if enabled { "true" } else { "false" })?;
+        }
+        if let Some(enabled) = hub_search_enabled {
+            self.set_setting("hub_search_enabled", if enabled { "true" } else { "false" })?;
         }
 
         self.get_app_settings()
@@ -833,7 +894,13 @@ mod tests {
     #[test]
     fn update_settings() {
         let db = test_db();
-        db.update_app_settings(Some("custom-model"), Some(7)).unwrap();
+        db.update_app_settings(
+            Some("custom-model"),
+            Some(7),
+            None, None, None, None, None,
+            None, None, None, None, None, None,
+        )
+        .unwrap();
         let s = db.get_app_settings().unwrap();
         assert_eq!(s.ollama_model, "custom-model");
         assert_eq!(s.retention_days, 7);

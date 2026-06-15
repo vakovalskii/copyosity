@@ -530,7 +530,7 @@ pub fn backfill_existing_tags(app: AppHandle, db: Arc<Database>) {
                 let preview = text.trim().chars().take(80).collect::<String>();
                 log_debug(format!("backfill entry_id={} preview={:?}", entry_id, preview));
 
-                match tag_text(&text) {
+                match crate::tagging::tag(&db, &text) {
                     Some(tags) => {
                         if let Err(err) = db.set_entry_tags(entry_id, &tags) {
                             eprintln!(
@@ -553,7 +553,7 @@ pub fn backfill_existing_tags(app: AppHandle, db: Arc<Database>) {
     });
 }
 
-fn normalize_tags(tags: Vec<String>) -> Vec<String> {
+pub(crate) fn normalize_tags(tags: Vec<String>) -> Vec<String> {
     let mut normalized = Vec::new();
 
     for tag in tags {

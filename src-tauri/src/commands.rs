@@ -174,6 +174,12 @@ pub fn update_app_settings(
     whisper_server_model: Option<String>,
     voice_shortcut: Option<String>,
     selected_microphone: Option<String>,
+    hub_url: Option<String>,
+    hub_token: Option<String>,
+    hub_chat_model: Option<String>,
+    hub_tagging_enabled: Option<bool>,
+    hub_transcribe_enabled: Option<bool>,
+    hub_search_enabled: Option<bool>,
 ) -> Result<AppSettings, String> {
     let settings = db
         .update_app_settings(
@@ -184,6 +190,12 @@ pub fn update_app_settings(
             whisper_server_model.as_deref(),
             voice_shortcut.as_deref(),
             selected_microphone.as_deref(),
+            hub_url.as_deref(),
+            hub_token.as_deref(),
+            hub_chat_model.as_deref(),
+            hub_tagging_enabled,
+            hub_transcribe_enabled,
+            hub_search_enabled,
         )
         .map_err(|e| e.to_string())?;
 
@@ -237,7 +249,7 @@ pub fn retag_entry(
         return Ok(());
     };
 
-    match ollama::tag_text(&text) {
+    match crate::tagging::tag(&db, &text) {
         Some(tags) => db.set_entry_tags(entry_id, &tags).map_err(|e| e.to_string())?,
         None => db
             .set_entry_tag_state(entry_id, "skipped")
@@ -420,4 +432,20 @@ pub fn rebind_voice_shortcut(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub fn list_microphones() -> Result<Vec<crate::whisper::AudioInputDevice>, String> {
     Ok(crate::whisper::list_input_devices())
+}
+
+/// Test connectivity to the NeuralDeep hub. Uses provided url/token when given,
+/// otherwise falls back to the saved settings. Returns the number of models.
+#[tauri::command]
+pub fn hub_test_connection(
+    db: State<'_, Arc<Database>>,
+    url: Option<String>,
+    token: Option<String>,
+) -> Result<usize, String> {
+    let settings = db.get_app_settings().map_err(|e| e.to_string())?;
+    let url = url.filter(|s| !s.trim().is_empty()).unwrap_or(settings.hub_url);
+    let token = token
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(settings.hub_token);
+    crate::hub::test_connection(&url, &token)
 }

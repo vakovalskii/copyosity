@@ -19,6 +19,7 @@
     startOllamaServer,
     pullOllamaModel,
     testOllamaTagging,
+    hubTestConnection,
     type OllamaStatus,
   } from "$lib/api";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -31,6 +32,12 @@
     whisper_server_model: "whisper-1",
     voice_shortcut: "option+space",
     selected_microphone: "",
+    hub_url: "https://neuraldeep.ru",
+    hub_token: "",
+    hub_chat_model: "",
+    hub_tagging_enabled: false,
+    hub_transcribe_enabled: false,
+    hub_search_enabled: false,
   });
   let microphones: AudioInputDevice[] = $state([]);
   let modelCatalog = $state<ModelCatalog>({
@@ -52,6 +59,22 @@
   let pullProgress = $state("");
   let taggingResult = $state<string[] | null | undefined>(undefined);
   let taggingLoading = $state(false);
+
+  let hubTesting = $state(false);
+  let hubTestResult = $state<{ ok: boolean; message: string } | null>(null);
+
+  async function handleHubTest() {
+    hubTesting = true;
+    hubTestResult = null;
+    try {
+      const count = await hubTestConnection(settings.hub_url, settings.hub_token);
+      hubTestResult = { ok: true, message: `Connected — ${count} model(s) available` };
+    } catch (e) {
+      hubTestResult = { ok: false, message: String(e) };
+    } finally {
+      hubTesting = false;
+    }
+  }
 
   const retentionOptions = [
     { label: "1 day", value: 1 },
@@ -152,6 +175,12 @@
         whisper_server_model: settings.whisper_server_model,
         voice_shortcut: settings.voice_shortcut,
         selected_microphone: settings.selected_microphone,
+        hub_url: settings.hub_url,
+        hub_token: settings.hub_token,
+        hub_chat_model: settings.hub_chat_model,
+        hub_tagging_enabled: settings.hub_tagging_enabled,
+        hub_transcribe_enabled: settings.hub_transcribe_enabled,
+        hub_search_enabled: settings.hub_search_enabled,
       });
       savedModel = settings.ollama_model;
       settingsNotice = "Saved";
@@ -526,6 +555,67 @@
     </label>
   </section>
 
+  <section class="settings-section">
+    <div class="settings-section-title">NeuralDeep Hub</div>
+    <div class="settings-hint" style="margin-bottom: 10px;">
+      Connect your NeuralDeep account to tag and transcribe via the hub instead of
+      local models. Each user configures their own token.
+      <button class="link-btn" type="button" onclick={() => openUrl(settings.hub_url || "https://neuraldeep.ru")}>Open hub</button>
+    </div>
+
+    <label class="settings-field">
+      <span class="settings-label">Hub URL</span>
+      <input
+        class="settings-input"
+        type="text"
+        bind:value={settings.hub_url}
+        placeholder="https://neuraldeep.ru"
+      />
+    </label>
+    <label class="settings-field" style="margin-top: 8px;">
+      <span class="settings-label">API Token</span>
+      <input
+        class="settings-input"
+        type="password"
+        bind:value={settings.hub_token}
+        placeholder="Bearer token"
+      />
+    </label>
+    <label class="settings-field" style="margin-top: 8px;">
+      <span class="settings-label">Chat model (for tagging)</span>
+      <input
+        class="settings-input"
+        type="text"
+        bind:value={settings.hub_chat_model}
+        placeholder="e.g. gpt-4o-mini"
+      />
+    </label>
+
+    <div class="settings-field" style="margin-top: 10px;">
+      <button class="settings-ghost-btn" type="button" disabled={hubTesting} onclick={handleHubTest}>
+        {hubTesting ? "Testing..." : "Test connection"}
+      </button>
+      {#if hubTestResult}
+        <div class="settings-hint" style="margin-top: 6px; color: {hubTestResult.ok ? '#3bbf6a' : '#e5534b'};">
+          {hubTestResult.message}
+        </div>
+      {/if}
+    </div>
+
+    <label class="settings-toggle" style="margin-top: 12px;">
+      <input type="checkbox" bind:checked={settings.hub_tagging_enabled} />
+      <span>Use hub for tagging (falls back to Ollama on error)</span>
+    </label>
+    <label class="settings-toggle" style="margin-top: 8px;">
+      <input type="checkbox" bind:checked={settings.hub_transcribe_enabled} />
+      <span>Use hub for voice transcription</span>
+    </label>
+    <label class="settings-toggle" style="margin-top: 8px;">
+      <input type="checkbox" bind:checked={settings.hub_search_enabled} />
+      <span>Enable hub agent quick-search (command palette)</span>
+    </label>
+  </section>
+
   <div class="settings-actions">
     <button class="settings-save-btn" type="button" disabled={savingSettings} onclick={saveSettings}>
       {savingSettings ? "Saving..." : "Save settings"}
@@ -705,6 +795,20 @@
     font: inherit;
     cursor: pointer;
     transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  }
+
+  .settings-toggle {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .settings-toggle input {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
   }
 
   .settings-small-btn {

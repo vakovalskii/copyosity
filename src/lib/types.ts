@@ -29,6 +29,12 @@ export interface AppSettings {
   whisper_server_model: string;
   voice_shortcut: string;
   selected_microphone: string;
+  hub_url: string;
+  hub_token: string;
+  hub_chat_model: string;
+  hub_tagging_enabled: boolean;
+  hub_transcribe_enabled: boolean;
+  hub_search_enabled: boolean;
 }
 
 export interface AudioInputDevice {
