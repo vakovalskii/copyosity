@@ -1,0 +1,22 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6D5EF8"/>
+      <stop offset="1" stop-color="#9B3FE4"/>
+    </linearGradient>
+    <linearGradient id="letter" x1="320" y1="260" x2="720" y2="780" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EDE9FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded-square app tile (Apple continuous-corner radius) -->
+  <rect x="0" y="0" width="1024" height="1024" rx="229" ry="229" fill="url(#bg)"/>
+
+  <!-- subtle top sheen -->
+  <rect x="0" y="0" width="1024" height="512" rx="229" ry="229" fill="#FFFFFF" opacity="0.06"/>
+
+  <!-- geometric "C" monogram, open to the right -->
+  <path d="M 704.8 741.8 A 300 300 0 1 1 704.8 282.2"
+        fill="none" stroke="url(#letter)" stroke-width="138" stroke-linecap="round"/>
+</svg>
