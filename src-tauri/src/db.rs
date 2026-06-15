@@ -299,7 +299,9 @@ impl Database {
             param_values.push(Box::new(format!("%{}%", q)));
         }
 
-        sql.push_str(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
+        // id DESC as a stable tie-breaker so LIMIT/OFFSET pages don't
+        // duplicate or skip rows when created_at collides.
+        sql.push_str(" ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?");
         param_values.push(Box::new(limit));
         param_values.push(Box::new(offset));
 

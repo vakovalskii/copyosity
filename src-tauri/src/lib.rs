@@ -588,13 +588,18 @@ fn simulate_cmd_v(target_pid: i32) {
             CGEventSetFlags(down, 0x00100000);
             CGEventSetFlags(up, 0x00100000);
             if target_pid > 0 {
-                CGEventPostToPid(target_pid as i32, down);
-                CGEventPostToPid(target_pid as i32, up);
+                CGEventPostToPid(target_pid, down);
+                CGEventPostToPid(target_pid, up);
             } else {
                 CGEventPost(0, down);
                 CGEventPost(0, up);
             }
+        }
+        // Free each event independently to avoid leaking on partial allocation.
+        if !down.is_null() {
             CFRelease(down);
+        }
+        if !up.is_null() {
             CFRelease(up);
         }
     }

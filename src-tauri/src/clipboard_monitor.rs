@@ -38,7 +38,17 @@ pub fn start_clipboard_monitor(app: AppHandle) {
 
     // Run clipboard polling in a dedicated thread (not async — arboard is sync)
     std::thread::spawn(move || {
-        let mut clipboard = Clipboard::new().expect("Failed to access clipboard");
+        // Don't panic the whole monitor if the clipboard is momentarily
+        // unavailable at startup — retry with backoff until it's ready.
+        let mut clipboard = loop {
+            match Clipboard::new() {
+                Ok(cb) => break cb,
+                Err(e) => {
+                    eprintln!("[clipboard] init failed, retrying in 1s: {}", e);
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            }
+        };
         let mut last_hash = String::new();
 
         loop {
@@ -160,12 +170,12 @@ pub fn start_clipboard_monitor(app: AppHandle) {
     });
 }
 
-/// Fast hash — only hash first 4KB + length for speed on large content
+/// Content hash used for dedup. Hashes the full content so two different
+/// items that happen to share their first 4KB (and length) are not collapsed
+/// into one — the previous prefix-only hash silently dropped such entries.
 fn fast_hash(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
-    let prefix = if data.len() > 4096 { &data[..4096] } else { data };
-    hasher.update(prefix);
-    hasher.update(data.len().to_le_bytes());
+    hasher.update(data);
     hex::encode(hasher.finalize())
 }
 

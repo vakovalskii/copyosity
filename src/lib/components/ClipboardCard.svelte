@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import type { ClipboardEntry } from "$lib/types";
   import { copyEntry, activateEntry, deleteEntry, pinEntry, retagEntry } from "$lib/api";
 
@@ -66,6 +67,20 @@
 
   let copied = $state(false);
   let clickTimer: ReturnType<typeof setTimeout> | undefined;
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  onDestroy(() => {
+    clearTimeout(clickTimer);
+    clearTimeout(copiedTimer);
+  });
+
+  function markCopied() {
+    copied = true;
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copied = false;
+    }, 800);
+  }
 
   function handleClick() {
     // Disambiguate single vs double click
@@ -85,10 +100,7 @@
     if (copied) return;
     if (entry.content_type === "text" || entry.content_type === "image") {
       await copyEntry(entry.id);
-      copied = true;
-      setTimeout(() => {
-        copied = false;
-      }, 800);
+      markCopied();
     }
   }
 
@@ -104,8 +116,7 @@
     e.stopPropagation();
     if (copied) return;
     await copyEntry(entry.id);
-    copied = true;
-    setTimeout(() => { copied = false; }, 800);
+    markCopied();
   }
 
   async function handleDelete(e: MouseEvent) {

@@ -29,7 +29,13 @@ fn simulate_paste() {
             CGEventSetFlags(event_up, K_CG_EVENT_FLAG_COMMAND);
             CGEventPost(K_CG_HID_EVENT_TAP, event_down);
             CGEventPost(K_CG_HID_EVENT_TAP, event_up);
+        }
+        // Release each event independently so a partial-allocation failure
+        // (one null, one non-null) doesn't leak the allocated event.
+        if !event_down.is_null() {
             CFRelease(event_down);
+        }
+        if !event_up.is_null() {
             CFRelease(event_up);
         }
     }
@@ -54,9 +60,14 @@ pub fn get_entries(
     pinned_only: Option<bool>,
     search: Option<String>,
 ) -> Result<Vec<ClipboardEntry>, String> {
+    // Clamp paging params coming over IPC: limit -1 in SQLite means "no limit",
+    // which could dump the whole history (with thumbnails) over the bridge.
+    let limit = limit.unwrap_or(50).clamp(1, 200);
+    let offset = offset.unwrap_or(0).max(0);
+
     db.get_entries(
-        limit.unwrap_or(50),
-        offset.unwrap_or(0),
+        limit,
+        offset,
         collection_id,
         pinned_only.unwrap_or(false),
         search.as_deref(),
@@ -343,16 +354,23 @@ pub fn check_accessibility() -> Result<bool, String> {
             use objc::{msg_send, sel, sel_impl};
             use objc::runtime::Object;
 
+            let nsstring = objc::runtime::Class::get("NSString")
+                .ok_or_else(|| "NSString class unavailable".to_string())?;
+            let nsnumber = objc::runtime::Class::get("NSNumber")
+                .ok_or_else(|| "NSNumber class unavailable".to_string())?;
+            let nsdictionary = objc::runtime::Class::get("NSDictionary")
+                .ok_or_else(|| "NSDictionary class unavailable".to_string())?;
+
             let key: *mut Object = msg_send![
-                objc::runtime::Class::get("NSString").unwrap(),
+                nsstring,
                 stringWithUTF8String: b"AXTrustedCheckOptionPrompt\0".as_ptr()
             ];
             let yes: *mut Object = msg_send![
-                objc::runtime::Class::get("NSNumber").unwrap(),
+                nsnumber,
                 numberWithBool: true
             ];
             let dict: *mut Object = msg_send![
-                objc::runtime::Class::get("NSDictionary").unwrap(),
+                nsdictionary,
                 dictionaryWithObject: yes forKey: key
             ];
 
