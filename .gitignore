@@ -1,24 +1,42 @@
+# --- OS ---
 .DS_Store
+
+# --- Cursor (local IDE config) ---
+.cursor/
+.cursorrules
+.cursorignore
+
+# --- Local tooling ---
 .local/
+
+# --- Node / frontend ---
 node_modules
 /build
 /dist
 /.svelte-kit
 /package
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# --- Tauri / Rust ---
 /src-tauri/target
 /src-tauri/gen
 /src-tauri/bundle
 .tauri
+tauri
+
+# --- Environment ---
 .env
 .env.*
 !.env.example
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*
+
+# --- Release artifacts ---
 *.dmg
 *.app
 *.mov
 *.mp4
-copyosity@0.1.0
-tauri
-icon.png.bak
 .last_notarization_id
+
+# --- Misc build leftovers ---
+copyosity@0.1.0
+icon.png.bak
