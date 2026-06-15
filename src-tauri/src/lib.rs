@@ -29,6 +29,33 @@ tauri_nspanel::tauri_panel!(
 
 static LAST_SHOW_MS: AtomicU64 = AtomicU64::new(0);
 
+// PID of the app that was frontmost when the voice hotkey was pressed, so the
+// transcribed text can be pasted directly into it via CGEventPostToPid,
+// regardless of which window is frontmost at paste time.
+static VOICE_TARGET_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+#[cfg(target_os = "macos")]
+fn capture_frontmost_pid() {
+    use cocoa::base::{id, nil};
+    use objc::{class, msg_send, sel, sel_impl};
+    unsafe {
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let app: id = msg_send![workspace, frontmostApplication];
+        if app != nil {
+            let pid: i32 = msg_send![app, processIdentifier];
+            let self_pid = std::process::id() as i32;
+            // Ignore ourselves: if Copyosity is reported as frontmost (the overlay may
+            // have activated the app), keep the previously captured real target.
+            if pid != self_pid {
+                VOICE_TARGET_PID.store(pid, std::sync::atomic::Ordering::Relaxed);
+                eprintln!("[voice] captured target app pid={}", pid);
+            } else {
+                eprintln!("[voice] frontmost is self (pid={}), keeping previous target={}", pid, VOICE_TARGET_PID.load(std::sync::atomic::Ordering::Relaxed));
+            }
+        }
+    }
+}
+
 static RECORDING: std::sync::OnceLock<std::sync::Mutex<Option<whisper::RecordingSession>>> =
     std::sync::OnceLock::new();
 
@@ -364,6 +391,9 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
         ShortcutState::Pressed => {
             let mut rec = recording_mutex().lock().unwrap();
             if rec.is_none() {
+                // Capture the frontmost app BEFORE showing the overlay — paste target
+                #[cfg(target_os = "macos")]
+                capture_frontmost_pid();
                 // Read selected microphone from settings
                 let mic_name = app
                     .try_state::<std::sync::Arc<db::Database>>()
@@ -464,14 +494,35 @@ fn show_voice_overlay(app: &tauri::AppHandle) {
     .transparent(true)
     .always_on_top(true)
     .skip_taskbar(true)
+    // Don't take focus when showing the overlay — otherwise the app activates and
+    // (being an accessory app without a Dock icon) stays frontmost, so the synthesized
+    // Cmd+V lands in Copyosity instead of the user's active text field.
+    .focused(false)
     .center();
 
     let _ = builder.build();
+
+    // Make the overlay a non-activating NSPanel so showing it never activates the app
+    // (otherwise Copyosity becomes frontmost and Cmd+V goes to it). hide_voice_overlay
+    // uses hide() rather than close() — close() on a panel throws an ObjC exception
+    // ("fatal runtime error: Rust cannot catch foreign exceptions") and crashes.
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::panel::NSWindowStyleMask;
+        if let Some(window) = app.get_webview_window("voice_overlay") {
+            if let Ok(panel) = window.to_panel::<CopyosityPanel>() {
+                panel.set_level(24); // NSPopUpMenuWindowLevel
+                panel.set_style_mask(
+                    NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel,
+                );
+            }
+        }
+    }
 }
 
 fn hide_voice_overlay(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("voice_overlay") {
-        let _ = win.close();
+        let _ = win.hide();
     }
 }
 
@@ -485,15 +536,24 @@ fn simulate_cmd_v() {
             fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, keycode: u16, key_down: bool) -> CGEventRef;
             fn CGEventSetFlags(event: CGEventRef, flags: u64);
             fn CGEventPost(tap: u32, event: CGEventRef);
+            fn CGEventPostToPid(pid: i32, event: CGEventRef);
             fn CFRelease(cf: *mut std::ffi::c_void);
         }
+        let target = VOICE_TARGET_PID.load(std::sync::atomic::Ordering::Relaxed);
         let down = CGEventCreateKeyboardEvent(std::ptr::null_mut(), 9, true);
         let up = CGEventCreateKeyboardEvent(std::ptr::null_mut(), 9, false);
         if !down.is_null() && !up.is_null() {
             CGEventSetFlags(down, 0x00100000);
             CGEventSetFlags(up, 0x00100000);
-            CGEventPost(0, down);
-            CGEventPost(0, up);
+            // Deliver Cmd+V straight to the app that was frontmost when the hotkey
+            // was pressed. Fall back to the global HID tap if no PID was captured.
+            if target > 0 {
+                CGEventPostToPid(target as i32, down);
+                CGEventPostToPid(target as i32, up);
+            } else {
+                CGEventPost(0, down);
+                CGEventPost(0, up);
+            }
             CFRelease(down);
             CFRelease(up);
         }
