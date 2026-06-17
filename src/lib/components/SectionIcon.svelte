@@ -7,7 +7,8 @@
     | "storage"
     | "privacy"
     | "voice"
-    | "setup";
+    | "setup"
+    | "clipboard-panel";
 
   const {
     name,
@@ -58,5 +59,10 @@
     <path d="M11 6H3" />
     <path d="m15 18 2 2 4-4" />
     <path d="m15 6 2 2 4-4" />
+  {:else if name === "clipboard-panel"}
+    <rect x="4" y="5" width="16" height="14" rx="2" />
+    <path d="M4 9h16" />
+    <path d="M8 13h8" />
+    <path d="M8 16h5" />
   {/if}
 </svg>

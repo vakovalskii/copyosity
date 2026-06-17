@@ -18,6 +18,8 @@ pub struct AppSettings {
     pub voice_transcription_enabled: bool,
     /// When false, clipboard entries are not auto-tagged (default off).
     pub ai_tagging_enabled: bool,
+    /// When false, hide the footer shortcut strip on the clipboard overlay (default on).
+    pub overlay_shortcut_hints_enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -442,6 +444,10 @@ impl Database {
             .get_setting("ai_tagging_enabled")?
             .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
             .unwrap_or(false);
+        let overlay_shortcut_hints_enabled = self
+            .get_setting("overlay_shortcut_hints_enabled")?
+            .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(true);
 
         Ok(AppSettings {
             ollama_model,
@@ -453,6 +459,7 @@ impl Database {
             selected_microphone,
             voice_transcription_enabled,
             ai_tagging_enabled,
+            overlay_shortcut_hints_enabled,
         })
     }
 
@@ -467,6 +474,7 @@ impl Database {
         selected_microphone: Option<&str>,
         voice_transcription_enabled: Option<bool>,
         ai_tagging_enabled: Option<bool>,
+        overlay_shortcut_hints_enabled: Option<bool>,
     ) -> Result<AppSettings, rusqlite::Error> {
         if let Some(model) = ollama_model {
             self.set_setting("ollama_model", model.trim())?;
@@ -497,6 +505,12 @@ impl Database {
         }
         if let Some(enabled) = ai_tagging_enabled {
             self.set_setting("ai_tagging_enabled", if enabled { "true" } else { "false" })?;
+        }
+        if let Some(enabled) = overlay_shortcut_hints_enabled {
+            self.set_setting(
+                "overlay_shortcut_hints_enabled",
+                if enabled { "true" } else { "false" },
+            )?;
         }
 
         self.get_app_settings()
@@ -1944,6 +1958,7 @@ mod tests {
         assert_eq!(s.retention_days, 30);
         assert!(!s.voice_transcription_enabled);
         assert!(!s.ai_tagging_enabled);
+        assert!(s.overlay_shortcut_hints_enabled);
     }
 
     fn seed_full_settings(db: &Database) {
@@ -1957,6 +1972,7 @@ mod tests {
             Some("Built-in Microphone"),
             Some(true),
             Some(true),
+            None,
         )
         .unwrap();
     }
@@ -1982,8 +1998,19 @@ mod tests {
         let db = test_db();
         seed_full_settings(&db);
 
-        db.update_app_settings(None, Some(30), None, None, None, None, None, None, None)
-            .unwrap();
+        db.update_app_settings(
+            None,
+            Some(30),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         let s = db.get_app_settings().unwrap();
         assert_eq!(s.retention_days, 30);
         assert_eq!(s.ollama_model, "custom-model");
@@ -2011,6 +2038,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let s = db.get_app_settings().unwrap();
@@ -2028,12 +2056,34 @@ mod tests {
         let db = test_db();
         assert!(!db.get_app_settings().unwrap().voice_transcription_enabled);
 
-        db.update_app_settings(None, None, None, None, None, None, None, Some(true), None)
-            .unwrap();
+        db.update_app_settings(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+        )
+        .unwrap();
         assert!(db.get_app_settings().unwrap().voice_transcription_enabled);
 
-        db.update_app_settings(None, None, None, None, None, None, None, Some(false), None)
-            .unwrap();
+        db.update_app_settings(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            None,
+        )
+        .unwrap();
         assert!(!db.get_app_settings().unwrap().voice_transcription_enabled);
     }
 
@@ -2043,13 +2093,35 @@ mod tests {
         assert!(!db.is_ai_tagging_enabled());
         assert!(!db.get_app_settings().unwrap().ai_tagging_enabled);
 
-        db.update_app_settings(None, None, None, None, None, None, None, None, Some(true))
-            .unwrap();
+        db.update_app_settings(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+        )
+        .unwrap();
         assert!(db.is_ai_tagging_enabled());
         assert!(db.get_app_settings().unwrap().ai_tagging_enabled);
 
-        db.update_app_settings(None, None, None, None, None, None, None, None, Some(false))
-            .unwrap();
+        db.update_app_settings(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+        )
+        .unwrap();
         assert!(!db.is_ai_tagging_enabled());
         assert!(!db.get_app_settings().unwrap().ai_tagging_enabled);
     }
@@ -2059,8 +2131,19 @@ mod tests {
         let db = test_db();
         seed_full_settings(&db);
 
-        db.update_app_settings(None, None, None, None, None, None, None, Some(false), None)
-            .unwrap();
+        db.update_app_settings(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            None,
+        )
+        .unwrap();
         let s = db.get_app_settings().unwrap();
         assert!(!s.voice_transcription_enabled);
         assert_eq!(s.whisper_server_url, "https://whisper.example/v1");
@@ -2072,12 +2155,71 @@ mod tests {
         let db = test_db();
         seed_full_settings(&db);
 
-        db.update_app_settings(None, None, None, None, None, None, None, None, Some(false))
-            .unwrap();
+        db.update_app_settings(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+        )
+        .unwrap();
         let s = db.get_app_settings().unwrap();
         assert!(!s.ai_tagging_enabled);
         assert_eq!(s.ollama_model, "custom-model");
         assert!(s.voice_transcription_enabled);
+    }
+
+    #[test]
+    fn overlay_shortcut_hints_enabled_toggle() {
+        let db = test_db();
+        assert!(
+            db.get_app_settings()
+                .unwrap()
+                .overlay_shortcut_hints_enabled
+        );
+
+        db.update_app_settings(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+        )
+        .unwrap();
+        assert!(
+            !db.get_app_settings()
+                .unwrap()
+                .overlay_shortcut_hints_enabled
+        );
+
+        db.update_app_settings(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(true),
+        )
+        .unwrap();
+        assert!(
+            db.get_app_settings()
+                .unwrap()
+                .overlay_shortcut_hints_enabled
+        );
     }
 
     #[test]

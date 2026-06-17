@@ -655,7 +655,7 @@ fn hide_voice_overlay(app: &tauri::AppHandle) {
 }
 
 /// Default overlay height (compact tier) until the frontend applies layout.
-pub const OVERLAY_HEIGHT_COMPACT: f64 = 420.0;
+pub const OVERLAY_HEIGHT_COMPACT: f64 = 448.0;
 
 pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow, height_px: f64) {
     use tauri::PhysicalPosition;

@@ -223,8 +223,9 @@
 .toggle-slider {
   position: relative;
   display: block;
-  width: 36px;
-  height: 20px;
+  box-sizing: border-box;
+  width: 32px;
+  height: 18px;
   border-radius: var(--radius-pill);
   background: var(--surface-14);
   border: 1px solid var(--border-strong);
@@ -236,13 +237,14 @@
 .toggle-slider::after {
   content: "";
   position: absolute;
-  top: 2px;
+  top: 50%;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: var(--color-text-primary);
   box-shadow: var(--shadow-toggle-knob);
+  transform: translateY(-50%);
   transition: transform var(--duration-standard) var(--ease-interactive);
 }
 
@@ -252,7 +254,7 @@
 }
 
 .toggle input:checked + .toggle-slider::after {
-  transform: translateX(16px);
+  transform: translate(14px, -50%);
 }
 
 .toggle input:focus-visible + .toggle-slider {
@@ -268,6 +270,34 @@
   .toggle-slider::after {
     transition: none;
   }
+}
+
+.form-pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-stack);
+  padding: var(--inset-list-pad-block) var(--inset-list-pad-inline);
+}
+
+.form-pref-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-row);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.form-pref-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-label-strong);
+}
+
+.form-pref-hint {
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-hint);
+  color: var(--color-text-label);
 }
 
 .form-field {

@@ -105,6 +105,7 @@ export async function updateAppSettings(opts: {
   selected_microphone?: string | null;
   voice_transcription_enabled?: boolean | null;
   ai_tagging_enabled?: boolean | null;
+  overlay_shortcut_hints_enabled?: boolean | null;
 }): Promise<AppSettings> {
   return invoke("update_app_settings", {
     ollamaModel: opts.ollama_model ?? null,
@@ -116,6 +117,7 @@ export async function updateAppSettings(opts: {
     selectedMicrophone: opts.selected_microphone ?? null,
     voiceTranscriptionEnabled: opts.voice_transcription_enabled ?? null,
     aiTaggingEnabled: opts.ai_tagging_enabled ?? null,
+    overlayShortcutHintsEnabled: opts.overlay_shortcut_hints_enabled ?? null,
   });
 }
 

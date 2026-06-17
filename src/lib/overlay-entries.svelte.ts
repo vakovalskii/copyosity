@@ -54,6 +54,7 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
   let activeTag = $state<string | null>(null);
   let contentKind = $state<ContentKind>("all");
   let aiTaggingEnabled = $state(false);
+  let overlayShortcutHintsEnabled = $state(true);
   let settingsLoadError = $state<string | null>(null);
   let retagAvailable = $state(false);
   let catalogHasMore = $state(true);
@@ -619,10 +620,21 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
     }
   }
 
+  async function syncOverlayShortcutHints(): Promise<void> {
+    try {
+      const settings = await getAppSettings();
+      settingsLoadError = null;
+      overlayShortcutHintsEnabled = settings.overlay_shortcut_hints_enabled;
+    } catch (err) {
+      settingsLoadError = invokeErrorMessage(err) || "unknown";
+    }
+  }
+
   async function syncOverlaySettings(): Promise<boolean> {
     const [, filtersChanged] = await Promise.all([
       syncRetagAvailability(),
       syncAiTaggingSettings(),
+      syncOverlayShortcutHints(),
     ]);
     if (filtersChanged && deps.getVisible()) {
       void loadEntries(true, true);
@@ -901,6 +913,9 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
     },
     get aiTaggingEnabled() {
       return aiTaggingEnabled;
+    },
+    get overlayShortcutHintsEnabled() {
+      return overlayShortcutHintsEnabled;
     },
     get settingsLoadError() {
       return settingsLoadError;

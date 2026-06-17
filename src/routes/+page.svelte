@@ -18,6 +18,7 @@
     invokeErrorMessage,
   } from "$lib/exclusion-label";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
+  import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
   import CollectionTabs from "$lib/components/CollectionTabs.svelte";
   import ContentKindSegment from "$lib/components/ContentKindSegment.svelte";
@@ -39,6 +40,14 @@
   } from "$lib/overlay-resize";
   import { panelCloseFallbackMs, panelOpenMs, scrollBehavior } from "$lib/motion";
   import { shouldLoadNextEntryPage } from "$lib/overlay-pagination";
+
+  const overlayShortcutHints: KeyboardHint[] = [
+    { prefix: "Click", action: "copy" },
+    { keys: "↵", action: "paste" },
+    { prefix: "Double-click", action: "paste" },
+    { keys: ["←", "→"], action: "browse" },
+    { keys: "Esc", action: "clear search / dismiss" },
+  ];
 
   let selectedIndex = $state(-1);
   let gridEl: HTMLDivElement | undefined = $state();
@@ -96,6 +105,7 @@
     overlayHeightForLayout({
       tagBar: tagBarModel,
       hasSettingsNotice: settingsSyncNotice !== null,
+      showShortcutHints: overlay.overlayShortcutHintsEnabled,
     }),
   );
 
@@ -301,6 +311,7 @@
     const height = overlayHeightForLayout({
       tagBar: tagBarModel,
       hasSettingsNotice: settingsSyncNotice !== null,
+      showShortcutHints: overlay.overlayShortcutHintsEnabled,
     });
     await applyOverlayHeight(height, false);
     lastLayoutHeight = height;
@@ -435,6 +446,9 @@
     }
 
     const unlistenClipboard = listen("clipboard-changed", scheduleReload);
+    const unlistenHistory = listen("history-changed", () => {
+      void overlay.syncOverlaySettings();
+    });
     const unlistenTagged = listen("entry-tagged", handleEntryTagged);
 
     const unlistenShow = listen("window-show", () => {
@@ -536,6 +550,7 @@
       clearTimeout(reloadTimer);
       overlay.dispose();
       unlistenClipboard.then((fn) => fn());
+      unlistenHistory.then((fn) => fn());
       unlistenTagged.then((fn) => fn());
       unlistenShow.then((fn) => fn());
       unlistenHideRequest.then((fn) => fn());
@@ -804,6 +819,11 @@
       </button>
     </div>
   {/if}
+  {#if overlay.overlayShortcutHintsEnabled}
+    <footer class="overlay-shortcuts">
+      <KeyboardHints hints={overlayShortcutHints} />
+    </footer>
+  {/if}
 </div>
 
 <style>
@@ -1046,5 +1066,12 @@
 
   .load-more-banner .hint {
     margin: 0;
+  }
+
+  .overlay-shortcuts {
+    flex-shrink: 0;
+    padding: 6px 16px 8px;
+    border-top: 1px solid var(--border-default);
+    background: var(--surface-1);
   }
 </style>

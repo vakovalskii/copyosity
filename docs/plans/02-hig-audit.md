@@ -58,7 +58,7 @@ flowchart TB
 ### P2 — Native feel
 
 - [x] `[Overlay]` `⌘F` / `/` → search; `←/→` reserved for cards (item 4)
-- [ ] `[Overlay]` Keyboard hints — contextual hint in `SearchBar` + footer strip in `+page.svelte` (item 19)
+- [x] `[Overlay]` Keyboard hints — footer strip in `+page.svelte` (item 19)
 - [ ] `[Overlay]` Segmented control for History / Starred; tablist ARIA; simplify header (items 8–9)
 - [x] `[Overlay]` SF Pro for plain text, SF Mono only for code-like preview (item 11)
 - [x] `[Overlay]` Visually separate filter chip (toolbar) and metadata badge (card footer) (item 20)
@@ -132,7 +132,7 @@ Removed global `outline: none` in `+page.svelte`; `focus-visible` ring on cards 
 
 `⌘F`, `/`, `←/→`, `Escape`, Unicode search in DB.
 
-**Follow-up:** arrows in search do not move cursor — keyboard hints needed (item 19).
+**Follow-up:** arrows in search do not move cursor — browse/paste shortcuts documented in footer strip (item 19).
 
 ### ✅ 5. Secondary text contrast `[Shared]` `[Overlay]`
 
@@ -196,16 +196,13 @@ Clear button, `:focus-within` ring, `role="search"`, `aria-label`.
 
 Contextual messages for search / tag filter; `role="status"`.
 
-### 19. Paste model discoverability and keyboard shortcuts `[Overlay]`
+### ✅ 19. Paste model discoverability and keyboard shortcuts `[Overlay]`
 
-**Done (partial):** Paste button on card — explicit mouse affordance for paste without double-click.
+**Done:** Paste button on card — explicit mouse affordance for paste without double-click. Footer shortcut strip in `+page.svelte` (`KeyboardHints.svelte`); optional via **Settings → Clipboard Panel → Keyboard shortcuts** (default on). Overlay height +28 px when hints are on (`OVERLAY_HINTS_EXTRA_HEIGHT`).
 
-**Remaining:** footer shortcut strip in `+page.svelte` and contextual hint in `SearchBar` on focus. Recommended copy:
-
-| Zone         | Hint                                                                           |
-| ------------ | ------------------------------------------------------------------------------ |
-| Footer strip | `Click copy` · `↵ paste` · `Double-click paste` · `← → browse` · `Esc dismiss` |
-| Search focus | `← → browse results` · `↵ paste selected`                                      |
+| Zone         | Hint                                                                                          |
+| ------------ | --------------------------------------------------------------------------------------------- |
+| Footer strip | `Click copy` · `↵ paste` · `Double-click paste` · `← → browse` · `Esc clear search / dismiss` |
 
 Do not duplicate Paste toolbar button verbatim in footer — “↵ paste” / “Double-click paste” is enough, since the button is visible on hover/selection.
 

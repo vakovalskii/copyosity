@@ -211,6 +211,7 @@ pub fn get_app_settings(db: State<'_, Arc<Database>>) -> Result<AppSettings, Str
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn update_app_settings(
     app: tauri::AppHandle,
     db: State<'_, Arc<Database>>,
@@ -223,6 +224,7 @@ pub fn update_app_settings(
     selected_microphone: Option<String>,
     voice_transcription_enabled: Option<bool>,
     ai_tagging_enabled: Option<bool>,
+    overlay_shortcut_hints_enabled: Option<bool>,
 ) -> Result<AppSettings, String> {
     if let Some(model) = ollama_model.as_deref() {
         ollama::validate_model_name(model)?;
@@ -241,6 +243,7 @@ pub fn update_app_settings(
             selected_microphone.as_deref(),
             voice_transcription_enabled,
             ai_tagging_enabled,
+            overlay_shortcut_hints_enabled,
         )
         .map_err(|e| e.to_string())?;
 

@@ -23,7 +23,7 @@ Two levels of filtering over history cards + image card fixes. **Status: done** 
 
 **AI tagging disabled in Settings:** Row A hidden; Row B — image formats only; tags not shown on cards.
 
-**Additionally:** meta on image cards (`1920 × 1080 · 245 KB` instead of "Image preview"); panel height by tier — compact 420 / medium 440 / full 480 px.
+**Additionally:** meta on image cards (`1920 × 1080 · 245 KB` instead of "Image preview"); panel height by tier — base compact 420 / medium 440 / full 480 px (+28 px when keyboard hints are on).
 
 ## Checklist
 
@@ -37,7 +37,7 @@ Two levels of filtering over history cards + image card fixes. **Status: done** 
 - [x] **`+page.svelte`** — filter pipeline, empty states, card footer gating
 - [x] **Image meta backend** — `image_width`, `image_height`, `image_byte_size` + Rust tests
 - [x] **Image meta frontend** — `image-meta.ts`, ClipboardCard; tags hidden when AI off; mono by textKind; remove `title`
-- [x] **Panel height tiers** — compact 420 / medium 440 / full 480; `resize_main_window` + progressive filter rows
+- [x] **Panel height tiers** — base compact 420 / medium 440 / full 480 (+28 px when keyboard hints on); `resize_main_window` + progressive filter rows
 - [x] **Docs** — CHANGELOG; mark items 10, 11, 14, 17 in `02-hig-audit.md`
 
 ---
@@ -129,11 +129,13 @@ Do **not** hide bars on empty filter result (sticky `activeTag` / segment).
 
 ### Panel height tiers
 
-| Tier        | px  | When                                    |
-| ----------- | --- | --------------------------------------- |
-| **compact** | 420 | No filter rows (and no settings notice) |
-| **medium**  | 440 | One bar (Row B or notice)               |
-| **full**    | 480 | Row A + Row B                           |
+Base heights (filter rows only). Add **+28 px** when **Settings → Clipboard Panel → Keyboard shortcuts** is on (default).
+
+| Tier        | Base px | With hints | When                                    |
+| ----------- | ------- | ---------- | --------------------------------------- |
+| **compact** | 420     | 448        | No filter rows (and no settings notice) |
+| **medium**  | 440     | 468        | One bar (Row B or notice)               |
+| **full**    | 480     | 508        | Row A + Row B                           |
 
 `resize_main_window` on reveal; smooth resize on tier change with overlay open (Reduce Motion → instant).
 
@@ -270,8 +272,10 @@ const filteredEntries = overlay.entries; // from createOverlayEntriesStore()
 
 ## 8. Overlay height
 
-- Tiers: **420 / 440 / 480** — [`overlay-layout.ts`](../../src/lib/overlay-layout.ts), [`overlay-resize.ts`](../../src/lib/overlay-resize.ts), `resize_main_window` in Rust
-- Default window height in [`tauri.conf.json`](../../src-tauri/tauri.conf.json): compact (420)
+- Base tiers: **420 / 440 / 480** — [`overlay-layout.ts`](../../src/lib/overlay-layout.ts) (`OVERLAY_BASE_HEIGHT_BY_TIER`)
+- Keyboard hints: **+28 px** when enabled (`OVERLAY_HINTS_EXTRA_HEIGHT`; **Settings → Clipboard Panel**)
+- Resize: [`overlay-resize.ts`](../../src/lib/overlay-resize.ts), `resize_main_window` in Rust
+- Default window height in [`tauri.conf.json`](../../src-tauri/tauri.conf.json): compact with hints (**448**); frontend applies correct height on reveal when hints are off
 
 ---
 

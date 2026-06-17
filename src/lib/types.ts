@@ -53,6 +53,7 @@ export interface AppSettings {
   selected_microphone: string;
   voice_transcription_enabled: boolean;
   ai_tagging_enabled: boolean;
+  overlay_shortcut_hints_enabled: boolean;
 }
 
 export interface AudioInputDevice {

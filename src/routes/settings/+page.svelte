@@ -78,6 +78,7 @@
     selected_microphone: "",
     voice_transcription_enabled: false,
     ai_tagging_enabled: false,
+    overlay_shortcut_hints_enabled: true,
   });
   let microphones: AudioInputDevice[] = $state([]);
   let modelCatalog = $state<ModelCatalog>({
@@ -387,6 +388,7 @@
         selected_microphone: settings.selected_microphone,
         voice_transcription_enabled: settings.voice_transcription_enabled,
         ai_tagging_enabled: settings.ai_tagging_enabled,
+        overlay_shortcut_hints_enabled: settings.overlay_shortcut_hints_enabled,
       });
       savedModel = settings.ollama_model;
       settingsNotice = "Saved";
@@ -606,6 +608,17 @@
     if (enabled) {
       taggingResult = undefined;
       await refreshOllamaStatus();
+    }
+  }
+
+  async function handleOverlayShortcutHintsToggle(enabled: boolean) {
+    const previous = settings.overlay_shortcut_hints_enabled;
+    settings.overlay_shortcut_hints_enabled = enabled;
+    try {
+      settings = await updateAppSettings({ overlay_shortcut_hints_enabled: enabled });
+    } catch (err) {
+      settings.overlay_shortcut_hints_enabled = previous;
+      settingsNotice = invokeErrorMessage(err) || "Could not save setting. Try again.";
     }
   }
 
@@ -973,6 +986,38 @@
         </dl>
       </div>
     </fieldset>
+  </section>
+
+  <section class="form-section">
+    <div class="form-section-title form-section-title--with-icon">
+      <SectionIcon name="clipboard-panel" />
+      Clipboard Panel
+    </div>
+    <div class="form-section-body">
+      <div class="inset-list">
+        <div class="form-pref-row">
+          <div class="form-pref-copy ui-selectable-text">
+            <span class="form-pref-label">Keyboard shortcuts</span>
+            <span class="form-pref-hint"
+              >Show hint strip along the bottom of the clipboard panel.</span
+            >
+          </div>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label="Keyboard shortcut hints in clipboard panel"
+              checked={settings.overlay_shortcut_hints_enabled}
+              onchange={(e) =>
+                void handleOverlayShortcutHintsToggle(
+                  (e.currentTarget as HTMLInputElement).checked,
+                )}
+            />
+            <span class="toggle-slider" aria-hidden="true"></span>
+          </label>
+        </div>
+      </div>
+    </div>
   </section>
 
   <section class="form-section">
