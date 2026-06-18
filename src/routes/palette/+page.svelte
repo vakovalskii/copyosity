@@ -105,8 +105,12 @@
   onMount(() => {
     const unlistens = [
       listen("palette-show", () => {
-        reset();
-        setTimeout(() => inputEl?.focus(), 40);
+        // Keep prior state (a running/finished agent stays visible on reopen);
+        // just refocus and select the query for quick replacement.
+        setTimeout(() => {
+          inputEl?.focus();
+          inputEl?.select();
+        }, 40);
       }),
       listen<string>("agent-progress", (e) => {
         progress = [...progress, e.payload];
@@ -128,10 +132,22 @@
 <svelte:window on:keydown={onKeydown} />
 
 <div class="palette">
-  <div class="search-row">
-    <div class="mode-badge" class:agent={mode === "agent"}>
+  <div class="topbar" data-tauri-drag-region>
+    <button
+      class="mode-badge"
+      class:agent={mode === "agent"}
+      type="button"
+      title="Tab — сменить режим"
+      onclick={() => (mode = mode === "agent" ? "search" : "agent")}
+    >
       {mode === "agent" ? "Agent" : "Web"}
-    </div>
+    </button>
+    {#if loading}<span class="run-dot" title="Агент работает"></span><span class="run-label">работает…</span>{/if}
+    <div class="topbar-spacer" data-tauri-drag-region></div>
+    <button class="bar-btn" type="button" title="Новый запрос" onclick={reset}>＋</button>
+    <button class="bar-btn" type="button" title="Скрыть (Esc)" onclick={close}>✕</button>
+  </div>
+  <div class="search-row">
     <input
       bind:this={inputEl}
       bind:value={query}
@@ -199,6 +215,37 @@
     gap: 12px;
   }
 
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    margin: -4px -4px 0;
+    padding: 2px 4px 6px;
+  }
+  .topbar-spacer { flex: 1; align-self: stretch; }
+
+  .bar-btn {
+    flex-shrink: 0;
+    width: 24px;
+    height: 22px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: transparent;
+    color: #b8b8c0;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .bar-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+
+  .run-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #9b78ff;
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  .run-label { font-size: 12px; color: #b9b9c2; }
+
   .search-row {
     display: flex;
     align-items: center;
@@ -210,12 +257,14 @@
     flex-shrink: 0;
     font-size: 11px;
     font-weight: 700;
-    padding: 3px 8px;
+    padding: 4px 9px;
     border-radius: 7px;
+    border: none;
     background: rgba(120, 160, 255, 0.18);
     color: #acc4ff;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    cursor: pointer;
   }
   .mode-badge.agent {
     background: rgba(155, 120, 255, 0.22);

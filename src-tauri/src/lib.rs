@@ -692,8 +692,9 @@ fn ensure_command_palette(app: &tauri::AppHandle) {
         tauri::WebviewUrl::App("/palette".into()),
     )
     .title("")
-    .inner_size(640.0, 420.0)
-    .resizable(false)
+    .inner_size(640.0, 460.0)
+    .min_inner_size(380.0, 160.0)
+    .resizable(true)
     .decorations(false)
     .transparent(true)
     .skip_taskbar(true)
