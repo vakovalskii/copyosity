@@ -276,6 +276,50 @@ pub fn agent_search(base_url: &str, token: &str, model: &str, query: &str) -> Re
     Ok(content.trim().to_string())
 }
 
+const IMAGE_TAG_PROMPT: &str = "Classify this image. Return strict JSON only: {\"tags\":[\"tag1\",\"tag2\"]}. Use 2 to 5 short lowercase tags describing the kind and content — e.g. screenshot, photo, diagram, chart, code, ui, document, receipt, meme, map, table, error. If the image contains readable text, add 1-2 topical tags about it. No explanation.";
+
+/// Tag an image with a multimodal hub model (e.g. qwen3.6-35b-a3b). `image_b64`
+/// is a base64 PNG (a thumbnail is enough). Returns None on any failure so the
+/// caller can fall back to OCR-text tagging.
+pub fn tag_image(base_url: &str, token: &str, model: &str, image_b64: &str) -> Option<Vec<String>> {
+    let base = normalize_base(base_url);
+    if base.is_empty() || token.trim().is_empty() || model.trim().is_empty() || image_b64.is_empty() {
+        return None;
+    }
+
+    let body = serde_json::json!({
+        "model": model.trim(),
+        "temperature": 0.0,
+        "max_tokens": 120,
+        "messages": [
+            { "role": "user", "content": [
+                { "type": "text", "text": IMAGE_TAG_PROMPT },
+                { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", image_b64) } }
+            ]}
+        ]
+    });
+
+    let url = format!("{}/v1/chat/completions", base);
+    let response = agent()
+        .post(&url)
+        .set("Authorization", &format!("Bearer {}", token.trim()))
+        .set("Accept", "application/json")
+        .send_json(body)
+        .ok()?;
+
+    let chat: ChatResponse = response.into_json().ok()?;
+    let content = chat.choices.first()?.message.content.clone();
+    let json_slice = extract_json_object(&content)?;
+    let parsed: TagResponse = serde_json::from_str(json_slice).ok()?;
+
+    let tags = crate::ollama::normalize_tags(parsed.tags);
+    if tags.is_empty() {
+        None
+    } else {
+        Some(tags)
+    }
+}
+
 /// Find the first balanced `{...}` JSON object in a string.
 fn extract_json_object(s: &str) -> Option<&str> {
     let start = s.find('{')?;

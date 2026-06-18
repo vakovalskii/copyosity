@@ -142,8 +142,9 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                 else {
                     continue;
                 };
-                // Keep a copy of the PNG (base64) to OCR after insertion.
+                // Keep copies (base64) to OCR / tag after insertion.
                 let png_b64_for_ocr = image_full_b64.clone();
+                let thumb_b64_for_tag = image_thumb_b64.clone();
 
                 let entry = ClipboardEntry {
                     id: 0,
@@ -174,23 +175,47 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                         let db = db.clone();
                         let app = app.clone();
                         std::thread::spawn(move || {
-                            let Ok(bytes) = base64::Engine::decode(
+                            // 1. OCR the full image for searchable text.
+                            let ocr_text = base64::Engine::decode(
                                 &base64::engine::general_purpose::STANDARD,
                                 &png_b64_for_ocr,
-                            ) else {
-                                return;
+                            )
+                            .ok()
+                            .and_then(|bytes| crate::ocr::ocr_image_png(&bytes))
+                            .map(|t| t.trim().to_string())
+                            .filter(|t| !t.is_empty());
+
+                            if let Some(text) = &ocr_text {
+                                if db.set_ocr_text(id, text).is_ok() {
+                                    let _ = app.emit("entry-ocr", id);
+                                }
+                            }
+
+                            // 2. Tag the image. Prefer the hub's multimodal model
+                            // (sees the picture itself, works even with no text);
+                            // otherwise fall back to tagging the OCR text locally.
+                            let settings = db.get_app_settings().ok();
+                            let use_hub = settings
+                                .as_ref()
+                                .map(|s| s.hub_tagging_enabled && !s.hub_token.is_empty())
+                                .unwrap_or(false);
+
+                            let tags = if use_hub {
+                                let s = settings.as_ref().unwrap();
+                                crate::hub::tag_image(
+                                    &s.hub_url,
+                                    &s.hub_token,
+                                    "qwen3.6-35b-a3b",
+                                    &thumb_b64_for_tag,
+                                )
+                                .or_else(|| ocr_text.as_ref().and_then(|t| crate::tagging::tag(&db, t)))
+                            } else {
+                                ocr_text.as_ref().and_then(|t| crate::tagging::tag(&db, t))
                             };
-                            if let Some(text) = crate::ocr::ocr_image_png(&bytes) {
-                                let text = text.trim().to_string();
-                                if !text.is_empty() {
-                                    if db.set_ocr_text(id, &text).is_ok() {
-                                        let _ = app.emit("entry-ocr", id);
-                                    }
-                                    if let Some(tags) = crate::tagging::tag(&db, &text) {
-                                        if db.set_entry_tags(id, &tags).is_ok() {
-                                            let _ = app.emit("entry-tagged", id);
-                                        }
-                                    }
+
+                            if let Some(tags) = tags {
+                                if db.set_entry_tags(id, &tags).is_ok() {
+                                    let _ = app.emit("entry-tagged", id);
                                 }
                             }
                         });
