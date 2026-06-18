@@ -139,9 +139,87 @@ pub fn tag_text(base_url: &str, token: &str, model: &str, text: &str) -> Option<
     }
 }
 
+/// Web search via the hub Search API (`POST /v1/search/web`). Returns a
+/// human-readable, formatted result list ready to show in the palette.
+pub fn web_search(base_url: &str, token: &str, query: &str, limit: u32) -> Result<String, String> {
+    let base = normalize_base(base_url);
+    if base.is_empty() {
+        return Err("Hub URL is empty".to_string());
+    }
+    if token.trim().is_empty() {
+        return Err("Hub token is empty — set it in Settings".to_string());
+    }
+    let query = query.trim();
+    if query.is_empty() {
+        return Err("Empty query".to_string());
+    }
+
+    let url = format!("{}/v1/search/web", base);
+    let response = agent()
+        .post(&url)
+        .set("Authorization", &format!("Bearer {}", token.trim()))
+        .set("Accept", "application/json")
+        .send_json(serde_json::json!({ "query": query, "limit": limit }))
+        .map_err(|e| match e {
+            ureq::Error::Status(429, _) => {
+                "Search quota exceeded (429) — try again later".to_string()
+            }
+            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
+            other => format!("Hub request failed: {}", other),
+        })?;
+
+    let json: serde_json::Value = response
+        .into_json()
+        .map_err(|e| format!("Failed to parse hub response: {}", e))?;
+
+    // The results array may live under "results" or "data"; field names vary,
+    // so pull title/url/snippet defensively.
+    let items = json
+        .get("results")
+        .or_else(|| json.get("data"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if items.is_empty() {
+        return Ok("No results.".to_string());
+    }
+
+    let pick = |obj: &serde_json::Value, keys: &[&str]| -> Option<String> {
+        for k in keys {
+            if let Some(s) = obj.get(*k).and_then(|v| v.as_str()) {
+                if !s.trim().is_empty() {
+                    return Some(s.trim().to_string());
+                }
+            }
+        }
+        None
+    };
+
+    let mut out = String::new();
+    for (i, item) in items.iter().enumerate() {
+        let title = pick(item, &["title", "name", "channel", "header"])
+            .unwrap_or_else(|| format!("Result {}", i + 1));
+        let link = pick(item, &["url", "link", "href", "source"]);
+        let snippet = pick(item, &["snippet", "text", "content", "description", "summary"]);
+
+        out.push_str(&format!("{}. {}\n", i + 1, title));
+        if let Some(link) = link {
+            out.push_str(&format!("   {}\n", link));
+        }
+        if let Some(snippet) = snippet {
+            let short: String = snippet.chars().take(280).collect();
+            out.push_str(&format!("   {}\n", short));
+        }
+        out.push('\n');
+    }
+
+    Ok(out.trim_end().to_string())
+}
+
 /// Agent quick-search: ask the hub chat model a question and return its answer.
-/// MVP uses the OpenAI-compatible chat endpoint; can later target a dedicated
-/// agent route without changing callers.
+/// Kept for the chat-based fallback / future use.
+#[allow(dead_code)]
 pub fn agent_search(base_url: &str, token: &str, model: &str, query: &str) -> Result<String, String> {
     let base = normalize_base(base_url);
     if base.is_empty() {

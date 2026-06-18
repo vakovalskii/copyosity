@@ -193,6 +193,7 @@ pub fn run() {
                 .menu(&build_tray_menu(app)?)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "open" => toggle_window(app.app_handle()),
+                    "search" => toggle_command_palette(app.app_handle()),
                     "settings" => {
                         let _ = commands::open_settings_window(app.app_handle().clone());
                     }
@@ -300,6 +301,7 @@ pub fn run() {
             palette_search,
             palette_hide,
             palette_insert,
+            open_command_palette,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -378,12 +380,13 @@ fn build_tray_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
     let version_label = format!("Copyosity v{}", version);
 
     let status = MenuItem::with_id(app, "open", "Open Copyosity", true, None::<&str>)?;
+    let search = MenuItem::with_id(app, "search", "Agent Search  ⌘⇧Space", true, None::<&str>)?;
     let ver = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    Menu::with_items(app, &[&status, &ver, &sep, &settings, &sep2, &quit])
+    Menu::with_items(app, &[&status, &search, &ver, &sep, &settings, &sep2, &quit])
 }
 
 fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
@@ -616,16 +619,6 @@ fn frontmost_app_pid() -> Option<i32> {
 /// Toggle the command palette. Captures the frontmost app first so the answer
 /// can be inserted there, then shows the palette and gives it keyboard focus.
 fn toggle_command_palette(app: &tauri::AppHandle) {
-    // Only active when the user enabled hub search.
-    let enabled = app
-        .try_state::<std::sync::Arc<db::Database>>()
-        .and_then(|db| db.get_app_settings().ok())
-        .map(|s| s.hub_search_enabled)
-        .unwrap_or(false);
-    if !enabled {
-        return;
-    }
-
     #[cfg(target_os = "macos")]
     {
         use tauri_nspanel::ManagerExt;
@@ -680,15 +673,18 @@ fn ensure_command_palette(app: &tauri::AppHandle) {
     }
 }
 
-/// Run an agent search against the hub and return the answer text.
+/// Run a web search against the hub Search API and return formatted results.
 #[tauri::command]
 fn palette_search(app: tauri::AppHandle, query: String) -> Result<String, String> {
     let db = app.state::<std::sync::Arc<db::Database>>();
     let s = db.get_app_settings().map_err(|e| e.to_string())?;
-    if !s.hub_search_enabled {
-        return Err("Hub agent search is disabled in Settings".to_string());
-    }
-    hub::agent_search(&s.hub_url, &s.hub_token, &s.hub_chat_model, &query)
+    hub::web_search(&s.hub_url, &s.hub_token, &query, 5)
+}
+
+/// Open the command palette from an explicit UI action (tray / button).
+#[tauri::command]
+fn open_command_palette(app: tauri::AppHandle) {
+    toggle_command_palette(&app);
 }
 
 /// Hide the command palette.

@@ -85,7 +85,7 @@
       bind:value={query}
       class="search-input"
       type="text"
-      placeholder="Ask the NeuralDeep agent…"
+      placeholder="Search the web via NeuralDeep…"
       autocomplete="off"
       spellcheck="false"
     />

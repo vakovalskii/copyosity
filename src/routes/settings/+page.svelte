@@ -305,10 +305,10 @@
       <input type="checkbox" bind:checked={settings.hub_transcribe_enabled} />
       <span>Use hub for voice transcription</span>
     </label>
-    <label class="settings-toggle" style="margin-top: 8px;">
-      <input type="checkbox" bind:checked={settings.hub_search_enabled} />
-      <span>Enable hub agent quick-search (command palette)</span>
-    </label>
+    <div class="settings-hint" style="margin-top: 12px;">
+      <strong>Web search:</strong> press <code>⌘⇧Space</code> anywhere (or tray → Agent Search,
+      or the search button in the main window) to query the web via the hub.
+    </div>
   </section>
 
   <button
