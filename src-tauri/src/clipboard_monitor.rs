@@ -91,6 +91,7 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                     is_pinned: false,
                     collection_id: None,
                     tags: Vec::new(),
+                    ocr_text: None,
                 };
 
                 if let Ok((id, is_new)) = db.insert_entry(&entry) {
@@ -141,6 +142,8 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                 else {
                     continue;
                 };
+                // Keep a copy of the PNG (base64) to OCR after insertion.
+                let png_b64_for_ocr = image_full_b64.clone();
 
                 let entry = ClipboardEntry {
                     id: 0,
@@ -156,13 +159,42 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                     is_pinned: false,
                     collection_id: None,
                     tags: Vec::new(),
+                    ocr_text: None,
                 };
 
-                if let Ok((id, _is_new)) = db.insert_entry(&entry) {
+                if let Ok((id, is_new)) = db.insert_entry(&entry) {
                     let mut saved = entry.clone();
                     saved.id = id;
                     saved.image_data = None;
                     let _ = app.emit("clipboard-changed", &saved);
+
+                    // OCR the image off-thread; store recognized text so the
+                    // image becomes searchable/taggable. Only for new entries.
+                    if is_new {
+                        let db = db.clone();
+                        let app = app.clone();
+                        std::thread::spawn(move || {
+                            let Ok(bytes) = base64::Engine::decode(
+                                &base64::engine::general_purpose::STANDARD,
+                                &png_b64_for_ocr,
+                            ) else {
+                                return;
+                            };
+                            if let Some(text) = crate::ocr::ocr_image_png(&bytes) {
+                                let text = text.trim().to_string();
+                                if !text.is_empty() {
+                                    if db.set_ocr_text(id, &text).is_ok() {
+                                        let _ = app.emit("entry-ocr", id);
+                                    }
+                                    if let Some(tags) = crate::tagging::tag(&db, &text) {
+                                        if db.set_entry_tags(id, &tags).is_ok() {
+                                            let _ = app.emit("entry-tagged", id);
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
                 }
             }
         }

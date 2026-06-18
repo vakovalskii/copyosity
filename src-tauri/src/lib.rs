@@ -2,6 +2,7 @@ mod clipboard_monitor;
 mod commands;
 mod db;
 mod hub;
+mod ocr;
 mod ollama;
 mod tagging;
 mod whisper;

@@ -1,6 +1,6 @@
 [package]
 name = "copyosity"
-version = "0.4.1"
+version = "0.4.2"
 description = "Clipboard history manager"
 authors = ["v.kovalskii"]
 edition = "2021"
@@ -41,3 +41,6 @@ hound = "3.5"
 cocoa = "0.26"
 objc = "0.2"
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e89" }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSData", "NSDictionary", "NSError", "NSObjCRuntime"] }
+objc2-vision = { version = "0.3", features = ["VNRequest", "VNRecognizeTextRequest", "VNRequestHandler", "VNObservation", "VNTypes"] }
