@@ -1,6 +1,6 @@
 [package]
 name = "copyosity"
-version = "0.4.2"
+version = "0.4.3"
 description = "Clipboard history manager"
 authors = ["v.kovalskii"]
 edition = "2021"
