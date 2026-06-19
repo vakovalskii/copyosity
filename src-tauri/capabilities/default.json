@@ -9,6 +9,8 @@
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
     "global-shortcut:allow-is-registered",
-    "core:event:default"
+    "core:event:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-size"
   ]
 }

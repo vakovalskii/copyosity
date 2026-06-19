@@ -2,12 +2,25 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { marked } from "marked";
+
+  marked.setOptions({ breaks: true, gfm: true });
+
+  // Explicit window dragging — data-tauri-drag-region is unreliable on the
+  // converted NSPanel, so start dragging on mousedown over the top bar
+  // (but not when pressing one of its buttons).
+  function startDrag(e: MouseEvent) {
+    if ((e.target as HTMLElement).closest("button")) return;
+    if (e.button === 0) getCurrentWindow().startDragging();
+  }
 
   type Mode = "search" | "agent";
 
   let mode = $state<Mode>("agent");
   let query = $state("");
   let answer = $state("");
+  let answerHtml = $derived(answer ? (marked.parse(answer) as string) : "");
   let progress = $state<string[]>([]);
   let error = $state("");
   let loading = $state(false);
@@ -92,8 +105,9 @@
   }
 
   async function close() {
+    // Hide only — keep the running/finished agent so reopening shows it.
+    // Use ＋ (New) to clear.
     await invoke("palette_hide");
-    reset();
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -142,7 +156,7 @@
 <svelte:window on:keydown={onKeydown} />
 
 <div class="palette">
-  <div class="topbar" data-tauri-drag-region>
+  <div class="topbar" role="toolbar" tabindex="-1" onmousedown={startDrag}>
     <button
       class="mode-badge"
       class:agent={mode === "agent"}
@@ -153,9 +167,9 @@
       {mode === "agent" ? "Agent" : "Web"}
     </button>
     {#if loading}<span class="run-dot" title="Агент работает"></span><span class="run-label">работает… {elapsed}s</span>{/if}
-    <div class="topbar-spacer" data-tauri-drag-region></div>
+    <div class="topbar-spacer"></div>
     <button class="bar-btn" type="button" title="Новый запрос" onclick={reset}>＋</button>
-    <button class="bar-btn" type="button" title="Скрыть (Esc)" onclick={close}>✕</button>
+    <button class="bar-btn" type="button" title="Скрыть (Esc) — состояние сохранится" onclick={close}>✕</button>
   </div>
   <div class="search-row">
     <input
@@ -181,7 +195,8 @@
   {#if error}
     <div class="result error">{error}</div>
   {:else if answer}
-    <div class="result">{answer}</div>
+    <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+    <div class="result markdown">{@html answerHtml}</div>
     <div class="actions">
       <button onclick={insert}>Insert ⌘↵</button>
       <button onclick={copy}>Copy</button>
@@ -326,6 +341,38 @@
     padding-top: 12px;
   }
   .result.error { color: #ff8a80; }
+
+  /* Markdown rendering of the agent answer */
+  .markdown { white-space: normal; }
+  .markdown :global(h1),
+  .markdown :global(h2),
+  .markdown :global(h3) { font-size: 15px; margin: 10px 0 4px; font-weight: 700; }
+  .markdown :global(p) { margin: 6px 0; }
+  .markdown :global(ul),
+  .markdown :global(ol) { margin: 6px 0; padding-left: 20px; }
+  .markdown :global(li) { margin: 2px 0; }
+  .markdown :global(a) { color: #8aa0ff; text-decoration: underline; }
+  .markdown :global(code) {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 1px 5px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .markdown :global(pre) {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 10px;
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  .markdown :global(pre code) { background: none; padding: 0; }
+  .markdown :global(strong) { font-weight: 700; color: #fff; }
+  .markdown :global(blockquote) {
+    border-left: 3px solid rgba(255, 255, 255, 0.2);
+    margin: 6px 0;
+    padding-left: 10px;
+    color: #b9b9c2;
+  }
 
   .progress {
     flex: 1;
