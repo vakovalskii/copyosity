@@ -88,6 +88,15 @@
     await getCurrentWindow().setSize(new LogicalSize(restoreSize.w, restoreSize.h));
     setTimeout(() => inputEl?.focus(), 40);
   }
+  // On the dot: single press drags (moves the window), double press restores.
+  // e.detail === 2 on the second mousedown of a double-click.
+  function dotMouseDown(e: MouseEvent) {
+    if (e.detail >= 2) {
+      restoreWindow();
+      return;
+    }
+    getCurrentWindow().startDragging();
+  }
 
   // Live elapsed counter while the agent is working (qwen3.6 reasoning is slow,
   // so a moving timer makes it clear it's running, not frozen).
@@ -225,9 +234,9 @@
     class:busy={loading}
     class:done={!loading && !!answer}
     type="button"
-    title="Развернуть Copyosity Agent"
-    onclick={restoreWindow}
-    aria-label="Expand"
+    title="Перетащи — двигать · двойной клик — развернуть"
+    onmousedown={dotMouseDown}
+    aria-label="Move or expand"
   ></button>
 {:else}
 <div class="palette">
