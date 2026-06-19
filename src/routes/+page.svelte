@@ -45,6 +45,18 @@
     type PanelMotionMode,
   } from "$lib/overlay-motion";
   import { shouldLoadNextEntryPage } from "$lib/overlay-pagination";
+  import {
+    indexOfLeadingVisibleCard,
+    isCardOffScreen,
+    nextIndexAfterKeyboardArrow,
+  } from "$lib/overlay-grid-scroll";
+  import {
+    handleScrollEndBrowseSync,
+    shouldClearStuckSuppressOnUserScroll,
+    shouldIncrementSuppressOnProgrammaticScroll,
+    shouldRunScrollToSelectedGeneration,
+    shouldScheduleTrackpadLeadingSync,
+  } from "$lib/overlay-browse-sync";
 
   const overlayShortcutHints: KeyboardHint[] = [
     { prefix: "Click", action: "copy" },
@@ -74,6 +86,12 @@
   let lastLayoutHeight = $state<number | null>(null);
   let collections: Collection[] = $state([]);
   let activating = $state(false);
+  let suppressSelectionSyncCount = 0;
+  let scrollToSelectedGeneration = 0;
+  let scrollIdleSyncTimer: ReturnType<typeof setTimeout> | undefined;
+  let keyboardBrowseUntil = 0;
+  const SCROLL_IDLE_SYNC_MS = 120; // debounce fallback when scrollend is late (WKWebView)
+  const KEYBOARD_BROWSE_GUARD_MS = 350; // block trackpad leading-sync during rapid ←/→
   /**
    * Panel motion coordination (settings instant-hide vs animated hide vs in-flight reveal):
    * - revealSeq: invalidates async showWindow pipeline; bumped on hide reset and new show.
@@ -343,6 +361,8 @@
     overlay.clearSearch({ reload: false });
     overlay.resetOverlayFilters();
     selectedIndex = -1;
+    suppressSelectionSyncCount = 0;
+    keyboardBrowseUntil = 0;
     resetOverlayResizeState();
   }
 
@@ -381,6 +401,8 @@
     const hadPendingReload = pendingReload;
     pendingReload = false;
     if (gridEl) gridEl.scrollLeft = 0;
+    suppressSelectionSyncCount = 0;
+    keyboardBrowseUntil = 0;
 
     panelMotionMode = "instant";
     visible = false;
@@ -575,15 +597,20 @@
         if (overlay.displayListPending || overlay.displayFetchFailed) return;
         e.preventDefault();
         setInputModality("keyboard");
-        if (e.key === "ArrowRight") {
-          selectedIndex = Math.min(selectedIndex + 1, filteredEntries.length - 1);
-          if (selectedIndex === filteredEntries.length - 1) {
-            void overlay.loadNextEntryPage();
-          }
-        } else {
-          selectedIndex = Math.max(selectedIndex - 1, 0);
+        touchKeyboardBrowseScroll();
+        const scrollCtx = keyboardArrowScrollContext();
+        selectedIndex = nextIndexAfterKeyboardArrow({
+          direction: e.key === "ArrowRight" ? "right" : "left",
+          selectedIndex,
+          leadingIndex: scrollCtx.leadingIndex,
+          selectedOffScreen: scrollCtx.selectedOffScreen,
+          wrapperMissing: scrollCtx.wrapperMissing,
+          entryCount: filteredEntries.length,
+        });
+        if (e.key === "ArrowRight" && selectedIndex === filteredEntries.length - 1) {
+          void overlay.loadNextEntryPage();
         }
-        scrollToSelected();
+        scrollToSelected({ behavior: "auto", keyboardScroll: true });
         return;
       }
 
@@ -608,6 +635,7 @@
       clearHideTransitionHandler();
       clearRevealTimer();
       clearTimeout(reloadTimer);
+      clearTimeout(scrollIdleSyncTimer);
       overlay.dispose();
       unlistenClipboard.then((fn) => fn());
       unlistenHistory.then((fn) => fn());
@@ -624,9 +652,42 @@
     selectedIndex = index;
   }
 
+  function leadingVisibleCardIndex(): number {
+    if (!gridEl || filteredEntries.length === 0) return -1;
+
+    const wrappers = gridEl.querySelectorAll(".card-wrapper");
+    const cardRects: { left: number; right: number }[] = [];
+    wrappers.forEach((wrapper) => {
+      if (wrapper instanceof HTMLElement) {
+        const rect = wrapper.getBoundingClientRect();
+        cardRects.push({ left: rect.left, right: rect.right });
+      }
+    });
+
+    const { left: padLeft, right: padRight } = getGridScrollInsets(gridEl);
+    const viewport = gridEl.getBoundingClientRect();
+    return indexOfLeadingVisibleCard(viewport, padLeft, padRight, cardRects);
+  }
+
+  /** Select leading visible card and scroll/focus like overlay open. */
+  function selectLeadingVisibleCard() {
+    const index = leadingVisibleCardIndex();
+    if (index < 0) return;
+    selectedIndex = index;
+    scrollToSelected({ keyboardScroll: false, suppressLeadingSync: false });
+  }
+
   function handleGridScroll(event: Event) {
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return;
+
+    const now = performance.now();
+    suppressSelectionSyncCount = shouldClearStuckSuppressOnUserScroll({
+      suppressSelectionSyncCount,
+      keyboardBrowseUntil,
+      now,
+      isTrusted: event.isTrusted,
+    });
 
     if (
       shouldLoadNextEntryPage({
@@ -639,6 +700,66 @@
     ) {
       void overlay.loadNextEntryPage();
     }
+
+    if (shouldScheduleTrackpadLeadingSync({ keyboardBrowseUntil, now })) {
+      scheduleTrackpadScrollSync();
+    }
+  }
+
+  function scheduleTrackpadScrollSync() {
+    clearTimeout(scrollIdleSyncTimer);
+    scrollIdleSyncTimer = setTimeout(() => {
+      scrollIdleSyncTimer = undefined;
+      finishIdleScrollSync();
+    }, SCROLL_IDLE_SYNC_MS);
+  }
+
+  /** Shared by scrollend (primary) and idle debounce when scrollend is late — one leading-sync path. */
+  function finishIdleScrollSync() {
+    const result = handleScrollEndBrowseSync({
+      suppressSelectionSyncCount,
+      keyboardBrowseUntil,
+      now: performance.now(),
+    });
+    suppressSelectionSyncCount = result.nextSuppressCount;
+    if (result.shouldSyncLeading) selectLeadingVisibleCard();
+  }
+
+  function keyboardArrowScrollContext(): {
+    leadingIndex: number;
+    selectedOffScreen: boolean;
+    wrapperMissing: boolean;
+  } {
+    const leadingIndex = leadingVisibleCardIndex();
+    if (!gridEl || filteredEntries.length === 0) {
+      return { leadingIndex, selectedOffScreen: false, wrapperMissing: false };
+    }
+
+    const wrappers = gridEl.querySelectorAll(".card-wrapper");
+    const wrapper = wrappers[selectedIndex];
+    const wrapperMissing = selectedIndex >= 0 && !(wrapper instanceof HTMLElement);
+
+    let selectedOffScreen = false;
+    if (wrapper instanceof HTMLElement) {
+      const { left: padLeft, right: padRight } = getGridScrollInsets(gridEl);
+      const viewport = gridEl.getBoundingClientRect();
+      const rect = wrapper.getBoundingClientRect();
+      selectedOffScreen = isCardOffScreen(viewport, padLeft, padRight, rect);
+    }
+
+    return { leadingIndex, selectedOffScreen, wrapperMissing };
+  }
+
+  function touchKeyboardBrowseScroll() {
+    keyboardBrowseUntil = performance.now() + KEYBOARD_BROWSE_GUARD_MS;
+    clearTimeout(scrollIdleSyncTimer);
+    scrollIdleSyncTimer = undefined;
+  }
+
+  function handleGridScrollEnd() {
+    clearTimeout(scrollIdleSyncTimer);
+    scrollIdleSyncTimer = undefined;
+    finishIdleScrollSync();
   }
 
   function getGridScrollInsets(container: HTMLElement) {
@@ -658,7 +779,7 @@
     card: HTMLElement,
     container: HTMLElement,
     behavior: ScrollBehavior,
-  ) {
+  ): boolean {
     const measureEl = scrollMeasureEl(card);
     const { left: padLeft, right: padRight } = getGridScrollInsets(container);
     const containerRect = container.getBoundingClientRect();
@@ -668,7 +789,7 @@
     const visibleRight = containerRect.right - padRight;
 
     if (cardRect.left >= visibleLeft - slack && cardRect.right <= visibleRight + slack) {
-      return;
+      return false;
     }
 
     let delta = 0;
@@ -677,14 +798,15 @@
     } else if (cardRect.left < visibleLeft - slack) {
       delta = cardRect.left - visibleLeft;
     }
-    if (delta === 0) return;
+    if (delta === 0) return false;
 
     container.scrollTo({ left: container.scrollLeft + delta, behavior });
+    return true;
   }
 
-  function blurDeselectedCards(cards: NodeListOf<Element>) {
+  function blurDeselectedCards(cards: NodeListOf<Element>, keepIndex: number) {
     cards.forEach((c, i) => {
-      if (i === selectedIndex || !(c instanceof HTMLElement)) return;
+      if (i === keepIndex || !(c instanceof HTMLElement)) return;
       if (c === document.activeElement || c.contains(document.activeElement)) {
         const active = document.activeElement;
         if (active instanceof HTMLElement) active.blur();
@@ -693,21 +815,42 @@
     });
   }
 
-  function scrollToSelected() {
+  type ScrollToSelectedOptions = {
+    behavior?: ScrollBehavior;
+    keyboardScroll?: boolean;
+    /** Blocks one leading-card sync on scrollend when the scroll moves the viewport. Default true. */
+    suppressLeadingSync?: boolean;
+  };
+
+  function scrollToSelected(options?: ScrollBehavior | ScrollToSelectedOptions) {
+    const resolved: ScrollToSelectedOptions =
+      typeof options === "string" ? { behavior: options } : (options ?? {});
+    const behaviorOverride = resolved.behavior;
+    const keyboardScroll = resolved.keyboardScroll ?? false;
+    const suppressLeadingSync = resolved.suppressLeadingSync ?? true;
+    const generation = ++scrollToSelectedGeneration;
+    const targetIndex = selectedIndex;
+
     void (async () => {
-      if (!gridEl) return;
+      if (!gridEl || targetIndex < 0) return;
       await tick();
+      if (!shouldRunScrollToSelectedGeneration(generation, scrollToSelectedGeneration)) return;
+
       const cards = gridEl.querySelectorAll(".card");
-      const card = cards[selectedIndex];
+      const card = cards[targetIndex];
       if (!(card instanceof HTMLElement)) return;
 
-      blurDeselectedCards(cards);
+      blurDeselectedCards(cards, targetIndex);
 
-      const behavior = scrollBehavior();
-      snapCardIntoPaddedViewport(card, gridEl, behavior);
+      const behavior = behaviorOverride ?? scrollBehavior();
+      const didScroll = snapCardIntoPaddedViewport(card, gridEl, behavior);
+      if (shouldIncrementSuppressOnProgrammaticScroll({ didScroll, suppressLeadingSync })) {
+        suppressSelectionSyncCount += 1;
+      }
 
       const keepSearchFocus = searchBar?.isFocused() ?? false;
       if (!keepSearchFocus) {
+        if (keyboardScroll) setInputModality("keyboard");
         card.focus({ preventScroll: true });
       }
     })();
@@ -815,7 +958,12 @@
     </div>
   {/if}
 
-  <div class="grid-container" bind:this={gridEl} onscroll={handleGridScroll}>
+  <div
+    class="grid-container"
+    bind:this={gridEl}
+    onscroll={handleGridScroll}
+    onscrollend={handleGridScrollEnd}
+  >
     {#if filteredEntries.length === 0}
       {@const empty = emptyStateCopy()}
       {@const listPending = overlay.displayListPending}
@@ -1096,12 +1244,14 @@
     padding: 14px 16px var(--space-section);
     scroll-padding-inline: 16px;
     overflow: auto hidden;
+    scroll-snap-type: x mandatory;
     align-items: flex-start;
     min-height: 0;
   }
 
   .card-wrapper {
     flex-shrink: 0;
+    scroll-snap-align: start;
   }
 
   .empty-state {
