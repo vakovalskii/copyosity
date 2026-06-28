@@ -1,0 +1,56 @@
+name: Build Windows installer (experimental)
+
+# Produces an actual Windows installer (.msi + NSIS .exe) via `tauri build` and
+# uploads it as a workflow artifact.
+#
+# ⚠️ Copyosity is a macOS-native app. On Windows every native feature (the
+# NSPanel UI, clipboard monitor, paste injection, Vision OCR, Apple Events) is an
+# inert stub, so the produced installer is a NON-FUNCTIONAL SHELL — it installs
+# and launches but does nothing useful. This exists only to have a downloadable
+# Windows binary while a real port is pending.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'win-v*'
+
+jobs:
+  build:
+    name: tauri build (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: windows-build-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: windows-build-
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build (Tauri bundle)
+        run: npm run tauri build
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: copyosity-windows-installers
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
