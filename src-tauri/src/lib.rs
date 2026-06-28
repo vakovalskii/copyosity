@@ -333,6 +333,7 @@ pub fn run() {
             commands::rebind_voice_shortcut,
             commands::list_microphones,
             commands::hub_test_connection,
+            commands::hub_list_models,
             palette_search,
             palette_hide,
             palette_insert,

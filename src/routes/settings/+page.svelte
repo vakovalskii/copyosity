@@ -20,6 +20,7 @@
     pullOllamaModel,
     testOllamaTagging,
     hubTestConnection,
+    hubListModels,
     type OllamaStatus,
   } from "$lib/api";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -62,7 +63,6 @@
 
   let hubTesting = $state(false);
   let hubTestResult = $state<{ ok: boolean; message: string } | null>(null);
-  let localOpen = $state(false);
 
   async function handleHubTest() {
     hubTesting = true;
@@ -70,6 +70,7 @@
     try {
       const count = await hubTestConnection(settings.hub_url, settings.hub_token);
       hubTestResult = { ok: true, message: `Connected — ${count} model(s) available` };
+      loadHubModels();
     } catch (e) {
       hubTestResult = { ok: false, message: String(e) };
     } finally {
@@ -88,6 +89,7 @@
     settings = await getAppSettings();
     selectedModelPreset = settings.ollama_model;
     savedModel = settings.ollama_model;
+    snapshot();
   }
 
   async function loadModelCatalog() {
@@ -142,8 +144,12 @@
   onMount(() => {
     // Load everything in parallel instead of sequentially
     loadSettings().then(() => {
-      // Auto-check hub connection so the auth status is visible on open.
-      if (settings.hub_token?.trim()) handleHubTest();
+      // Auto-check hub connection + load the model list so the auth status
+      // and available models are visible on open.
+      if (settings.hub_token?.trim()) {
+        handleHubTest();
+        loadHubModels();
+      }
     });
     loadModelCatalog();
     loadExcludedApps();
@@ -187,6 +193,7 @@
         hub_search_enabled: settings.hub_search_enabled,
       });
       savedModel = settings.ollama_model;
+      snapshot();
       settingsNotice = "Saved";
       taggingResult = undefined;
       // Run post-save tasks in parallel
@@ -236,102 +243,236 @@
   });
 
   let modelDirty = $derived(settings.ollama_model !== savedModel);
+
+  // ---- Sidebar navigation ----
+  type Pane = "hub" | "voice" | "ai" | "history" | "permissions";
+  let activePane = $state<Pane>("hub");
+  const panes: { id: Pane; label: string; icon: string }[] = [
+    { id: "hub", label: "NeuralDeep", icon: "✦" },
+    { id: "voice", label: "Voice", icon: "🎙" },
+    { id: "ai", label: "Local AI", icon: "🧠" },
+    { id: "history", label: "History", icon: "🗂" },
+    { id: "permissions", label: "Permissions", icon: "🔑" },
+  ];
+
+  // ---- Hub model list (from /v1/models) ----
+  let hubModels = $state<string[]>([]);
+  let modelsLoading = $state(false);
+  async function loadHubModels() {
+    if (!settings.hub_token?.trim()) return;
+    modelsLoading = true;
+    try {
+      hubModels = await hubListModels(settings.hub_url, settings.hub_token);
+    } catch {
+      // leave hubModels as-is; the field still allows manual entry
+    } finally {
+      modelsLoading = false;
+    }
+  }
+  /** Ensure the currently-selected value is always present in the dropdown. */
+  function withCurrent(list: string[], current: string): string[] {
+    return current && !list.includes(current) ? [current, ...list] : list;
+  }
+
+  // ---- Dirty tracking (unsaved-changes bar) ----
+  let savedSnapshot = $state("");
+  let isDirty = $derived(savedSnapshot !== "" && JSON.stringify(settings) !== savedSnapshot);
+  function snapshot() {
+    savedSnapshot = JSON.stringify(settings);
+  }
+  async function resetSettings() {
+    await loadSettings();
+    snapshot();
+    settingsNotice = "";
+  }
 </script>
 
-<div class="settings-page">
-  <div class="settings-head">
-    <div class="settings-title">Settings</div>
-    <div class="settings-subtitle">NeuralDeep hub & local AI</div>
-  </div>
-
-  <section class="settings-section">
-    <div class="settings-section-title">NeuralDeep Hub</div>
-    <div class="settings-hint" style="margin-bottom: 10px;">
-      Connect to NeuralDeep to power tagging, transcription, web search and the
-      research agent. <strong>3 steps:</strong>
-      <ol style="margin: 6px 0 0; padding-left: 18px;">
-        <li><button class="link-btn" type="button" onclick={() => openUrl("https://hub.neuraldeep.ru/app")}>Open the hub</button> → copy your <code>sk-…</code> key</li>
-        <li>Paste it into <strong>API Token</strong> below</li>
-        <li>Click <strong>Test connection</strong> → then <strong>Save</strong></li>
-      </ol>
+<div class="settings-shell">
+  <aside class="settings-sidebar">
+    <div class="sidebar-title">Settings</div>
+    <nav class="sidebar-nav">
+      {#each panes as p}
+        <button
+          class="nav-item"
+          class:active={activePane === p.id}
+          type="button"
+          onclick={() => (activePane = p.id)}
+        >
+          <span class="nav-icon">{p.icon}</span>
+          <span>{p.label}</span>
+        </button>
+      {/each}
+    </nav>
+    <div class="sidebar-foot">
+      <span class="sidebar-dot" class:ok={hubTestResult?.ok} class:fail={hubTestResult && !hubTestResult.ok}></span>
+      <span>{hubTestResult ? (hubTestResult.ok ? "Hub connected" : "Hub error") : settings.hub_token?.trim() ? "Hub configured" : "Hub not set"}</span>
     </div>
+  </aside>
 
-    <label class="settings-field">
-      <span class="settings-label">API base URL</span>
-      <input
-        class="settings-input"
-        type="text"
-        bind:value={settings.hub_url}
-        placeholder="https://api.neuraldeep.ru"
-      />
-    </label>
-    <label class="settings-field" style="margin-top: 8px;">
-      <span class="settings-label">API Token</span>
-      <input
-        class="settings-input"
-        type="password"
-        bind:value={settings.hub_token}
-        placeholder="sk-... Bearer token"
-      />
-    </label>
-    <label class="settings-field" style="margin-top: 8px;">
-      <span class="settings-label">Chat model (for tagging & search)</span>
-      <input
-        class="settings-input"
-        type="text"
-        list="hub-models"
-        bind:value={settings.hub_chat_model}
-        placeholder="gpt-oss-120b"
-      />
-      <datalist id="hub-models">
-        <option value="gpt-oss-120b"></option>
-        <option value="qwen3.6-35b-a3b"></option>
-        <option value="gemma-4-31b"></option>
-      </datalist>
-      <div class="settings-hint">
-        Available: <code>gpt-oss-120b</code>, <code>qwen3.6-35b-a3b</code>, <code>gemma-4-31b</code>
+  <main class="settings-content">
+    {#if activePane === "hub"}
+      <div class="pane-head">
+        <div class="pane-title">NeuralDeep Hub</div>
+        <div class="pane-subtitle">Cloud models for tagging, transcription, web search and the research agent.</div>
       </div>
-    </label>
 
-    <div class="settings-field" style="margin-top: 10px;">
-      <button class="settings-ghost-btn" type="button" disabled={hubTesting} onclick={handleHubTest}>
-        {hubTesting ? "Testing..." : "Test connection"}
-      </button>
-      {#if hubTestResult}
-        <div class="settings-hint" style="margin-top: 6px; color: {hubTestResult.ok ? '#3bbf6a' : '#e5534b'};">
-          {hubTestResult.message}
+      <section class="settings-section">
+        <div class="settings-hint" style="margin-bottom: 10px;">
+          <strong>3 steps:</strong>
+          <ol style="margin: 6px 0 0; padding-left: 18px;">
+            <li><button class="link-btn" type="button" onclick={() => openUrl("https://hub.neuraldeep.ru/app")}>Open the hub</button> → copy your <code>sk-…</code> key</li>
+            <li>Paste it into <strong>API Token</strong> below</li>
+            <li>Click <strong>Test connection</strong> → then <strong>Save</strong></li>
+          </ol>
         </div>
-      {/if}
-    </div>
 
-    <label class="settings-toggle" style="margin-top: 12px;">
-      <input type="checkbox" bind:checked={settings.hub_tagging_enabled} />
-      <span>Use hub for tagging (falls back to Ollama on error)</span>
-    </label>
-    <label class="settings-toggle" style="margin-top: 8px;">
-      <input type="checkbox" bind:checked={settings.hub_transcribe_enabled} />
-      <span>Use hub for voice transcription</span>
-    </label>
-    <div class="settings-hint" style="margin-top: 12px;">
-      <strong>Web search:</strong> press <code>⌘⇧Space</code> anywhere (or tray → Agent Search,
-      or the search button in the main window) to query the web via the hub.
-    </div>
-  </section>
+        <label class="settings-field">
+          <span class="settings-label">API base URL</span>
+          <input
+            class="settings-input"
+            type="text"
+            bind:value={settings.hub_url}
+            placeholder="https://api.neuraldeep.ru"
+          />
+        </label>
+        <label class="settings-field" style="margin-top: 8px;">
+          <span class="settings-label">API Token</span>
+          <input
+            class="settings-input"
+            type="password"
+            bind:value={settings.hub_token}
+            placeholder="sk-... Bearer token"
+          />
+        </label>
 
-  <button
-    class="settings-collapse-header"
-    type="button"
-    aria-expanded={localOpen}
-    onclick={() => (localOpen = !localOpen)}
-  >
-    <span class="settings-collapse-caret" class:open={localOpen}>›</span>
-    <span>Local settings</span>
-    <span class="settings-collapse-sub">Ollama, voice, history, permissions</span>
-  </button>
+        <div class="settings-field" style="margin-top: 10px;">
+          <button class="settings-ghost-btn" type="button" disabled={hubTesting} onclick={handleHubTest}>
+            {hubTesting ? "Testing..." : "Test connection"}
+          </button>
+          {#if hubTestResult}
+            <div class="settings-hint" style="margin-top: 6px; color: {hubTestResult.ok ? '#3bbf6a' : '#e5534b'};">
+              {hubTestResult.message}
+            </div>
+          {/if}
+        </div>
+      </section>
 
-  {#if localOpen}
-  <section class="settings-section">
-    <div class="settings-section-title">Permissions</div>
+      <section class="settings-section">
+        <div class="settings-section-title">Model</div>
+        <label class="settings-field">
+          <span class="settings-label">Chat / agent model (tagging & search)</span>
+          <div class="settings-inline">
+            <select class="settings-select" bind:value={settings.hub_chat_model}>
+              {#each withCurrent(hubModels.length ? hubModels : ["gpt-oss-120b", "qwen3.6-35b-a3b", "gemma-4-31b"], settings.hub_chat_model) as m}
+                <option value={m}>{m}</option>
+              {/each}
+            </select>
+            <button class="settings-small-btn" type="button" disabled={modelsLoading} onclick={loadHubModels} title="Load live model list from the hub">
+              {modelsLoading ? "…" : "↻"}
+            </button>
+          </div>
+          <div class="settings-hint">
+            {hubModels.length ? `${hubModels.length} models loaded from the hub` : "Test connection or press ↻ to load the live model list."}
+          </div>
+        </label>
+      </section>
+
+      <section class="settings-section">
+        <div class="settings-section-title">Features</div>
+        <label class="settings-toggle">
+          <input type="checkbox" bind:checked={settings.hub_tagging_enabled} />
+          <span>Use hub for tagging (falls back to Ollama on error)</span>
+        </label>
+        <label class="settings-toggle" style="margin-top: 10px;">
+          <input type="checkbox" bind:checked={settings.hub_transcribe_enabled} />
+          <span>Use hub for voice transcription</span>
+        </label>
+        <div class="settings-hint" style="margin-top: 12px;">
+          <strong>Web search:</strong> press <code>⌘⇧Space</code> anywhere (or tray → Agent Search,
+          or the search button in the main window) to query the web via the hub.
+        </div>
+      </section>
+    {:else if activePane === "voice"}
+      <div class="pane-head">
+        <div class="pane-title">Voice</div>
+        <div class="pane-subtitle">Hold the shortcut to record, release to transcribe and paste at the cursor.</div>
+      </div>
+
+      <section class="settings-section">
+        <div class="settings-section-title">Recording</div>
+        <label class="settings-field">
+          <span class="settings-label">Shortcut (hold to record)</span>
+          <input
+            class="settings-input"
+            type="text"
+            bind:value={settings.voice_shortcut}
+            placeholder="option+space"
+          />
+          <div class="settings-hint">
+            Use: <code>cmd</code>, <code>option</code>, <code>ctrl</code>, <code>shift</code> + key.
+            Examples: <code>option+space</code>, <code>cmd+shift+r</code>, <code>ctrl+alt+space</code>
+          </div>
+        </label>
+        <label class="settings-field" style="margin-top: 8px;">
+          <span class="settings-label">Microphone</span>
+          <select class="settings-select" bind:value={settings.selected_microphone}>
+            <option value="">System default</option>
+            {#each microphones as mic}
+              <option value={mic.name}>{mic.name}{mic.is_default ? " (default)" : ""}</option>
+            {/each}
+          </select>
+        </label>
+      </section>
+
+      <section class="settings-section">
+        <div class="settings-section-title">Transcription model</div>
+        <div class="settings-hint" style="margin-bottom: 10px;">
+          With <strong>hub transcription</strong> on (NeuralDeep tab), audio goes to the hub model below.
+          Otherwise it uses the custom Whisper server.
+        </div>
+        <label class="settings-field">
+          <span class="settings-label">Model</span>
+          <div class="settings-inline">
+            <select class="settings-select" bind:value={settings.whisper_server_model}>
+              {#each withCurrent(hubModels.length ? hubModels : ["whisper-1"], settings.whisper_server_model) as m}
+                <option value={m}>{m}</option>
+              {/each}
+            </select>
+            <button class="settings-small-btn" type="button" disabled={modelsLoading} onclick={loadHubModels} title="Load live model list from the hub">
+              {modelsLoading ? "…" : "↻"}
+            </button>
+          </div>
+          <div class="settings-hint">
+            Pick a transcription model — e.g. <code>whisper-1</code> or <code>подлодка</code>.
+          </div>
+        </label>
+        <label class="settings-field" style="margin-top: 8px;">
+          <span class="settings-label">Custom Whisper server URL (optional)</span>
+          <input
+            class="settings-input"
+            type="text"
+            bind:value={settings.whisper_server_url}
+            placeholder="http://localhost:8000/v1/audio/transcriptions"
+          />
+        </label>
+        <label class="settings-field" style="margin-top: 8px;">
+          <span class="settings-label">Custom server token (optional)</span>
+          <input
+            class="settings-input"
+            type="password"
+            bind:value={settings.whisper_server_token}
+            placeholder="Bearer token (optional)"
+          />
+        </label>
+      </section>
+    {:else if activePane === "permissions"}
+      <div class="pane-head">
+        <div class="pane-title">Permissions</div>
+        <div class="pane-subtitle">Accessibility access is required for paste automation and the global shortcut.</div>
+      </div>
+
+      <section class="settings-section">
+        <div class="settings-section-title">Accessibility</div>
     <div class="status-step">
       <div class="status-row">
         <span class="status-dot" class:ok={accessibilityGranted === true} class:fail={accessibilityGranted === false} class:checking={accessibilityGranted === null}></span>
@@ -356,6 +497,11 @@
       {/if}
     </div>
   </section>
+    {:else if activePane === "ai"}
+      <div class="pane-head">
+        <div class="pane-title">Local AI</div>
+        <div class="pane-subtitle">Run tagging on-device with Ollama — used when the hub is off or unavailable.</div>
+      </div>
 
   <section class="settings-section">
     <div class="settings-section-title">Local AI Status</div>
@@ -536,6 +682,11 @@
       </div>
     </label>
   </section>
+    {:else if activePane === "history"}
+      <div class="pane-head">
+        <div class="pane-title">History</div>
+        <div class="pane-subtitle">How long clips are kept and which apps are ignored.</div>
+      </div>
 
   <section class="settings-section">
     <div class="settings-section-title">Storage</div>
@@ -589,78 +740,30 @@
   </section>
 
   <section class="settings-section">
-    <div class="settings-section-title">Voice Transcription</div>
-    <div class="settings-hint" style="margin-bottom: 10px;">
-      Hold the shortcut to record, release to transcribe and paste at cursor.
-      Requires an OpenAI-compatible Whisper server.
+    <div class="settings-section-title">Danger zone</div>
+    <div class="settings-secondary">
+      <button class="settings-item danger" type="button" onclick={handleClearHistory}>Clear unpinned history</button>
     </div>
-    <label class="settings-field">
-      <span class="settings-label">Shortcut (hold to record)</span>
-      <input
-        class="settings-input"
-        type="text"
-        bind:value={settings.voice_shortcut}
-        placeholder="option+space"
-      />
-      <div class="settings-hint">
-        Use: <code>cmd</code>, <code>option</code>, <code>ctrl</code>, <code>shift</code> + key.
-        Examples: <code>option+space</code>, <code>cmd+shift+r</code>, <code>ctrl+alt+space</code>
-      </div>
-    </label>
-    <label class="settings-field" style="margin-top: 8px;">
-      <span class="settings-label">Microphone</span>
-      <select class="settings-select" bind:value={settings.selected_microphone}>
-        <option value="">System default</option>
-        {#each microphones as mic}
-          <option value={mic.name}>{mic.name}{mic.is_default ? " (default)" : ""}</option>
-        {/each}
-      </select>
-    </label>
-    <label class="settings-field" style="margin-top: 8px;">
-      <span class="settings-label">Server URL</span>
-      <input
-        class="settings-input"
-        type="text"
-        bind:value={settings.whisper_server_url}
-        placeholder="http://localhost:8000/v1/audio/transcriptions"
-      />
-    </label>
-    <label class="settings-field" style="margin-top: 8px;">
-      <span class="settings-label">API Token</span>
-      <input
-        class="settings-input"
-        type="password"
-        bind:value={settings.whisper_server_token}
-        placeholder="Bearer token (optional)"
-      />
-    </label>
-    <label class="settings-field" style="margin-top: 8px;">
-      <span class="settings-label">Model</span>
-      <input
-        class="settings-input"
-        type="text"
-        bind:value={settings.whisper_server_model}
-        placeholder="whisper-1"
-      />
-    </label>
   </section>
-  {/if}
-
-  <div class="settings-actions">
-    <button class="settings-save-btn" type="button" disabled={savingSettings} onclick={saveSettings}>
-      {savingSettings ? "Saving..." : "Save settings"}
-    </button>
-    {#if settingsNotice}
-      <div class="settings-note">{settingsNotice}</div>
     {/if}
-  </div>
-
-  <div class="settings-divider"></div>
-
-  <div class="settings-secondary">
-    <button class="settings-item danger" type="button" onclick={handleClearHistory}>Clear unpinned history</button>
-  </div>
+  </main>
 </div>
+
+{#if isDirty}
+  <div class="dirty-bar">
+    <span class="dirty-label">Unsaved changes</span>
+    <div class="dirty-actions">
+      <button class="dirty-reset" type="button" onclick={resetSettings}>Reset</button>
+      <button class="dirty-save" type="button" disabled={savingSettings} onclick={saveSettings}>
+        {savingSettings ? "Saving…" : "Save"}
+      </button>
+    </div>
+  </div>
+{:else if settingsNotice}
+  <div class="dirty-bar saved">
+    <span class="dirty-label">{settingsNotice}</span>
+  </div>
+{/if}
 
 <style>
   :global(body) {
@@ -677,27 +780,198 @@
     box-sizing: border-box;
   }
 
-  .settings-page {
-    padding: 20px;
-    max-width: 540px;
-    margin: 0 auto;
+  /* ---- Shell: sidebar + content ---- */
+  .settings-shell {
+    display: grid;
+    grid-template-columns: 184px 1fr;
+    min-height: 100vh;
   }
 
-  .settings-head {
+  .settings-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 16px 12px;
+    background: rgba(0, 0, 0, 0.22);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+
+  .sidebar-title {
+    padding: 4px 10px 12px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #f2f5fb;
+    letter-spacing: -0.02em;
+  }
+
+  .sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: #c0c5d4;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .nav-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #eef1f8;
+  }
+
+  .nav-item.active {
+    background: rgba(96, 134, 230, 0.18);
+    border-color: rgba(120, 160, 255, 0.25);
+    color: #eef2ff;
+  }
+
+  .nav-icon {
+    width: 18px;
+    text-align: center;
+    font-size: 14px;
+  }
+
+  .sidebar-foot {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: #8b93a6;
+  }
+
+  .sidebar-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    flex-shrink: 0;
+  }
+
+  .sidebar-dot.ok {
+    background: #4ade80;
+    box-shadow: 0 0 6px rgba(74, 222, 128, 0.4);
+  }
+
+  .sidebar-dot.fail {
+    background: #f87171;
+  }
+
+  .settings-content {
+    padding: 22px 24px 88px;
+    max-width: 620px;
+    width: 100%;
+  }
+
+  .pane-head {
     margin-bottom: 16px;
   }
 
-  .settings-title {
+  .pane-title {
     font-size: 20px;
     font-weight: 700;
     color: #f2f5fb;
     letter-spacing: -0.02em;
   }
 
-  .settings-subtitle {
+  .pane-subtitle {
     margin-top: 4px;
     font-size: 13px;
     color: #9097aa;
+    line-height: 1.4;
+  }
+
+  /* ---- Dirty bar ---- */
+  .dirty-bar {
+    position: fixed;
+    left: 184px;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 24px;
+    background: rgba(24, 25, 31, 0.92);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .dirty-bar.saved {
+    justify-content: flex-start;
+  }
+
+  .dirty-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #e3b370;
+  }
+
+  .dirty-bar.saved .dirty-label {
+    color: #91d6a6;
+  }
+
+  .dirty-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .dirty-reset {
+    min-height: 36px;
+    padding: 0 14px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: #d8dce6;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .dirty-reset:hover {
+    background: rgba(255, 255, 255, 0.09);
+  }
+
+  .dirty-save {
+    min-height: 36px;
+    padding: 0 18px;
+    background: linear-gradient(180deg, rgba(103, 145, 255, 0.95), rgba(75, 121, 244, 0.92));
+    border: 1px solid rgba(144, 177, 255, 0.35);
+    border-radius: 10px;
+    color: #f7f9ff;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+  }
+
+  .dirty-save:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.04);
+  }
+
+  .dirty-save:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 
   .settings-section {
@@ -841,47 +1115,6 @@
     cursor: pointer;
   }
 
-  .settings-collapse-header {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    width: 100%;
-    box-sizing: border-box;
-    padding: 12px 14px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 11px;
-    color: #e0e0e0;
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-    text-align: left;
-    transition: background 0.15s ease;
-  }
-
-  .settings-collapse-header:hover {
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .settings-collapse-caret {
-    display: inline-block;
-    transition: transform 0.15s ease;
-    color: #8a8a93;
-    font-size: 16px;
-    line-height: 1;
-  }
-
-  .settings-collapse-caret.open {
-    transform: rotate(90deg);
-  }
-
-  .settings-collapse-sub {
-    margin-left: auto;
-    font-weight: 400;
-    font-size: 12px;
-    color: #76767f;
-  }
-
   .settings-small-btn {
     padding: 0 14px;
     background: rgba(96, 134, 230, 0.16);
@@ -901,49 +1134,6 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     color: #d8dce6;
     width: fit-content;
-  }
-
-  .settings-actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-top: 14px;
-  }
-
-  .settings-save-btn {
-    min-height: 42px;
-    padding: 0 16px;
-    background: linear-gradient(180deg, rgba(103, 145, 255, 0.95), rgba(75, 121, 244, 0.92));
-    border: 1px solid rgba(144, 177, 255, 0.35);
-    border-radius: 12px;
-    color: #f7f9ff;
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
-    transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
-  }
-
-  .settings-save-btn:hover {
-    transform: translateY(-1px);
-    filter: brightness(1.04);
-  }
-
-  .settings-save-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
-  .settings-note {
-    padding: 0 2px;
-    font-size: 11px;
-    color: #91d6a6;
-  }
-
-  .settings-divider {
-    height: 1px;
-    margin: 14px 0 12px;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
   }
 
   .settings-secondary {
@@ -1126,17 +1316,6 @@
     border-radius: 4px;
     font-family: "SF Mono", Menlo, monospace;
     font-size: 10.5px;
-    color: #c8cee0;
-  }
-
-  kbd {
-    display: inline-block;
-    padding: 1px 6px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 5px;
-    font-family: "SF Mono", Menlo, monospace;
-    font-size: 11px;
     color: #c8cee0;
   }
 

@@ -449,3 +449,18 @@ pub fn hub_test_connection(
         .unwrap_or(settings.hub_token);
     crate::hub::test_connection(&url, &token)
 }
+
+/// List available hub model ids (uses saved url/token unless overridden).
+#[tauri::command]
+pub fn hub_list_models(
+    db: State<'_, Arc<Database>>,
+    url: Option<String>,
+    token: Option<String>,
+) -> Result<Vec<String>, String> {
+    let settings = db.get_app_settings().map_err(|e| e.to_string())?;
+    let url = url.filter(|s| !s.trim().is_empty()).unwrap_or(settings.hub_url);
+    let token = token
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(settings.hub_token);
+    crate::hub::list_models(&url, &token)
+}

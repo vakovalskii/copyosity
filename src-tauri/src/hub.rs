@@ -50,6 +50,40 @@ pub fn test_connection(base_url: &str, token: &str) -> Result<usize, String> {
     Ok(count)
 }
 
+/// List available model ids from the hub (`GET /v1/models`).
+pub fn list_models(base_url: &str, token: &str) -> Result<Vec<String>, String> {
+    let base = normalize_base(base_url);
+    if base.is_empty() {
+        return Err("Hub URL is empty".to_string());
+    }
+    if token.trim().is_empty() {
+        return Err("Hub token is empty".to_string());
+    }
+    let url = format!("{}/v1/models", base);
+    let response = agent()
+        .get(&url)
+        .set("Authorization", &format!("Bearer {}", token.trim()))
+        .set("Accept", "application/json")
+        .call()
+        .map_err(|e| match e {
+            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
+            other => format!("Hub request failed: {}", other),
+        })?;
+    let json: serde_json::Value = response
+        .into_json()
+        .map_err(|e| format!("Failed to parse hub response: {}", e))?;
+    let mut ids: Vec<String> = json["data"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    ids.sort();
+    Ok(ids)
+}
+
 #[derive(Serialize)]
 struct ChatMessage<'a> {
     role: &'a str,
