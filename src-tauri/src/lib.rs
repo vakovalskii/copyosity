@@ -467,6 +467,13 @@ fn maybe_polish(settings: &db::AppSettings, raw: &str) -> String {
     if selected.is_some() {
         eprintln!("[voice] selected-text command mode");
     }
+    eprintln!(
+        "[voice] polishing: model={} kind={} screenshot={} dict={}",
+        settings.voice_polish_model,
+        kind,
+        screenshot.is_some(),
+        dictionary.len()
+    );
 
     match hub::polish_text(
         &settings.hub_url,
@@ -516,19 +523,28 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                         .try_state::<std::sync::Arc<db::Database>>()
                         .and_then(|db| db.get_app_settings().ok());
                     if let Some(s) = polish {
+                        eprintln!(
+                            "[voice] polish_enabled={} screenshot={} selected_text={}",
+                            s.voice_polish_enabled, s.voice_polish_screenshot, s.voice_selected_text
+                        );
                         if s.voice_polish_enabled {
                             if let Some(bundle) = app_bundle_id(pid) {
-                                *VOICE_APP_KIND.lock().unwrap() =
-                                    classify_app_kind(&bundle).to_string();
+                                let kind = classify_app_kind(&bundle);
+                                eprintln!("[voice] target app: {} -> {}", bundle, kind);
+                                *VOICE_APP_KIND.lock().unwrap() = kind.to_string();
                             }
                             if s.voice_polish_screenshot {
+                                eprintln!("[voice] capturing target-window screenshot…");
                                 std::thread::spawn(|| {
                                     if let Some(png) = screen::capture_context_png() {
                                         let b64 = base64::Engine::encode(
                                             &base64::engine::general_purpose::STANDARD,
                                             &png,
                                         );
+                                        eprintln!("[voice] screenshot ready ({} b64 chars)", b64.len());
                                         *VOICE_SCREENSHOT.lock().unwrap() = Some(b64);
+                                    } else {
+                                        eprintln!("[voice] screenshot capture returned nothing (Screen Recording permission?)");
                                     }
                                 });
                             }
@@ -667,7 +683,7 @@ fn ensure_voice_overlay(app: &tauri::AppHandle) {
             tauri::WebviewUrl::App("/overlay".into()),
         )
         .title("")
-        .inner_size(160.0, 52.0)
+        .inner_size(260.0, 54.0)
         .resizable(false)
         .decorations(false)
         .transparent(true)

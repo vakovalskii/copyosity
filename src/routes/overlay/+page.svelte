@@ -2,38 +2,59 @@
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
 
-  let bars = $state([12, 20, 8, 15, 10]);
+  const N = 28;
+  let bars = $state<number[]>(Array(N).fill(8));
+  let elapsed = $state(0); // seconds
+  let active = $state(false);
+
+  let startMs = 0;
+  let lastMs = 0;
+
+  function fmt(s: number): string {
+    const m = Math.floor(s / 60);
+    const ss = Math.floor(s % 60);
+    return `${m}:${ss.toString().padStart(2, "0")}`;
+  }
 
   onMount(() => {
     const unlisten = listen<number>("audio-level", (event) => {
-      const level = event.payload;
-      // Generate 5 bars with some variation around the level
-      bars = bars.map((_, i) => {
-        const offset = Math.sin(Date.now() / 120 + i * 1.8) * 18;
-        return Math.max(6, Math.min(100, level + offset + Math.random() * 12));
-      });
+      const now = Date.now();
+      // A gap means a fresh recording session — reset the timer + waveform.
+      if (now - lastMs > 800) {
+        startMs = now;
+        bars = Array(N).fill(8);
+      }
+      lastMs = now;
+      active = true;
+
+      const lvl = Math.max(8, Math.min(100, event.payload));
+      // Scroll the new sample in from the right.
+      bars = [...bars.slice(1), lvl];
     });
+
+    const tick = setInterval(() => {
+      if (lastMs && Date.now() - lastMs < 800) {
+        elapsed = (Date.now() - startMs) / 1000;
+      } else {
+        active = false;
+      }
+    }, 100);
 
     return () => {
       unlisten.then((fn) => fn());
+      clearInterval(tick);
     };
   });
 </script>
 
-<div class="overlay">
-  <div class="mic-icon">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-      <line x1="12" y1="19" x2="12" y2="23"/>
-      <line x1="8" y1="23" x2="16" y2="23"/>
-    </svg>
-  </div>
-  <div class="eq">
+<div class="capsule">
+  <span class="dot" class:live={active}></span>
+  <div class="wave">
     {#each bars as h, i}
-      <div class="bar" style="height: {h}%; transition-delay: {i * 15}ms;"></div>
+      <div class="bar" style="height: {Math.max(8, h)}%" data-i={i}></div>
     {/each}
   </div>
+  <span class="time">{fmt(elapsed)}</span>
 </div>
 
 <style>
@@ -46,44 +67,69 @@
     -webkit-user-select: none;
   }
 
-  .overlay {
+  .capsule {
+    box-sizing: border-box;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 10px;
+    gap: 9px;
     width: 100vw;
     height: 100vh;
-    background: rgba(18, 18, 24, 0.88);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0 14px;
+    background: rgba(18, 18, 24, 0.9);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
   }
 
-  .mic-icon {
-    color: #f87171;
-    animation: pulse-mic 1.2s ease-in-out infinite;
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
     flex-shrink: 0;
+    background: #6b7280;
+    transition: background 0.2s ease;
   }
 
-  @keyframes pulse-mic {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.6; transform: scale(0.92); }
+  .dot.live {
+    background: #f8534b;
+    box-shadow: 0 0 0 0 rgba(248, 83, 75, 0.6);
+    animation: pulse-dot 1.3s ease-out infinite;
   }
 
-  .eq {
+  @keyframes pulse-dot {
+    0% { box-shadow: 0 0 0 0 rgba(248, 83, 75, 0.55); }
+    70% { box-shadow: 0 0 0 7px rgba(248, 83, 75, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(248, 83, 75, 0); }
+  }
+
+  .wave {
     display: flex;
-    align-items: flex-end;
-    gap: 3px;
-    height: 36px;
-    padding: 0 2px;
+    align-items: center;
+    gap: 2px;
+    flex: 1;
+    height: 26px;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .bar {
-    width: 5px;
-    min-height: 4px;
-    background: linear-gradient(180deg, #f87171, #fb923c);
-    border-radius: 3px;
-    transition: height 80ms ease-out;
+    flex: 1;
+    min-width: 2px;
+    min-height: 8%;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #ff7a6b, #f8534b 55%, #e0463f);
+    transition: height 90ms cubic-bezier(0.3, 0.8, 0.3, 1);
+  }
+
+  .time {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: #e8eaf0;
+    letter-spacing: 0.02em;
   }
 </style>
