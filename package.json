@@ -53,5 +53,9 @@
   },
   "overrides": {
     "cookie": "^0.7.2"
+  },
+  "allowScripts": {
+    "fsevents@2.3.3": true,
+    "lefthook@2.1.9": true
   }
 }
