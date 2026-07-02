@@ -9,13 +9,18 @@ pub use accessibility::{accessibility_trusted, open_accessibility_settings};
 #[allow(unused_imports)]
 pub use paste::{paste_into_target, simulate_cmd_v, spawn_automated_paste};
 
+#[cfg(target_os = "macos")]
 pub(crate) use accessibility::{
     capture_focus_for_pid, has_paste_focus, prefers_keyboard_paste, refresh_paste_focus_if_needed,
     restore_focused_ui_element, store_focused_ui_element, try_ax_paste_for_pid,
 };
-pub(crate) use paste::{activate_pid, capture_mouse_location};
+pub(crate) use paste::activate_pid;
+#[cfg(target_os = "macos")]
+pub(crate) use paste::capture_mouse_location;
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64, Ordering};
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::{AtomicI32, AtomicI64, Ordering};
 #[cfg(target_os = "macos")]
 use std::sync::Mutex;
 

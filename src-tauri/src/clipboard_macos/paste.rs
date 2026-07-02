@@ -5,10 +5,16 @@ use std::sync::atomic::Ordering;
 #[cfg(target_os = "macos")]
 use objc2_app_kit::NSRunningApplication;
 
+#[cfg(target_os = "macos")]
 use super::{
     accessibility_trusted, frontmost_pid, has_paste_focus, paste_log, prefers_keyboard_paste,
     refresh_paste_focus_if_needed, restore_paste_target, try_ax_paste_for_pid, PASTE_MOUSE_VALID,
     PASTE_MOUSE_X, PASTE_MOUSE_Y, PASTE_TARGET_PID,
+};
+#[cfg(not(target_os = "macos"))]
+use super::{
+    accessibility_trusted, frontmost_pid, has_paste_focus, paste_log, prefers_keyboard_paste,
+    refresh_paste_focus_if_needed, restore_paste_target, try_ax_paste_for_pid, PASTE_TARGET_PID,
 };
 
 /// Whether synthetic Cmd+V should use the session event tap (frontmost app) vs `CGEventPostToPid`.
@@ -101,6 +107,7 @@ pub fn paste_into_target() {
     paste_log("all paste methods failed");
 }
 /// Post synthetic Cmd+V to the target app (requires Accessibility).
+#[cfg(target_os = "macos")]
 pub fn simulate_cmd_v() -> bool {
     unsafe {
         type CGEventRef = *mut std::ffi::c_void;
@@ -157,6 +164,11 @@ pub fn simulate_cmd_v() -> bool {
         }
         true
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn simulate_cmd_v() -> bool {
+    false
 }
 
 #[cfg(target_os = "macos")]

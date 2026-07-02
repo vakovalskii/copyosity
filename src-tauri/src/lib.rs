@@ -309,16 +309,21 @@ fn frontend_ready(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
-
-    #[cfg(target_os = "macos")]
-    {
-        builder = builder.plugin(tauri_nspanel::init());
-    }
+    let builder = {
+        let b = tauri::Builder::default()
+            .plugin(tauri_plugin_opener::init())
+            .plugin(tauri_plugin_process::init())
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+        #[cfg(target_os = "macos")]
+        {
+            b.plugin(tauri_nspanel::init())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            b
+        }
+    };
 
     builder
         .setup(|app| {
@@ -924,6 +929,8 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
 }
 
 fn ensure_voice_overlay(app: &tauri::AppHandle) {
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
     #[cfg(target_os = "macos")]
     {
         use tauri_nspanel::ManagerExt;

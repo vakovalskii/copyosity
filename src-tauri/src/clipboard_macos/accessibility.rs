@@ -5,7 +5,10 @@ use std::sync::atomic::Ordering;
 #[cfg(target_os = "macos")]
 use objc2_foundation::NSString;
 
+#[cfg(target_os = "macos")]
 use super::{paste_log, restore_paste_target, FocusRef, PASTE_TARGET_FOCUS, PASTE_TARGET_PID};
+#[cfg(not(target_os = "macos"))]
+use super::{paste_log, restore_paste_target, PASTE_TARGET_PID};
 
 /// Bundle IDs where `AXPaste` is unreliable; use synthetic Cmd+V instead.
 pub(crate) const KEYBOARD_PASTE_BUNDLE_IDS: &[&str] = &["com.apple.MobileSMS", "com.apple.iChat"];
