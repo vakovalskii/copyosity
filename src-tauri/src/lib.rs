@@ -327,6 +327,10 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            // Menu-bar app: no Dock icon, no Cmd+Tab entry.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             let app_dir = app
                 .path()
                 .app_data_dir()
