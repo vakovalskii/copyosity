@@ -23,7 +23,7 @@ Two levels of filtering over history cards + image card fixes. **Status: done** 
 
 **AI tagging disabled in Settings:** Row A hidden; Row B — image formats only; tags not shown on cards.
 
-**Additionally:** meta on image cards (`1920 × 1080 · 245 KB` instead of "Image preview"); static panel height **415 px** (+**35 px** when keyboard hints are on → **450 px**). Row A (Content Kind segment) **temporarily hidden** in UI — see CHANGELOG.
+**Additionally:** meta on image cards (`1920 × 1080 · 245 KB` instead of "Image preview"); static panel height **415 px** (+**35 px** when keyboard hints are on → **450 px**). Row A (Content Kind segment) **temporarily hidden** in UI. **Vertical board** (`board_vertical`): tag chips move to a vertical strip in the header; horizontal `TagFilterBar` hidden. **OCR:** image `ocr_text` is stored, included in overlay search, and shown under image thumbnails on cards (`imageOcrPreviewText` in [`image-meta.ts`](../../src/lib/image-meta.ts), rendered in [`ClipboardCard.svelte`](../../src/lib/components/ClipboardCard.svelte)).
 
 ## Checklist
 
@@ -38,6 +38,8 @@ Two levels of filtering over history cards + image card fixes. **Status: done** 
 - [x] **Image meta backend** — `image_width`, `image_height`, `image_byte_size` + Rust tests
 - [x] **Image meta frontend** — `image-meta.ts`, ClipboardCard; tags hidden when AI off; mono by textKind; remove `title`
 - [x] **Panel height** — static **415 / 450 px** (hints toggle only); symmetric 12px filter/grid padding; `resize_main_window`
+- [x] **Vertical board** — compact cards, vertical tag chips, `↑/↓` browse; horizontal filter bar hidden when `board_vertical`
+- [x] **OCR on image cards** — `ocr_text` preview under thumbnails when present; included in overlay search
 - [x] **Docs** — CHANGELOG; mark items 10, 11, 14, 17 in `audit-hig.md`
 
 ---
@@ -136,20 +138,7 @@ Fixed heights from **Settings → Keyboard shortcuts** only (default hints on).
 | off   | 415       |
 | on    | 450       |
 
-`resize_main_window` on reveal; smooth resize when hints toggle with overlay open (Reduce Motion → instant). Supersedes tier table below (historical).
-
-<details>
-<summary>Historical tier table (pre-0.4.0 static height)</summary>
-
-Base heights (filter rows only). Add **+28 px** when keyboard hints on.
-
-| Tier        | Base px | With hints | When                                    |
-| ----------- | ------- | ---------- | --------------------------------------- |
-| **compact** | 420     | 448        | No filter rows (and no settings notice) |
-| **medium**  | 440     | 468        | One bar (Row B or notice)               |
-| **full**    | 480     | 508        | Row A + Row B                           |
-
-</details>
+`resize_main_window` on reveal; smooth resize when hints toggle with overlay open (Reduce Motion → instant).
 
 ---
 
@@ -189,7 +178,7 @@ Base heights (filter rows only). Add **+28 px** when keyboard hints on.
 ## 3. Row B — Tag chips
 
 - Font **12px**; scroll fade (mask gradient)
-- **Format chips**: muted + mono + `photo` SF Symbol (`format-icon`, 12px)
+- Format chips: muted + mono + inline photo stroke icon (`format-icon`, 12px)
 - **AI chips**: accent (AI ON + relevant segment only)
 - **Divider `│`**: AI ON + All segment + both groups non-empty
 - Reset label: "All tags" (AI ON) / "All formats" (Images segment or AI OFF)
@@ -225,7 +214,7 @@ const filteredEntries = overlay.entries; // from createOverlayEntriesStore()
 
 ### Frontend
 
-- [`src/lib/image-meta.ts`](../../src/lib/image-meta.ts): `formatImageMeta()` → `1920 × 1080 · 245 KB`
+- [`src/lib/image-meta.ts`](../../src/lib/image-meta.ts): `formatImageFooterLabel()` → `1920 × 1080 · 245 KB`
 - Replace "Image preview" in `.image-meta`
 - Keep header badge `Image · PNG`
 
@@ -241,7 +230,7 @@ const filteredEntries = overlay.entries; // from createOverlayEntriesStore()
 | item 11 Mono for code | font by `textKind`                  |
 | item 18 Empty state   | contentKind + format + AI modes     |
 
-**Out of scope:** item 12 undo, Quick Look (remains in audit item 14 only, **not** in CHANGELOG). Item 8 History/Starred segmented — **done** in [audit-hig.md](audit-hig.md) §8; item 15 SF Symbols — **done** there §15; item 19 hints — **done** there §19.
+**Out of scope:** item 12 undo, Quick Look (remains in audit item 14 only). Item 8 History/Starred segmented — **done** in [audit-hig.md](audit-hig.md) §8; item 19 hints — **done** there §19.
 
 ---
 
@@ -285,7 +274,7 @@ const filteredEntries = overlay.entries; // from createOverlayEntriesStore()
 ## 8. Overlay height
 
 - Base: **415 px** — [`overlay-layout.ts`](../../src/lib/overlay-layout.ts) (`OVERLAY_HEIGHT_BASE`)
-- Keyboard hints: **+35 px** when enabled (`OVERLAY_HINTS_EXTRA_HEIGHT` → **450 px**; **Settings → Clipboard Panel**)
+- Keyboard hints: **+35 px** when enabled (`OVERLAY_HINTS_EXTRA_HEIGHT` → **450 px**; **Settings → History**)
 - Resize: [`overlay-resize.ts`](../../src/lib/overlay-resize.ts), `resize_main_window` in Rust
 - Default window height in [`tauri.conf.json`](../../src-tauri/tauri.conf.json): **450** (hints on); frontend applies **415** on reveal when hints are off
 

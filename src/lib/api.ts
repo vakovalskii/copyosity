@@ -106,12 +106,12 @@ export async function updateAppSettings(opts: {
   whisper_server_model?: string | null;
   voice_shortcut?: string | null;
   selected_microphone?: string | null;
+  hub_enabled?: boolean | null;
   hub_url?: string | null;
   hub_token?: string | null;
   hub_chat_model?: string | null;
   hub_tagging_enabled?: boolean | null;
   hub_transcribe_enabled?: boolean | null;
-  hub_search_enabled?: boolean | null;
   voice_polish_enabled?: boolean | null;
   voice_polish_model?: string | null;
   voice_polish_screenshot?: boolean | null;
@@ -132,12 +132,12 @@ export async function updateAppSettings(opts: {
     whisperServerModel: opts.whisper_server_model ?? null,
     voiceShortcut: opts.voice_shortcut ?? null,
     selectedMicrophone: opts.selected_microphone ?? null,
+    hubEnabled: opts.hub_enabled ?? null,
     hubUrl: opts.hub_url ?? null,
     hubToken: opts.hub_token ?? null,
     hubChatModel: opts.hub_chat_model ?? null,
     hubTaggingEnabled: opts.hub_tagging_enabled ?? null,
     hubTranscribeEnabled: opts.hub_transcribe_enabled ?? null,
-    hubSearchEnabled: opts.hub_search_enabled ?? null,
     voicePolishEnabled: opts.voice_polish_enabled ?? null,
     voicePolishModel: opts.voice_polish_model ?? null,
     voicePolishScreenshot: opts.voice_polish_screenshot ?? null,
@@ -170,6 +170,10 @@ export async function rebindVoiceShortcut(): Promise<string> {
   return invoke("rebind_voice_shortcut");
 }
 
+export async function rebindPaletteShortcut(): Promise<void> {
+  return invoke("rebind_palette_shortcut");
+}
+
 export async function getModelCatalog(): Promise<ModelCatalog> {
   return invoke("get_model_catalog");
 }
@@ -186,16 +190,16 @@ export async function removeExcludedApp(id: number): Promise<void> {
   return invoke("remove_excluded_app", { id });
 }
 
-export async function addFrontmostAppToExcluded(): Promise<string | null> {
-  return invoke("add_frontmost_app_to_excluded");
-}
-
 export async function getExcludableAppCandidate(): Promise<ExcludableAppCandidate | null> {
   return invoke("get_excludable_app_candidate");
 }
 
 export async function addExcludableAppCandidate(): Promise<ExcludeAppResult | null> {
   return invoke("add_excludable_app_candidate");
+}
+
+export async function openCommandPalette(): Promise<void> {
+  return invoke("open_command_palette");
 }
 
 export async function pickAppToExclude(): Promise<ExcludeAppResult | null> {

@@ -6,14 +6,15 @@ Global UI audit of Copyosity against [Apple Human Interface Guidelines](https://
 
 **Progress:** checkboxes in the checklist and `✅` in detailed sections for shipped work. **`Done` comments** — only when one part is shipped and another is explicitly declined or deferred (link to follow-up plan if any). Fully closed items get no extra status text.
 
-**Scope labels:** `[Overlay]` clipboard panel · `[Settings]` settings window · `[Voice]` voice HUD · `[Shared]` tokens / form-controls / button-interaction / sf-symbol / motion helper
+**Scope labels:** `[Overlay]` clipboard panel · `[Settings]` settings window · `[Voice]` voice HUD capsule · `[Palette]` command palette · `[Shared]` tokens / form-controls / button-interaction / motion helper
 
-| Surface           | Files                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Clipboard overlay | `[+page.svelte](../../src/routes/+page.svelte)`, `[ClipboardCard.svelte](../../src/lib/components/ClipboardCard.svelte)`, `[TagFilterBar.svelte](../../src/lib/components/TagFilterBar.svelte)`, `[SearchBar.svelte](../../src/lib/components/SearchBar.svelte)`, `[CollectionTabs.svelte](../../src/lib/components/CollectionTabs.svelte)`                                                                               |
-| Voice HUD         | `[overlay/+page.svelte](../../src/routes/overlay/+page.svelte)`                                                                                                                                                                                                                                                                                                                                                           |
-| Settings          | `[settings/+page.svelte](../../src/routes/settings/+page.svelte)`, `[SectionIcon.svelte](../../src/lib/components/SectionIcon.svelte)`                                                                                                                                                                                                                                                                                    |
-| Shared            | `[tokens.css](../../src/lib/styles/tokens.css)`, `[form-controls.css](../../src/lib/styles/form-controls.css)`, `[button-interaction.css](../../src/lib/styles/button-interaction.css)`, `[sf-symbol.css](../../src/lib/styles/sf-symbol.css)`, `[SfSymbol.svelte](../../src/lib/components/SfSymbol.svelte)`, `[export-sf-symbols.swift](../../scripts/export-sf-symbols.swift)`, `[motion.ts](../../src/lib/motion.ts)` |
+| Surface           | Files                                                                                                                                                                                                                                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Clipboard overlay | `[+page.svelte](../../src/routes/+page.svelte)`, `[ClipboardCard.svelte](../../src/lib/components/ClipboardCard.svelte)`, `[TagFilterBar.svelte](../../src/lib/components/TagFilterBar.svelte)`, `[SearchBar.svelte](../../src/lib/components/SearchBar.svelte)`, `[CollectionTabs.svelte](../../src/lib/components/CollectionTabs.svelte)` |
+| Voice HUD         | `[overlay/+page.svelte](../../src/routes/overlay/+page.svelte)` — recording capsule (pulse dot, scrolling waveform, duration)                                                                                                                                                                                                               |
+| Command palette   | `[palette/+page.svelte](../../src/routes/palette/+page.svelte)`                                                                                                                                                                                                                                                                             |
+| Settings          | `[settings/+page.svelte](../../src/routes/settings/+page.svelte)`, `[SectionIcon.svelte](../../src/lib/components/SectionIcon.svelte)` — sidebar panes: NeuralDeep, Voice, Local AI, History, Permissions                                                                                                                                   |
+| Shared            | `[tokens.css](../../src/lib/styles/tokens.css)`, `[form-controls.css](../../src/lib/styles/form-controls.css)`, `[button-interaction.css](../../src/lib/styles/button-interaction.css)`, `[ChevronDown.svelte](../../src/lib/components/ChevronDown.svelte)`, `[motion.ts](../../src/lib/motion.ts)`                                        |
 
 ```mermaid
 flowchart TB
@@ -23,11 +24,14 @@ flowchart TB
     Cards[ClipboardCard]
   end
   subgraph voice [Voice HUD]
-    Mic[Mic icon + EQ bars]
+    Capsule[Pulse dot + waveform + timer]
   end
   subgraph settings [Settings]
+    Sidebar[Sidebar panes]
     Forms[form-sections]
-    Toggles[AI / Voice switches]
+  end
+  subgraph palette [Command palette]
+    Search[Hub agent search]
   end
   subgraph shared [Shared]
     Tokens[tokens.css]
@@ -36,6 +40,7 @@ flowchart TB
   shared --> overlay
   shared --> voice
   shared --> settings
+  shared --> palette
 ```
 
 ---
@@ -79,7 +84,6 @@ flowchart TB
 
 ### P4 — Native depth
 
-- [x] `[Shared]` SF Symbols instead of custom stroke SVG (item 15)
 - [ ] `[Shared]` Native vibrancy / light mode (`prefers-color-scheme: light`) (item 7) → [feature-appearance-theme.md](feature-appearance-theme.md)
 - [x] `[Overlay]` VoiceOver listbox — product decision, not doing (item 35)
 - [x] `[Overlay]` Scroll affordances on tag bar (item 10)
@@ -88,19 +92,21 @@ flowchart TB
 
 ## What’s already good
 
-| Area                  | Scope             | Implementation                                                                                     |
-| --------------------- | ----------------- | -------------------------------------------------------------------------------------------------- |
-| Panel / HUD           | Overlay, Voice    | Transparent NSPanel windows, `alwaysOnTop`, no focus stealing                                      |
-| Settings layout       | Settings          | `form-section` sections, status steps, Ollama onboarding states per product policy                 |
-| System font           | Overlay, Settings | `-apple-system, BlinkMacSystemFont`                                                                |
-| Semantic colors       | Shared            | danger / warning / success / accent tokens                                                         |
-| Focus ring on buttons | Shared            | `button.app-btn:focus-visible`                                                                     |
-| Form focus            | Shared            | `form-input:focus` ring (`--ring-accent-input`)                                                    |
-| Clear history         | Settings          | `ActionMenu` + `ConfirmDialog`; live counts via `history-changed` / `clipboard-changed`            |
-| Motion                | Shared            | Reduce Motion: panel, scroll, pulse, spinner, hover, copied, EQ bars, micro-transitions via tokens |
-| Search field          | Overlay           | `role="search"`, clear button, `:focus-within` ring                                                |
-| Empty state           | Overlay           | Contextual messages, `role="status"`                                                               |
-| Toggles a11y          | Settings          | `role="switch"`, `aria-label`, `focus-visible` ring on slider                                      |
+| Area                  | Scope                    | Implementation                                                                                  |
+| --------------------- | ------------------------ | ----------------------------------------------------------------------------------------------- |
+| Panel / HUD           | Overlay, Voice, Palette  | Transparent NSPanel windows, `alwaysOnTop`, palette takes focus when open                       |
+| Settings layout       | Settings                 | Sidebar panes (NeuralDeep, Voice, Local AI, History, Permissions); dirty-state save bar         |
+| System font           | Overlay, Settings        | `-apple-system, BlinkMacSystemFont`                                                             |
+| Semantic colors       | Shared                   | danger / warning / success / accent tokens (upstream emerald accent `#10b981`)                  |
+| Focus ring on buttons | Shared                   | `button.app-btn:focus-visible`                                                                  |
+| Form focus            | Shared                   | `form-input:focus` ring (`--ring-accent-input`)                                                 |
+| Clear history         | Settings                 | `ActionMenu` + `ConfirmDialog`; live counts via `history-changed` / `clipboard-changed`         |
+| Motion                | Shared                   | Reduce Motion: panel, scroll, pulse, spinner, hover, copied, voice waveform, micro-transitions  |
+| Search field          | Overlay                  | `role="search"`, clear button, `:focus-within` ring; DB search includes `ocr_text` on images    |
+| Empty state           | Overlay                  | Contextual messages, `role="status"`                                                            |
+| Toggles a11y          | Settings                 | `role="switch"`, `aria-label`, `focus-visible` ring on slider                                   |
+| Vertical board        | Overlay                  | Optional docked-right list (`board_vertical`); compact cards; `↑/↓` browse hints                |
+| Icons                 | Overlay, Settings, Cards | Inline stroke SVG (`SectionIcon`, `ChevronDown`, component-local paths); `--icon-size-*` tokens |
 
 ---
 
@@ -146,7 +152,7 @@ Redundant Copy replaced with primary **Paste** (`activateEntry`, accent styling,
 | Layer          | File                   | Blur                          |
 | -------------- | ---------------------- | ----------------------------- |
 | Overlay panel  | `+page.svelte`         | `--panel-blur-visible` (34px) |
-| Voice HUD      | `overlay/+page.svelte` | 12px                          |
+| Voice HUD      | `overlay/+page.svelte` | 16px                          |
 | Copied overlay | `ClipboardCard.svelte` | 6px                           |
 
 **Done:** blur layers per surface; `prefers-reduced-transparency` → opaque token fallback, blur off.
@@ -194,10 +200,6 @@ Selected — light accent fill (`--surface-card-selected`, ~5–7% opacity), rin
 
 **Future:** Quick Look preview on `Space` — [feature-quick-look-preview.md](feature-quick-look-preview.md).
 
-### ✅ 15. Iconography — SF Symbols `[Shared]`
-
-Custom stroke SVG replaced with macOS SF Symbols: `SfSymbol.svelte` + generated `src/lib/sf-symbols/registry.ts` (export via `scripts/export-sf-symbols.swift` on macOS). Maintainer guide: [docs/architecture/sf-symbols.md](../architecture/sf-symbols.md). Overlay actions, search, settings section icons, voice HUD mic, and toolbar controls now use the system symbol set. Native `<select>` (`.form-select`) uses the same `chevron.down` path via a CSS data URI in `tokens.css` (fill hex from `--color-text-primary` at export time via `--icon-chevron-select-fill`; 85% opacity — WebKit cannot use `currentColor` in `background-image` SVG on `<select>`), auto-synced on export because the element cannot host `SfSymbol`.
-
 ### ✅ 16. Search field styling `[Overlay]`
 
 Clear button, `:focus-within` ring, `role="search"`, `aria-label`.
@@ -212,11 +214,12 @@ Contextual messages for search / tag filter; `role="status"`.
 
 ### ✅ 19. Paste model discoverability and keyboard shortcuts `[Overlay]`
 
-Paste button on card — explicit mouse affordance for paste without double-click. Footer shortcut strip in `+page.svelte` (`KeyboardHints.svelte`); optional via **Settings → Clipboard Panel → Keyboard shortcuts** (default on). Overlay height +35 px when hints are on (`OVERLAY_HINTS_EXTRA_HEIGHT`; base **415** px).
+Paste button on card — explicit mouse affordance for paste without double-click. Footer shortcut strip in `+page.svelte` (`KeyboardHints.svelte`); optional via **Settings → History → Keyboard shortcuts** (default on). Overlay height +35 px when hints are on (`OVERLAY_HINTS_EXTRA_HEIGHT`; base **415** px).
 
-| Zone         | Hint                                                                                          |
-| ------------ | --------------------------------------------------------------------------------------------- |
-| Footer strip | `Click copy` · `↵ paste` · `Double-click paste` · `← → browse` · `Esc clear search / dismiss` |
+| Layout     | Hint                                                                                          |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| Horizontal | `Click copy` · `↵ paste` · `Double-click paste` · `← → browse` · `Esc clear search / dismiss` |
+| Vertical   | `Click copy` · `↵ paste` · `2× click paste` · `↑ ↓ browse` · `Esc dismiss`                    |
 
 Do not duplicate Paste toolbar button verbatim in footer — “↵ paste” / “Double-click paste” is enough, since the button is visible on hover/selection.
 
@@ -248,8 +251,8 @@ Two visual layers separated — toolbar filter vs card metadata.
 | Scroll to card           | `motion.ts`              | `behavior: "auto"`                                              |
 | Status dot checking      | `form-controls.css`      | static color                                                    |
 | Tagging test spinner dot | `form-controls.css`      | same (`.checking`)                                              |
-| Voice mic pulse          | `overlay/+page.svelte`   | no animation                                                    |
-| Voice EQ bars            | `overlay/+page.svelte`   | no stagger/wobble/height transition                             |
+| Voice pulse dot          | `overlay/+page.svelte`   | static when Reduce Motion                                       |
+| Voice waveform bars      | `overlay/+page.svelte`   | no height transition when Reduce Motion                         |
 | Button spinner           | `button-interaction.css` | slowed (`--duration-spinner-reduced`)                           |
 | Settings toggles         | `settings/+page.svelte`  | `transition: none` on slider                                    |
 | Card hover               | `ClipboardCard.svelte`   | no `translateY`                                                 |
@@ -343,7 +346,7 @@ Cards in horizontal list without listbox semantics; no `aria-label` at entry lev
 
 ### ✅ 37. Horizontal scroll-snap `[Overlay]`
 
-`.grid-container` — `scroll-snap-type: x mandatory` (pairs with existing `scroll-padding-inline`); `.card-wrapper` — `scroll-snap-align: start`. Trackpad / momentum scroll stops on whole cards. On `scrollend` (or 120ms idle fallback), `selectedIndex` syncs to the leading visible card (`overlay-grid-scroll.ts` geometry, `overlay-browse-sync.ts` sync policy) so keyboard `←/→` continues from the current viewport; programmatic scroll suppresses one sync pass (`suppressLeadingSync`, default on). **Keyboard anchor policy (product):** arrows re-anchor to leading only when selection is unset, wrapper missing, or fully off-screen — not when leading ≠ selected while the card is still visible (`shouldAnchorKeyboardSelectionBeforeArrow` + tests); anchoring on every leading mismatch breaks rapid key repeat.
+`.grid-container` — `scroll-snap-type: x mandatory` in horizontal mode (pairs with existing `scroll-padding-inline`); `.card-wrapper` — `scroll-snap-align: start`. **Vertical board** (`board_vertical`): docked-right list, compact cards (`--card-max-height-vertical`), `↑/↓` keyboard browse, vertical tag chips in header. Trackpad / momentum scroll stops on whole cards in horizontal mode. On `scrollend` (or 120ms idle fallback), `selectedIndex` syncs to the leading visible card (`overlay-grid-scroll.ts` geometry, `overlay-browse-sync.ts` sync policy) so keyboard arrows continue from the current viewport; programmatic scroll suppresses one sync pass (`suppressLeadingSync`, default on). **Keyboard anchor policy (product):** arrows re-anchor to leading only when selection is unset, wrapper missing, or fully off-screen — not when leading ≠ selected while the card is still visible (`shouldAnchorKeyboardSelectionBeforeArrow` + tests); anchoring on every leading mismatch breaks rapid key repeat.
 
 ### ❌ 38. Card width fixed in layout `[Overlay]` — product decision
 
@@ -351,7 +354,7 @@ Cards in horizontal list without listbox semantics; no `aria-label` at entry lev
 
 ### ✅ 39. Collections color dot 7px `[Overlay]`
 
-**Done:** Custom collection tabs in the overlay header show a **7×7 px** color circle (`.tab-dot` in `CollectionTabs.svelte`) sized via `--icon-size-collection-dot` in `tokens.css`; `border-radius: 50%`, `flex-shrink: 0`. Fill from `col.color` with `var(--color-text-subtle)` fallback. Not an SF Symbol — see [sf-symbols.md](../architecture/sf-symbols.md) § Collection color dot. Intentional dense-toolbar trade-off (below HIG comfortable minimum for at-a-glance distinguishability); no change planned unless collections need stronger color coding outside the header.
+**Done:** Custom collection tabs in the overlay header show a **7×7 px** color circle (`.tab-dot` in `CollectionTabs.svelte`) sized via `--icon-size-collection-dot` in `tokens.css`; `border-radius: 50%`, `flex-shrink: 0`. Fill from `col.color` with `var(--color-text-subtle)` fallback. Intentional dense-toolbar trade-off (below HIG comfortable minimum for at-a-glance distinguishability); no change planned unless collections need stronger color coding outside the header.
 
 ### ✅ 40. Test button `disabled` without `aria-describedby` `[Settings]`
 

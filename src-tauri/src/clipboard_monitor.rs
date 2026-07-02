@@ -15,30 +15,7 @@ pub fn notify_history_cleared() {
     HISTORY_CLEAR_EPOCH.fetch_add(1, Ordering::Release);
 }
 
-use crate::db::{ClipboardEntry, Database, EntryTaggedPayload};
-
-fn format_tag_from_hint(hint: &str) -> &'static str {
-    match hint.to_ascii_lowercase().as_str() {
-        "gif" => "gif",
-        "jpg" | "jpeg" => "jpg",
-        "png" => "png",
-        _ => "png",
-    }
-}
-
-fn format_tag_from_path(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|s| s.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("gif") => "gif",
-        Some("jpg" | "jpeg") => "jpg",
-        Some("png") => "png",
-        _ => "png",
-    }
-}
+use crate::db::{ClipboardEntry, Database, EntryOcrPayload, EntryTaggedPayload};
 
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif"];
 
@@ -52,8 +29,8 @@ pub fn is_gif_bytes(data: &[u8]) -> bool {
 struct EncodedImage {
     full_b64: String,
     thumb_b64: String,
-    _width: i64,
-    _height: i64,
+    width: i64,
+    height: i64,
     byte_size: i64,
 }
 
@@ -85,8 +62,8 @@ fn encode_stored_gif(raw: &[u8]) -> Option<EncodedImage> {
     Some(EncodedImage {
         full_b64,
         thumb_b64,
-        _width: width,
-        _height: height,
+        width,
+        height,
         byte_size: raw.len() as i64,
     })
 }
@@ -142,8 +119,8 @@ fn encode_image_from_dynamic(image: &DynamicImage) -> Option<EncodedImage> {
     Some(EncodedImage {
         full_b64,
         thumb_b64,
-        _width: width as i64,
-        _height: height as i64,
+        width: width as i64,
+        height: height as i64,
         byte_size: full_bytes.len() as i64,
     })
 }
@@ -258,6 +235,23 @@ struct CaptureContext {
 }
 
 impl CaptureContext {
+    /// Notify the overlay after a capture. Loads the row from the DB so
+    /// re-copies emit the bumped `created_at` and existing tags/OCR text.
+    fn emit_clipboard_changed(&self, entry_id: i64, fallback: &ClipboardEntry) {
+        let mut saved = self
+            .db
+            .get_entry_by_id(entry_id)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| {
+                let mut entry = fallback.clone();
+                entry.id = entry_id;
+                entry
+            });
+        saved.image_data = None;
+        let _ = self.app.emit("clipboard-changed", &saved);
+    }
+
     fn try_image(
         &self,
         encoded: EncodedImage,
@@ -271,10 +265,10 @@ impl CaptureContext {
         }
 
         let content_hash = entry_content_hash(&base_hash);
-        let format_tag = format_hint
-            .map(format_tag_from_hint)
-            .unwrap_or("png")
-            .to_owned();
+        let image_format = format_hint
+            .map(|hint| crate::image_format::normalize(hint).to_owned())
+            .unwrap_or_else(|| crate::image_format::detect_from_b64(&encoded.full_b64).to_owned());
+        let format_tag = crate::image_format::tag_from_format(&image_format);
 
         let entry = ClipboardEntry {
             id: 0,
@@ -291,16 +285,16 @@ impl CaptureContext {
             collection_id: None,
             tags: vec![format_tag.clone()],
             ocr_text: None,
+            image_format: Some(image_format),
+            image_width: Some(encoded.width),
+            image_height: Some(encoded.height),
+            image_byte_size: Some(encoded.byte_size),
         };
 
         match self.db.insert_entry(&entry) {
             Ok((id, is_new)) => {
                 if is_new {
                     let _ = self.db.set_entry_tags(id, &[format_tag]);
-                    let mut saved = entry.clone();
-                    saved.id = id;
-                    saved.image_data = None;
-                    let _ = self.app.emit("clipboard-changed", &saved);
 
                     let db = self.db.clone();
                     let app = self.app.clone();
@@ -318,14 +312,20 @@ impl CaptureContext {
 
                         if let Some(text) = &ocr_text {
                             if db.set_ocr_text(id, text).is_ok() {
-                                let _ = app.emit("entry-ocr", id);
+                                let _ = app.emit(
+                                    "entry-ocr",
+                                    EntryOcrPayload {
+                                        entry_id: id,
+                                        ocr_text: text.clone(),
+                                    },
+                                );
                             }
                         }
 
                         let settings = db.get_app_settings().ok();
                         let use_hub = settings
                             .as_ref()
-                            .map(|s| s.hub_tagging_enabled && !s.hub_token.is_empty())
+                            .map(crate::tagging::hub_tagging_configured)
                             .unwrap_or(false);
 
                         let tags = if use_hub {
@@ -333,11 +333,11 @@ impl CaptureContext {
                             crate::hub::tag_image(
                                 &s.hub_url,
                                 &s.hub_token,
-                                "qwen3.6-35b-a3b",
+                                crate::tagging::HUB_IMAGE_TAG_MODEL,
                                 &thumb_b64_for_tag,
                             )
                             .or_else(|| ocr_text.as_ref().and_then(|t| crate::tagging::tag(&db, t)))
-                        } else if db.is_ai_tagging_enabled() {
+                        } else if crate::tagging::should_auto_tag_text_on_capture(&db) {
                             ocr_text.as_ref().and_then(|t| crate::tagging::tag(&db, t))
                         } else {
                             None
@@ -345,11 +345,15 @@ impl CaptureContext {
 
                         if let Some(tags) = tags {
                             if db.set_entry_tags(id, &tags).is_ok() {
-                                let _ = app.emit("entry-tagged", id);
+                                let _ = app.emit(
+                                    "entry-tagged",
+                                    EntryTaggedPayload { entry_id: id, tags },
+                                );
                             }
                         }
                     });
                 }
+                self.emit_clipboard_changed(id, &entry);
                 Some(content_hash)
             }
             Err(_) => None,
@@ -384,19 +388,19 @@ impl CaptureContext {
             collection_id: None,
             tags: Vec::new(),
             ocr_text: None,
+            image_format: None,
+            image_width: None,
+            image_height: None,
+            image_byte_size: None,
         };
 
         match self.db.insert_entry(&entry) {
             Ok((id, is_new)) => {
                 if is_new {
-                    let mut saved = entry.clone();
-                    saved.id = id;
-                    let _ = self.app.emit("clipboard-changed", &saved);
-
                     let db = self.db.clone();
                     let app = self.app.clone();
                     std::thread::spawn(move || {
-                        if !db.is_ai_tagging_enabled() {
+                        if !crate::tagging::should_auto_tag_text_on_capture(&db) {
                             return;
                         }
                         if let Some(tags) = crate::tagging::tag(&db, &text) {
@@ -411,6 +415,7 @@ impl CaptureContext {
                         }
                     });
                 }
+                self.emit_clipboard_changed(id, &entry);
                 Some(content_hash)
             }
             Err(_) => None,
@@ -449,7 +454,7 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
             let Some(encoded) = encode_image_file(&path) else {
                 continue;
             };
-            let format = format_tag_from_path(&path);
+            let format = crate::image_format::detect_from_path(&path);
             if let Some(hash) = ctx.try_image(
                 encoded,
                 base_hash,

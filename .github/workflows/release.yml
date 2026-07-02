@@ -1,6 +1,6 @@
 name: Release (macOS)
 
-# Builds, signs, and notarizes Copyosity on a version tag push (e.g. `v0.5.1`),
+# Builds, signs, and notarizes Copyosity on a version tag push (e.g. `v0.6.0`),
 # then uploads separate notarized DMGs for Apple Silicon (aarch64) and Intel (x86_64).
 #
 # The pipeline mirrors docs/NOTARIZATION.md:

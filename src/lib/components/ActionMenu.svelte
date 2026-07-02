@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  import SfSymbol from "$lib/components/SfSymbol.svelte";
+  import ChevronDown from "$lib/components/ChevronDown.svelte";
 
   export type ActionMenuItem = {
     id: string;
@@ -315,7 +315,7 @@
 >
   <button
     bind:this={trigger}
-    class="form-btn form-btn-danger app-btn action-menu-trigger"
+    class="form-btn form-btn-danger app-btn action-menu-trigger control-with-chevron"
     type="button"
     disabled={menuDisabled}
     aria-haspopup="menu"
@@ -325,7 +325,7 @@
     onkeydown={handleTriggerKeydown}
   >
     <span class="action-menu-label">{label}</span>
-    <SfSymbol name="chevron.down" class="chevron-down" />
+    <ChevronDown />
   </button>
 
   {#if open && !menuDisabled}
@@ -367,22 +367,17 @@
   }
 
   .action-menu-trigger {
-    gap: var(--space-stack);
-    padding-right: var(--control-chevron-inset);
-    color: inherit;
-  }
-
-  .action-menu-trigger :global(.chevron-down) {
     color: inherit;
   }
 
   .action-menu.block .action-menu-trigger {
     width: 100%;
-    justify-content: space-between;
   }
 
   .action-menu-label {
+    display: block;
     min-width: 0;
+    flex: 1 1 auto;
     text-align: left;
   }
 
@@ -413,6 +408,7 @@
     font-size: var(--font-size-sm);
     text-align: left;
     white-space: nowrap;
+    cursor: pointer;
   }
 
   .action-menu-item:hover:not(:disabled),

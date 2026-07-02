@@ -19,7 +19,7 @@
 }
 
 .ui-selectable-text--indented {
-  max-width: calc(100% - 18px);
+  max-width: calc(100% - var(--space-hint-indent));
 }
 
 /* Layout chrome — block drag-select on padding/gaps; text roles opt in below */
@@ -39,6 +39,8 @@
 .excluded-apps-stack,
 .form-actions,
 .toggle,
+.form-checkbox,
+.form-checkbox-leading,
 .status-dot,
 .form-title-icon,
 .form-subsection-icon {
@@ -54,6 +56,8 @@
     .form-subsection-title,
     .form-label,
     .form-hint,
+    .form-checkbox-label,
+    .form-instruction-list,
     .status-text,
     .status-hint,
     .form-note.visible,
@@ -76,18 +80,18 @@
 }
 
 .form-section {
-  padding: 14px;
+  padding: var(--space-panel-inline);
   background: var(--surface-2);
   border: 1px solid var(--border-muted);
   border-radius: var(--radius-surface);
 }
 
 .form-section + .form-section {
-  margin-top: 10px;
+  margin-top: var(--space-island-gap);
 }
 
 .form-section-title {
-  margin-bottom: 10px;
+  margin-bottom: var(--space-gap-md);
   font-size: var(--font-size-section-title);
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -100,11 +104,13 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-section);
-  margin-bottom: 10px;
+  margin-bottom: var(--space-gap-md);
 }
 
 .form-section-header .form-section-title {
   margin-bottom: 0;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .form-section-body {
@@ -134,6 +140,8 @@
 .form-title-icon,
 .form-subsection-icon {
   flex-shrink: 0;
+  width: var(--icon-size-section);
+  height: var(--icon-size-section);
   color: var(--color-accent-icon);
 }
 
@@ -191,6 +199,22 @@
   box-sizing: border-box;
   min-height: 2rem;
   padding: var(--space-control-y) var(--inset-list-pad-inline);
+}
+
+/* Label + control stacks inside grouped lists (Hub, Voice, Storage, etc.) */
+.inset-list > .form-field,
+.inset-list > label.form-field {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: var(--inset-list-pad-block) var(--inset-list-pad-inline);
+}
+
+.inset-list > .form-field .form-input,
+.inset-list > .form-field .form-select,
+.inset-list > label.form-field .form-input,
+.inset-list > label.form-field .form-select {
+  width: 100%;
+  max-width: 100%;
 }
 
 .toggle-section-body {
@@ -270,6 +294,119 @@
   .toggle-slider::after {
     transition: none;
   }
+
+  .form-checkbox-box,
+  .form-checkbox-box::after {
+    transition: none;
+  }
+}
+
+/* macOS HIG: checkbox leading, label trailing; align to first text line */
+.form-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-checkbox-gap);
+  margin: 0;
+  padding: var(--inset-list-pad-block) var(--inset-list-pad-inline);
+  cursor: pointer;
+}
+
+.form-checkbox--indented {
+  padding-inline-start: calc(var(--inset-list-pad-inline) + var(--space-checkbox-indent));
+}
+
+.form-checkbox-leading {
+  position: relative;
+  flex: none;
+  width: var(--size-checkbox);
+  height: var(--line-height-checkbox-align);
+  display: flex;
+  align-items: center;
+}
+
+.form-checkbox-leading input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.form-checkbox-box {
+  position: relative;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: var(--size-checkbox);
+  height: var(--size-checkbox);
+  border-radius: var(--radius-checkbox);
+  background: var(--surface-checkbox);
+  border: 1px solid var(--border-checkbox);
+  pointer-events: none;
+  transition:
+    background var(--duration-fast) var(--ease-interactive),
+    border-color var(--duration-fast) var(--ease-interactive),
+    box-shadow var(--duration-fast) var(--ease-interactive);
+}
+
+.form-checkbox:hover .form-checkbox-box {
+  border-color: var(--border-checkbox-hover);
+}
+
+.form-checkbox-leading input:checked + .form-checkbox-box {
+  background: var(--surface-checkbox-checked);
+  border-color: var(--border-checkbox-checked);
+}
+
+.form-checkbox-box::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  box-sizing: border-box;
+  width: 4px;
+  height: 8px;
+  border: solid var(--color-checkbox-mark);
+  border-width: 0 2px 2px 0;
+  opacity: 0;
+  transform: rotate(45deg) scale(0.85);
+  transition: opacity var(--duration-fast) var(--ease-interactive);
+}
+
+.form-checkbox-leading input:checked + .form-checkbox-box::after {
+  opacity: 1;
+}
+
+.form-checkbox-leading input:focus-visible + .form-checkbox-box {
+  box-shadow: var(--ring-checkbox-focus);
+}
+
+.form-checkbox-leading input:disabled + .form-checkbox-box {
+  opacity: var(--opacity-section-disabled);
+}
+
+.form-checkbox-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-row);
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-body);
+  color: var(--color-text-primary);
+}
+
+.form-checkbox-label .form-pref-label {
+  font-weight: 600;
+  color: var(--color-text-label-strong);
+}
+
+.form-checkbox-label .form-pref-hint {
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-hint);
+  color: var(--color-text-label);
 }
 
 .form-pref-row {
@@ -325,11 +462,23 @@
   display: flex;
   gap: var(--space-stack);
   align-items: center;
+  min-width: 0;
+}
+
+.form-inline > :is(.form-input, .form-select) {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+}
+
+.form-inline > .form-btn {
+  flex-shrink: 0;
 }
 
 /* Shared chrome: settings fields, overlay search host, compact inline inputs. */
 .form-input,
 .form-select,
+.form-textarea,
 .text-control-host {
   border: 1px solid var(--border-control);
   background-color: var(--surface-control);
@@ -341,17 +490,46 @@
 
 .form-input,
 .form-select {
+  box-sizing: border-box;
+  display: block;
   width: 100%;
-  min-height: 2rem;
-  padding: var(--space-control-y) var(--space-control-x);
+  max-width: 100%;
+  min-width: 0;
+  height: var(--size-form-control);
+  min-height: var(--size-form-control);
+  max-height: var(--size-form-control);
+  padding: 0 var(--space-control-x);
   border-radius: var(--radius-control);
   color: var(--color-text-primary);
   font-family: inherit;
   font-size: var(--font-size-md);
-  line-height: 1.25;
+  line-height: calc(var(--size-form-control) - 2px);
   outline: none;
   user-select: text;
   -webkit-user-select: text;
+  appearance: none;
+}
+
+.form-textarea {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: var(--size-form-textarea);
+  max-height: none;
+  padding-block: var(--space-control-y);
+  padding-inline: var(--space-control-x);
+  border-radius: var(--radius-control);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-body);
+  outline: none;
+  resize: vertical;
+  user-select: text;
+  -webkit-user-select: text;
+  appearance: none;
 }
 
 .text-control-host {
@@ -359,9 +537,8 @@
 }
 
 .form-select {
-  appearance: none;
-  padding-right: calc(var(--control-chevron-inset) + var(--icon-size-chevron) + var(--space-stack));
-  /* Native <select> cannot host SfSymbol; chevron path synced by make export-sf-symbols. */
+  padding-right: var(--control-chevron-slot);
+  /* Native <select> chevron — same glyph as ChevronDown.svelte (--icon-chevron-down). */
   background-image: var(--icon-chevron-down);
   background-position: right var(--control-chevron-inset) center;
   background-size: var(--icon-size-chevron) var(--icon-size-chevron);
@@ -369,9 +546,25 @@
   cursor: pointer;
 }
 
+/* Select-like controls with ChevronDown (ActionMenu, custom pickers).
+ * Plain selectors only — :global() is invalid in imported CSS (see window-chrome.css). */
+.control-with-chevron {
+  position: relative;
+  padding-right: var(--control-chevron-slot);
+}
+
+.control-with-chevron > .chevron-down {
+  position: absolute;
+  right: var(--control-chevron-inset);
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
 /* Rest → hover → pointer focus → keyboard focus (see tokens.css). */
 .form-input:hover:not(:focus),
 .form-select:hover:not(:focus),
+.form-textarea:hover:not(:focus),
 .text-control-host:hover:not(:focus-within) {
   border-color: var(--border-control-hover);
   background-color: var(--surface-control-hover);
@@ -385,6 +578,7 @@
 /* Pointer focus: accent border + tight ring; no 3px keyboard halo. */
 .form-input:focus,
 .form-select:focus,
+.form-textarea:focus,
 .text-control-host:focus-within {
   outline: none;
   border-color: var(--border-control-focus);
@@ -394,13 +588,15 @@
 
 [data-input-modality="keyboard"] .form-input:focus,
 [data-input-modality="keyboard"] .form-select:focus,
+[data-input-modality="keyboard"] .form-textarea:focus,
 [data-input-modality="keyboard"] .text-control-host:focus-within {
   border-color: var(--border-control-focus-keyboard);
   box-shadow: var(--ring-accent-input);
   background-color: var(--surface-control-focus);
 }
 
-.form-input::placeholder {
+.form-input::placeholder,
+.form-textarea::placeholder {
   color: var(--color-text-placeholder);
 }
 
@@ -412,17 +608,37 @@
   padding: var(--padding-hint-y) 0;
 }
 
-.form-hint code {
+.form-hint code,
+.form-instruction-list code,
+.status-hint code {
   display: inline-block;
-  padding: 2px 5px;
-  margin: 2px 1px 2px 0;
+  padding: var(--padding-chip-count);
+  margin: var(--space-segment-inset) 1px var(--space-segment-inset) 0;
   background: var(--surface-7);
-  border-radius: 4px;
-  font-family: "SF Mono", Menlo, monospace;
+  border-radius: var(--radius-code);
+  font-family: var(--font-family-mono);
   font-size: var(--font-size-2xs-sm);
-  line-height: 1.2;
+  line-height: var(--line-height-tight);
   color: var(--color-text-code);
   vertical-align: baseline;
+}
+
+.status-hint code {
+  display: inline;
+  margin: 0;
+  vertical-align: baseline;
+}
+
+.form-instruction-list {
+  margin: 0;
+  padding-left: 1.125rem;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-hint);
+  color: var(--color-text-tertiary);
+}
+
+.form-instruction-list li + li {
+  margin-top: var(--space-row);
 }
 
 .form-meta {
@@ -458,9 +674,9 @@
 }
 
 .form-btn {
-  min-height: 32px;
+  min-height: var(--overlay-header-control-height);
   padding: 0 var(--control-chevron-inset);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   font-family: inherit;
   font-size: var(--font-size-md);
   line-height: 1.25;
@@ -504,11 +720,15 @@
   border-color: var(--border-strong);
 }
 
-.form-btn-danger {
+.form-btn-danger,
+.form-btn-restrict {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-chip-gap);
   width: fit-content;
+}
+
+.form-btn-danger {
   background: var(--surface-danger-subtle);
   border: 1px solid var(--border-danger);
   color: var(--color-danger-text);
@@ -522,10 +742,6 @@
 
 /* Privacy / restrict actions (exclude app from history) — warning, not destructive */
 .form-btn-restrict {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: fit-content;
   background: var(--surface-6);
   border: 1px solid var(--border-warning);
   color: var(--color-warning-text);
@@ -537,15 +753,19 @@
   color: var(--color-warning-bright);
 }
 
-.form-link-accent {
+.form-link-accent,
+.form-link-restrict {
   border: none;
   background: transparent;
-  color: var(--color-accent-link);
   cursor: pointer;
   font: inherit;
   font-size: var(--font-size-xs);
   padding: 0;
   white-space: nowrap;
+}
+
+.form-link-accent {
+  color: var(--color-accent-link);
 }
 
 .form-link-accent:hover:not(.is-busy, .is-locked, :disabled) {
@@ -553,14 +773,7 @@
 }
 
 .form-link-restrict {
-  border: none;
-  background: transparent;
   color: var(--color-warning-text);
-  cursor: pointer;
-  font: inherit;
-  font-size: var(--font-size-xs);
-  padding: 0;
-  white-space: nowrap;
 }
 
 .form-link-restrict:hover:not(.is-busy, .is-locked, :disabled) {
@@ -577,6 +790,8 @@
 
 .excluded-list-action-icon {
   flex-shrink: 0;
+  width: var(--icon-size-form-inline);
+  height: var(--icon-size-form-inline);
 }
 
 /* Settings — excluded apps list + picker (macOS inset grouped list rhythm). */
@@ -656,15 +871,18 @@
 }
 
 .form-btn-icon {
+  display: block;
   flex-shrink: 0;
+  width: var(--icon-size-form-btn);
+  height: var(--icon-size-form-btn);
 }
 
 .form-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-top: 14px;
+  gap: var(--space-gap-md);
+  margin-top: var(--space-panel-inline);
 }
 
 .form-section-body > .form-actions {
@@ -672,7 +890,7 @@
 }
 
 /* Storage clear-history notice: no layout gap until a message is shown */
-.form-field-group > .storage-clear-notice:not(.visible) {
+.form-section-body > .storage-clear-notice:not(.visible) {
   display: none;
 }
 
@@ -718,7 +936,7 @@
 .status-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-gap-md);
 }
 
 .status-dot {
@@ -784,9 +1002,9 @@
 
 .status-action {
   margin-left: auto;
-  padding: 4px 12px;
-  min-height: 28px;
-  border-radius: 8px;
+  padding: 4px var(--control-chevron-inset);
+  min-height: var(--size-hit-target-sm);
+  border-radius: var(--radius-control);
   background: var(--surface-accent-muted);
   border: 1px solid var(--border-accent);
   color: var(--color-accent-text);
@@ -802,7 +1020,7 @@
 }
 
 .status-hint {
-  margin: 0 0 0 18px;
+  margin: 0 0 0 var(--space-hint-indent);
   font-size: var(--font-size-xs);
   line-height: var(--line-height-hint);
   padding: var(--padding-hint-y) 0;
@@ -825,21 +1043,12 @@
   color: var(--color-danger-text);
 }
 
-.status-hint code {
-  padding: 1px 5px;
-  background: var(--surface-7);
-  border-radius: 4px;
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: var(--font-size-2xs-sm);
-  color: var(--color-text-code);
-}
-
 .status-hint.pull-progress {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-stack);
   color: var(--color-accent-text);
-  font-family: "SF Mono", Menlo, monospace;
+  font-family: var(--font-family-mono);
   font-size: var(--font-size-2xs-sm);
   word-break: break-all;
 }

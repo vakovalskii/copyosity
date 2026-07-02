@@ -204,7 +204,7 @@
     align-items: center;
     justify-content: center;
     padding: 1.25rem;
-    background: rgb(0 0 0 / 45%);
+    background: var(--surface-scrim);
   }
 
   .confirm-dialog {

@@ -17,7 +17,6 @@
     "node_modules/**",
     "src-tauri/**",
     "package-lock.json",
-    ".vscode/**",
-    "src/lib/sf-symbols/registry.ts"
+    ".vscode/**"
   ]
 }

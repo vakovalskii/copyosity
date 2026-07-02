@@ -8,7 +8,7 @@
 
 ## Why
 
-Copyosity is **dark-only**: all colors live in [`tokens.css`](../../src/lib/styles/tokens.css) with no `prefers-color-scheme: light` and no persisted preference in [`AppSettings`](../../src-tauri/src/db.rs). HIG audit item 7 tracks this gap. Users on macOS light appearance (or mixed setups) get a launcher that always looks like dark mode.
+Copyosity is **dark-only** today: semantic colors live in [`tokens.css`](../../src/lib/styles/tokens.css) with no `prefers-color-scheme: light` and no persisted appearance preference in [`AppSettings`](../../src-tauri/src/db.rs). **0.6.0** (from upstream v0.5.1) ships an **emerald accent** (`#10b981` / `#34d399`) — separate from Light / Dark / Automatic system theme work below.
 
 ## Goal
 
@@ -17,7 +17,7 @@ Ship a **macOS System Settings–style Appearance** control:
 - Three modes: **Light**, **Dark**, **Automatic** (follow system)
 - Default: **Automatic**
 - Light palette: **cool blue-gray**, mirroring the current dark family (not warm latte)
-- Global apply across clipboard overlay, voice HUD, and settings — live switch without restart
+- Global apply across clipboard overlay, voice HUD, settings, and command palette — live switch without restart
 
 ```mermaid
 flowchart LR
@@ -44,14 +44,14 @@ flowchart LR
 
 ## Where the control lives (HIG)
 
-### Primary — Settings → new **Appearance** section
+### Primary — Settings sidebar → new **Appearance** pane (or section under History)
 
-Placement: **after Permissions, before AI Tagging** (appearance is global, not overlay-specific).
+Placement: global preference — add an **Appearance** sidebar entry or a dedicated section in the **History** pane (alongside vertical board and keyboard shortcuts).
 
 | Element   | Spec                                                                                                                                                                                                                                                              |
 | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Title     | `Appearance` + `SectionIcon` `circle.lefthalf.filled` (new `SectionIconName: "appearance"`)                                                                                                                                                                       |
-| Body      | `inset-list` + `form-pref-row` (same rhythm as Keyboard shortcuts in Clipboard Panel)                                                                                                                                                                             |
+| Title     | `Appearance` + `SectionIcon` stroke icon (new `SectionIconName: "appearance"`)                                                                                                                                                                                    |
+| Body      | `inset-list` + `form-pref-row` (same rhythm as keyboard shortcuts in History)                                                                                                                                                                                     |
 | Control   | Segmented control — **not** `<select>`                                                                                                                                                                                                                            |
 | Component | [`AppearanceSegment.svelte`](../../src/lib/components/AppearanceSegment.svelte) — pattern from [`ContentKindSegment.svelte`](../../src/lib/components/ContentKindSegment.svelte), styled for Settings (`width: 100%`, `.settings-segment` in `form-controls.css`) |
 | ARIA      | `role="radiogroup"` `aria-label="Appearance"`; each segment `role="radio"` `aria-checked`                                                                                                                                                                         |
@@ -93,7 +93,7 @@ export type AppearanceMode = "system" | "light" | "dark";
    - `matchMedia("(prefers-color-scheme: dark)")` listener when mode is `system`
    - `listen("appearance-changed")` for instant cross-window update
 
-Theme applies via **layout** (shared by `/`, `/settings`, `/overlay`) — no separate sync in overlay store.
+Theme applies via **layout** (shared by `/`, `/settings`, `/overlay`, `/palette`) — no separate sync in overlay store.
 
 ### Backend event
 
@@ -196,12 +196,12 @@ Same semantic roles as dark; inverted elevation tint; accent slightly deeper for
 
 ### Hardcoded colors → tokens
 
-| Current                                                                                               | Target                                                                                             |
-| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `--surface-select-option`, `--surface-menu-hover`, `--surface-menu-hover-destructive` in `tokens.css` | Theme-aware semantic tokens                                                                        |
-| `#000` scroll masks in [`TagFilterBar.svelte`](../../src/lib/components/TagFilterBar.svelte)          | `--scroll-fade-color`                                                                              |
-| `rgb(0 0 0 / 45%)` scrim in [`ConfirmDialog.svelte`](../../src/lib/components/ConfirmDialog.svelte)   | `--scrim-backdrop` (light: 28%)                                                                    |
-| `--icon-chevron-down` baked SVG                                                                       | Light override + dual export in [`export-sf-symbols.swift`](../../scripts/export-sf-symbols.swift) |
+| Current                                                                                               | Target                                                                     |
+| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `--surface-select-option`, `--surface-menu-hover`, `--surface-menu-hover-destructive` in `tokens.css` | Theme-aware semantic tokens                                                |
+| `#000` scroll masks in [`TagFilterBar.svelte`](../../src/lib/components/TagFilterBar.svelte)          | `--scroll-fade-color`                                                      |
+| `rgb(0 0 0 / 45%)` scrim in [`ConfirmDialog.svelte`](../../src/lib/components/ConfirmDialog.svelte)   | `--scrim-backdrop` (light: 28%)                                            |
+| Native `<select>` chevron in `tokens.css`                                                             | Theme-aware `--icon-chevron-down` data URI or shared `ChevronDown` pattern |
 
 ### Accessibility media queries
 
@@ -274,29 +274,26 @@ v1 keeps **CSS `backdrop-filter`** (overlay 34px, voice 12px) — no native `win
 ### Phase 3 — Settings + persistence
 
 8. `appearance_mode` in db / commands / api / types
-9. `AppearanceSegment.svelte` + Settings section
-10. [`section-icons.ts`](../../src/lib/sf-symbols/section-icons.ts): `appearance` → `circle.lefthalf.filled`
-11. Symbol in [`export-sf-symbols.swift`](../../scripts/export-sf-symbols.swift); `make export-sf-symbols`
+9. `AppearanceSegment.svelte` + Settings section (sidebar pane or History subsection)
+10. `appearance` key in [`SectionIcon.svelte`](../../src/lib/components/SectionIcon.svelte)
 
 ### Phase 4 — Polish
 
-12. Dual chevron export
-13. Visual pass: overlay, cards, search, tabs, voice HUD, dialogs, ActionMenu
-14. Close [audit-hig.md](audit-hig.md) item 7
+11. Visual pass: overlay, cards, search, tabs, voice HUD, palette, dialogs, ActionMenu
+12. Close [audit-hig.md](audit-hig.md) item 7
 
 ---
 
 ## Files to touch
 
-| Area       | Files                                                                                                                                          |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tokens     | [`src/lib/styles/tokens.css`](../../src/lib/styles/tokens.css), [`form-controls.css`](../../src/lib/styles/form-controls.css)                  |
-| Runtime    | `src/lib/theme.ts`, [`+layout.svelte`](../../src/routes/+layout.svelte)                                                                        |
-| Settings   | [`settings/+page.svelte`](../../src/routes/settings/+page.svelte), `AppearanceSegment.svelte`                                                  |
-| Backend    | [`db.rs`](../../src-tauri/src/db.rs), [`commands.rs`](../../src-tauri/src/commands.rs)                                                         |
-| API        | [`types.ts`](../../src/lib/types.ts), [`api.ts`](../../src/lib/api.ts)                                                                         |
-| Components | [`TagFilterBar.svelte`](../../src/lib/components/TagFilterBar.svelte), [`ConfirmDialog.svelte`](../../src/lib/components/ConfirmDialog.svelte) |
-| Icons      | [`section-icons.ts`](../../src/lib/sf-symbols/section-icons.ts), [`export-sf-symbols.swift`](../../scripts/export-sf-symbols.swift)            |
+| Area       | Files                                                                                                                                                                                                           |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tokens     | [`src/lib/styles/tokens.css`](../../src/lib/styles/tokens.css), [`form-controls.css`](../../src/lib/styles/form-controls.css)                                                                                   |
+| Runtime    | `src/lib/theme.ts`, [`+layout.svelte`](../../src/routes/+layout.svelte)                                                                                                                                         |
+| Settings   | [`settings/+page.svelte`](../../src/routes/settings/+page.svelte), `AppearanceSegment.svelte`                                                                                                                   |
+| Backend    | [`db.rs`](../../src-tauri/src/db.rs), [`commands.rs`](../../src-tauri/src/commands.rs)                                                                                                                          |
+| API        | [`types.ts`](../../src/lib/types.ts), [`api.ts`](../../src/lib/api.ts)                                                                                                                                          |
+| Components | [`TagFilterBar.svelte`](../../src/lib/components/TagFilterBar.svelte), [`ConfirmDialog.svelte`](../../src/lib/components/ConfirmDialog.svelte), [`palette/+page.svelte`](../../src/routes/palette/+page.svelte) |
 
 ---
 
@@ -310,7 +307,7 @@ make fix-backend && make check-backend
 **Manual (macOS):**
 
 - [ ] Automatic follows System Settings → Appearance
-- [ ] Light / Dark apply instantly in Settings, overlay, and voice HUD
+- [ ] Light / Dark apply instantly in Settings, overlay, voice HUD, and palette
 - [ ] Overlay search readable on blur in light mode
 - [ ] Tabs, filter chips, card selection — sufficient contrast in both themes
 - [ ] `prefers-reduced-transparency` — opaque surfaces in both themes

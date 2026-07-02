@@ -1,5 +1,4 @@
 <script lang="ts">
-  import SfSymbol from "$lib/components/SfSymbol.svelte";
   import type { Collection } from "$lib/types";
   import { createCollection, deleteCollection } from "$lib/api";
   import {
@@ -47,10 +46,10 @@
 <!-- TEST-NOTE: Svelte markup/a11y not covered here; see collection-tabs.test.ts for scroll/selection helpers. -->
 <div class="tabs-container">
   <div role="tablist" aria-label="Clipboard view" class="view-tablist">
-    <div class="primary-segment" role="presentation">
+    <div class="segment-track" role="presentation">
       <button
         type="button"
-        class="segment-tab app-btn"
+        class="segment-item app-btn"
         role="tab"
         aria-selected={historySelected}
         onclick={() => onselect?.(null)}
@@ -59,7 +58,7 @@
       </button>
       <button
         type="button"
-        class="segment-tab app-btn"
+        class="segment-item app-btn"
         role="tab"
         aria-selected={activePinned}
         onclick={() => onselect?.(-1)}
@@ -90,11 +89,13 @@
         </button>
         <button
           type="button"
-          class="tab-delete app-btn"
-          aria-label="Delete collection {col.name}"
+          class="tab-delete"
+          aria-label="Remove collection {col.name}"
           onclick={(e) => handleDelete(e, col.id)}
         >
-          <SfSymbol name="xmark" class="collection-action-icon" />
+          <svg class="tab-delete-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
         </button>
       </div>
     {/each}
@@ -118,7 +119,9 @@
         aria-label="Add collection"
         onclick={() => (showAdd = true)}
       >
-        <SfSymbol name="plus" class="collection-action-icon" />
+        <svg class="add-tab-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
       </button>
     {/if}
   </div>
@@ -128,7 +131,7 @@
   .tabs-container {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-stack);
     flex-shrink: 1;
     min-width: 0;
     height: var(--overlay-header-control-height);
@@ -142,7 +145,7 @@
   .collections-scroll {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-stack);
     min-width: 0;
     flex: 0 0 auto;
   }
@@ -157,60 +160,7 @@
     display: none;
   }
 
-  /* ── Primary segmented control (History / Starred) ── */
-  .primary-segment {
-    display: inline-flex;
-    align-items: stretch;
-    flex-shrink: 0;
-    box-sizing: border-box;
-    height: var(--overlay-header-control-height);
-    gap: 2px;
-    padding: 2px;
-    border-radius: var(--radius-control);
-    background: var(--surface-3);
-    border: 1px solid var(--border-soft);
-  }
-
-  .segment-tab {
-    min-width: 72px;
-    height: calc(var(--overlay-header-control-height) - 4px);
-    padding: 0 12px;
-    border: none;
-    border-radius: var(--radius-control-sm);
-    background: transparent;
-    color: var(--color-text-secondary);
-    font: inherit;
-    font-size: var(--font-size-sm);
-    font-weight: 500;
-    cursor: pointer;
-    white-space: nowrap;
-    transition:
-      background var(--duration-fast) var(--ease-interactive),
-      color var(--duration-fast) var(--ease-interactive),
-      box-shadow var(--duration-fast) var(--ease-interactive);
-  }
-
-  .segment-tab:hover:not(:disabled, [aria-busy="true"]) {
-    color: var(--color-text-body);
-    background: var(--surface-5);
-  }
-
-  .segment-tab[aria-selected="true"] {
-    background: var(--surface-7);
-    color: var(--color-text-primary);
-    box-shadow: var(--shadow-inset-highlight);
-    border: 1px solid var(--border-default);
-  }
-
-  .segment-tab[aria-selected="true"]:hover:not(:disabled, [aria-busy="true"]) {
-    background: var(--surface-8);
-    border-color: var(--border-medium);
-  }
-
-  .segment-tab:focus-visible {
-    outline: none;
-    box-shadow: var(--ring-accent-input);
-  }
+  /* ── Primary segmented control (History / Starred) — segment-control.css ── */
 
   /* ── Custom collection pills ── */
   .collection-tab-item {
@@ -246,7 +196,7 @@
   .collection-tab {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-chip-gap);
     height: 100%;
     padding: 0 4px 0 10px;
     border: none;
@@ -292,6 +242,16 @@
     flex-shrink: 0;
   }
 
+  .tab-delete-icon {
+    width: var(--icon-size-chevron);
+    height: var(--icon-size-chevron);
+    display: block;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+
   .tab-delete {
     display: inline-flex;
     align-items: center;
@@ -307,10 +267,8 @@
     cursor: pointer;
     padding: 0;
     opacity: 0.45;
-    transition:
-      opacity var(--duration-fast) var(--ease-interactive),
-      color var(--duration-fast) var(--ease-interactive),
-      background var(--duration-fast) var(--ease-interactive);
+    -webkit-tap-highlight-color: transparent;
+    transition: color var(--duration-fast) var(--ease-interactive);
   }
 
   .collection-tab-item:hover .tab-delete,
@@ -319,14 +277,12 @@
     opacity: 1;
   }
 
-  .tab-delete :global(.collection-action-icon),
-  .add-tab :global(.collection-action-icon) {
-    display: block;
+  .tab-delete:hover:not(:disabled) {
+    color: var(--color-danger);
   }
 
-  .tab-delete:hover:not(:disabled, [aria-busy="true"]) {
-    color: var(--color-danger);
-    background: var(--surface-6);
+  .tab-delete:active:not(:disabled) {
+    color: var(--color-danger-text-hover);
   }
 
   .tab-delete:focus-visible {
@@ -351,6 +307,16 @@
       background var(--duration-fast) var(--ease-interactive),
       color var(--duration-fast) var(--ease-interactive),
       border-color var(--duration-fast) var(--ease-interactive);
+  }
+
+  .add-tab-icon {
+    width: var(--icon-size-overlay-header-close);
+    height: var(--icon-size-overlay-header-close);
+    display: block;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 2;
+    stroke-linecap: round;
   }
 
   .add-tab:hover:not(:disabled, [aria-busy="true"]) {

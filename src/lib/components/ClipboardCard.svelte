@@ -9,6 +9,7 @@
     formatCardTagLabel,
   } from "$lib/card-tag-label";
   import { cardDisplayTags } from "$lib/overlay-filters";
+  import { imageOcrPreviewText, resolveImageFooterMetaParts, resolveImageFormatBadge } from "$lib/image-meta";
 
   const {
     entry,
@@ -19,6 +20,7 @@
     onselect,
     retagAvailable = false,
     aiTaggingEnabled = false,
+    compactVertical = false,
   }: {
     entry: ClipboardEntry;
     selected?: boolean;
@@ -28,7 +30,14 @@
     onselect?: () => void;
     retagAvailable?: boolean;
     aiTaggingEnabled?: boolean;
+    compactVertical?: boolean;
   } = $props();
+
+  /** Collapse blank lines so line-clamp counts real content rows in compact vertical cards. */
+  function compactPreviewText(text: string | null): string {
+    if (!text) return "";
+    return text.replace(/\n{2,}/g, "\n");
+  }
 
   function timeAgo(dateStr: string): string {
     const now = Date.now();
@@ -294,6 +303,25 @@
   const visibleTagLabels = $derived(visibleTags.map(formatCardTagLabel));
   const visibleTagTruncates = $derived(cardTagFooterTruncateFlags(visibleTagLabels));
 
+  const previewText = $derived(
+    entry.content_type === "text"
+      ? compactVertical
+        ? compactPreviewText(entry.text_content)
+        : (entry.text_content ?? "")
+      : "",
+  );
+  const ocrPreview = $derived(imageOcrPreviewText(entry.content_type, entry.ocr_text));
+  const imageFormatBadge = $derived(
+    entry.content_type === "image"
+      ? resolveImageFormatBadge(entry.image_format, entry.image_thumb)
+      : null,
+  );
+  const imageFooterMeta = $derived(
+    entry.content_type === "image"
+      ? resolveImageFooterMetaParts(entry.image_width, entry.image_height, entry.image_byte_size)
+      : null,
+  );
+
   let cardEl = $state<HTMLDivElement | null>(null);
 </script>
 
@@ -303,6 +331,7 @@
   class:selected
   class:pinned={entry.is_pinned}
   class:copied
+  class:compact-vertical={compactVertical}
   onclick={handleClick}
   onkeydown={handleCardKeydown}
   role="button"
@@ -313,6 +342,9 @@
     <div class="card-type">
       <span class="type-label">
         <span>{typeLabel}</span>
+        {#if imageFormatBadge}
+          <span class="format-suffix">{imageFormatBadge}</span>
+        {/if}
       </span>
       <span class="time">{timeAgo(entry.created_at)}</span>
     </div>
@@ -329,12 +361,19 @@
           <span class="app-btn-spinner" aria-hidden="true">
             <span class="app-btn-spinner-icon"></span>
           </span>
-          ↵
+          <svg class="action-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M5.22 3.12 L5.22 10.30 C5.22 11.37 5.75 11.92 6.82 11.92 L11.68 11.92 C12.75 11.92 13.28 11.37 13.28 10.30 L13.28 3.12 C13.28 2.04 12.75 1.50 11.68 1.50 L6.82 1.50 C5.75 1.50 5.22 2.04 5.22 3.12 Z M7.99 3.27 C7.76 3.27 7.66 3.12 7.66 2.97 L7.66 2.86 C7.66 2.70 7.76 2.55 7.99 2.55 L10.51 2.55 C10.74 2.55 10.84 2.70 10.84 2.86 L10.84 2.97 C10.84 3.12 10.74 3.27 10.51 3.27 Z M2.72 12.88 C2.72 13.96 3.25 14.50 4.32 14.50 L9.18 14.50 C10.25 14.50 10.78 13.95 10.78 12.88 L10.78 8.84 C10.78 8.18 10.70 7.89 10.29 7.47 L7.44 4.57 C7.05 4.17 6.72 4.08 6.14 4.08 L4.32 4.08 C3.25 4.08 2.72 4.62 2.72 5.70 Z M3.55 12.86 L3.55 5.71 C3.55 5.20 3.82 4.91 4.36 4.91 L6.05 4.91 L6.05 7.91 C6.05 8.56 6.39 8.88 7.03 8.88 L9.95 8.88 L9.95 12.86 C9.95 13.38 9.67 13.67 9.13 13.67 L4.35 13.67 C3.82 13.67 3.55 13.38 3.55 12.86 Z M7.12 8.10 C6.92 8.10 6.83 8.02 6.83 7.81 L6.83 5.10 L9.79 8.10 Z" />
+          </svg>
         </button>
       {/if}
-      {#if entry.content_type === "text" && retagAvailable}
+      {#if (entry.content_type === "text" || entry.content_type === "image") && retagAvailable}
         <button class="action-btn app-btn" onclick={handleRetag} aria-label="Retag" title="Retag">
-          ↻
+          <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+            <path d="M21 3v5h-5" />
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+            <path d="M8 16H3v5" />
+          </svg>
         </button>
       {/if}
       <button
@@ -343,10 +382,17 @@
         onclick={handlePin}
         aria-label={entry.is_pinned ? "Unpin" : "Pin"}
       >
-        {entry.is_pinned ? "★" : "☆"}
+        <svg class="action-icon" viewBox="0 0 24 24" fill={entry.is_pinned ? "currentColor" : "none"} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+        </svg>
       </button>
       <button class="action-btn app-btn delete" onclick={handleDelete} aria-label="Delete" title="Delete">
-        ×
+        <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          <line x1="10" y1="11" x2="10" y2="17" />
+          <line x1="14" y1="11" x2="14" y2="17" />
+        </svg>
       </button>
     </div>
   </div>
@@ -354,14 +400,19 @@
   <div class="card-body">
     {#if entry.content_type === "text"}
       <div class="text-preview">
-        <div class="text-content" class:mono={usesMonoPreview}>{entry.text_content}</div>
+        <div class="text-content" class:mono={usesMonoPreview}>{previewText}</div>
       </div>
     {:else if entry.content_type === "image"}
-      <div class="image-preview">
+      <div class="image-preview" class:has-ocr={ocrPreview.length > 0}>
         {#if entry.image_thumb}
           <img src={imageThumbSrc(entry.image_thumb)} alt="Copied content" loading="lazy" decoding="async" />
         {:else}
           <div class="image-placeholder">Image</div>
+        {/if}
+        {#if ocrPreview}
+          <div class="text-preview">
+            <div class="text-content text-content--ocr" title={ocrPreview}>{ocrPreview}</div>
+          </div>
         {/if}
       </div>
     {/if}
@@ -383,13 +434,21 @@
         {/each}
       </div>
     {/if}
-    {#if entry.source_app || charLabel}
+    {#if entry.source_app || charLabel || imageFooterMeta}
       <div class="footer-row">
         {#if entry.source_app}
           <span class="source-app">{entry.source_app}</span>
         {/if}
         {#if charLabel}
           <span class="char-count">{charLabel}</span>
+        {:else if imageFooterMeta}
+          <span class="image-meta">
+            {#if imageFooterMeta.dimensions}{imageFooterMeta.dimensions}{/if}
+            {#if imageFooterMeta.dimensions && imageFooterMeta.byteSize}
+              <span class="image-meta-sep" aria-hidden="true">·</span>
+            {/if}
+            {#if imageFooterMeta.byteSize}{imageFooterMeta.byteSize}{/if}
+          </span>
         {/if}
       </div>
     {/if}
@@ -433,7 +492,7 @@
   }
 
   .card:hover:not(.selected, .copied) {
-    transform: translateY(-2px);
+    transform: translateY(var(--card-hover-lift));
     border-color: var(--border-accent-selected);
     background: var(--surface-card-hover);
     box-shadow:
@@ -442,7 +501,7 @@
   }
 
   .card.pinned:hover:not(.selected, .copied) {
-    transform: translateY(-2px);
+    transform: translateY(var(--card-hover-lift));
     border-color: var(--border-warning-pinned-hover);
     background: var(--surface-card-hover);
     box-shadow:
@@ -480,7 +539,7 @@
   }
 
   .card.selected:hover:not(.copied) {
-    transform: translateY(-2px);
+    transform: translateY(var(--card-hover-lift));
     background: var(--surface-card-hover);
     border-color: var(--border-accent-selected);
     box-shadow: var(--shadow-card-selected);
@@ -501,7 +560,7 @@
 
   :global([data-input-modality="keyboard"]) .card.selected:hover:not(.copied),
   :global([data-input-modality="keyboard"]) .card.selected:focus:hover:not(.copied) {
-    transform: translateY(-2px);
+    transform: translateY(var(--card-hover-lift));
     background: var(--surface-card-hover);
     border-color: var(--border-accent-ring);
     box-shadow: var(--shadow-card-selected);
@@ -521,7 +580,7 @@
   }
 
   .card.selected.pinned:hover:not(.copied) {
-    transform: translateY(-2px);
+    transform: translateY(var(--card-hover-lift));
     border-color: var(--border-warning-pinned-hover);
     background: var(--surface-card-hover);
     box-shadow: 0 0 0 2px transparent;
@@ -539,7 +598,7 @@
 
   :global([data-input-modality="keyboard"]) .card.selected.pinned:hover:not(.copied),
   :global([data-input-modality="keyboard"]) .card.selected.pinned:focus:hover:not(.copied) {
-    transform: translateY(-2px);
+    transform: translateY(var(--card-hover-lift));
     background: var(--surface-card-hover);
     border-color: var(--border-accent-selected);
     box-shadow: var(--shadow-card-selected);
@@ -554,28 +613,36 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-stack);
     flex-shrink: 0;
   }
 
   .card-type {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-segment-inset);
   }
 
   .type-label {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: var(--card-type-gap);
     width: fit-content;
-    padding: 3px 8px;
+    padding: var(--card-type-pad);
     border-radius: var(--radius-pill);
     background: var(--surface-7);
     font-weight: 600;
     font-size: var(--font-size-sm);
     letter-spacing: 0.02em;
     color: var(--color-text-body);
+  }
+
+  .format-suffix {
+    font-weight: 700;
+    font-size: var(--font-size-2xs);
+    letter-spacing: 0.08em;
+    color: var(--color-accent-text-soft);
+    text-transform: uppercase;
   }
 
   .time {
@@ -585,7 +652,7 @@
 
   .card-actions {
     display: flex;
-    gap: 2px;
+    gap: var(--space-segment-inset);
   }
 
   .card-actions .action-btn {
@@ -609,8 +676,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: var(--size-card-action-hit);
+    height: var(--size-card-action-hit);
     background: none;
     border: none;
     color: var(--color-text-muted);
@@ -620,7 +687,9 @@
     flex-shrink: 0;
   }
 
-  .action-btn :global(.card-action-icon) {
+  .action-icon {
+    width: var(--icon-size-card-action);
+    height: var(--icon-size-card-action);
     display: block;
   }
 
@@ -630,8 +699,14 @@
   }
 
   .action-btn.paste {
+    border: 1px solid transparent;
+  }
+
+  .action-btn.paste:hover:not(:disabled, [aria-busy="true"]),
+  .action-btn.paste:focus-visible:not(:disabled, [aria-busy="true"]),
+  :global([data-input-modality="keyboard"]) .action-btn.paste:focus:not(:disabled, [aria-busy="true"]) {
     background: var(--surface-accent-muted);
-    border: 1px solid var(--border-accent-soft);
+    border-color: var(--border-accent-soft);
     color: var(--color-accent-text-soft);
   }
 
@@ -639,6 +714,10 @@
     background: var(--surface-accent-hover);
     border-color: var(--border-accent-medium);
     color: var(--color-accent-text);
+  }
+
+  .action-btn.is-busy .action-icon {
+    opacity: 0;
   }
 
   .action-btn.is-busy {
@@ -669,8 +748,8 @@
   }
 
   .card-body {
-    flex: 0 0 168px;
-    height: 168px;
+    flex: 0 0 var(--card-preview-height);
+    height: var(--card-preview-height);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -682,7 +761,7 @@
     display: grid;
     grid-template-rows: minmax(0, 1fr);
     box-sizing: border-box;
-    padding: 10px 12px;
+    padding: var(--card-text-preview-pad);
     background: var(--surface-4);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-inset);
@@ -690,7 +769,7 @@
   }
 
   .text-content.mono {
-    font-family: "SF Mono", Menlo, Monaco, monospace;
+    font-family: var(--font-family-mono);
   }
 
   .text-content:not(.mono) {
@@ -709,21 +788,41 @@
     overflow-wrap: break-word;
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 8;
-    line-clamp: 8;
+    -webkit-line-clamp: var(--text-preview-line-clamp, 8);
+    line-clamp: var(--text-preview-line-clamp, 8);
     text-overflow: ellipsis;
+  }
+
+  /* OCR-derived text: same box rules as copied text, quieter secondary tone (HIG). */
+  .text-content--ocr {
+    color: var(--color-text-tertiary);
+    font-weight: 400;
   }
 
   .image-preview {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--card-image-preview-gap);
     height: 100%;
+    min-height: 0;
+  }
+
+  .image-preview.has-ocr .text-preview {
+    --text-preview-line-clamp: var(--card-ocr-line-clamp);
+    flex: 1 1 0;
+    min-height: 0;
+    padding: var(--card-text-preview-pad-ocr);
+  }
+
+  .image-preview.has-ocr img,
+  .image-preview.has-ocr .image-placeholder {
+    flex-shrink: 0;
+    height: var(--card-image-thumb-h-ocr);
   }
 
   .image-preview img {
     width: 100%;
-    height: 86px;
+    height: var(--card-image-thumb-h-only);
     border-radius: var(--radius-inset);
     object-fit: cover;
     display: block;
@@ -733,7 +832,7 @@
 
   .image-placeholder {
     width: 100%;
-    height: 86px;
+    height: var(--card-image-thumb-h-only);
     background: var(--surface-5);
     border-radius: var(--radius-inset);
     display: flex;
@@ -747,11 +846,11 @@
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--space-stack);
     flex-shrink: 0;
-    min-height: 16px;
+    min-height: var(--card-footer-min-height);
     margin-top: auto;
-    padding-top: 8px;
+    padding-top: var(--space-stack);
   }
 
   .footer-row {
@@ -776,7 +875,7 @@
     display: flex;
     flex-wrap: nowrap;
     justify-content: flex-start;
-    gap: 4px;
+    gap: var(--space-row);
     overflow: hidden;
     min-width: 0;
   }
@@ -786,7 +885,7 @@
     align-items: center;
     flex: 0 0 auto;
     max-width: 100%;
-    padding: 2px 7px;
+    padding: var(--card-entry-tag-pad);
     border-radius: var(--radius-control-sm);
     border: 1px solid var(--border-entry-tag);
     background: var(--surface-entry-tag);
@@ -819,6 +918,33 @@
     color: var(--color-text-faint);
     white-space: nowrap;
     flex-shrink: 0;
+  }
+
+  .image-meta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-left: auto;
+    font-size: var(--font-size-xs);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    color: var(--color-text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+  }
+
+  .image-meta-sep {
+    flex-shrink: 0;
+    margin-inline: 0.3125rem;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    line-height: 1;
+    color: var(--color-text-muted);
+    user-select: none;
   }
 
   .sr-only {
@@ -858,7 +984,20 @@
   }
 
   .copied-overlay .copied-icon {
+    width: var(--icon-size-card-copied);
+    height: var(--icon-size-card-copied);
+    flex-shrink: 0;
     animation: copied-icon-pop var(--duration-hud) var(--ease-interactive) forwards;
+  }
+
+  .card.compact-vertical .copied-overlay {
+    gap: var(--card-copied-gap-vertical);
+    font-size: var(--card-copied-label-size-vertical);
+  }
+
+  .card.compact-vertical .copied-overlay .copied-icon {
+    width: var(--card-copied-icon-size-vertical);
+    height: var(--card-copied-icon-size-vertical);
   }
 
   @keyframes copied-icon-pop {

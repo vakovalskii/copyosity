@@ -1,8 +1,10 @@
 # Voice HUD — full accessibility lifecycle
 
-Full screen-reader lifecycle for Voice HUD: start → processing → terminal (success / empty / error / not configured). Baseline HUD (static live region) — in [audit-hig.md](audit-hig.md) item 32; **this plan is the source of truth** for the full cycle. Backlog — [features-backlog.md](features-backlog.md).
+Full screen-reader lifecycle for Voice HUD: start → processing → terminal (success / empty / error / not configured). Baseline HUD — in [audit-hig.md](audit-hig.md) item 32; **this plan is the source of truth** for the full cycle. Backlog — [features-backlog.md](features-backlog.md).
 
 **Decided:** HUD **stays visible** during transcription (do not hide immediately on shortcut release).
+
+**Current UI (0.6.0):** recording **capsule** — pulse dot, scrolling waveform (28 bars from `audio-level`), elapsed timer. Visuals are decorative; announcements must not mirror bar height updates.
 
 | Surface           | Files                                                                                                                                  |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -15,11 +17,11 @@ Full screen-reader lifecycle for Voice HUD: start → processing → terminal (s
 
 ## Problem
 
-Currently `[overlay/+page.svelte](../../src/routes/overlay/+page.svelte)` announces static "Recording voice", but:
+Currently `[overlay/+page.svelte](../../src/routes/overlay/+page.svelte)` has no phase-aware live region for the **capsule** UI:
 
 - on macOS the `voice_overlay` panel is **not destroyed** on `hide()` — repeated recordings are not re-announced;
 - on `Released` the HUD **hides immediately** (`[hide_voice_overlay](../../src-tauri/src/lib.rs)`) — screen reader does not hear processing / result;
-- `audio-level` (every ~60 ms) **must not** go into the live region (spam, against HIG).
+- `audio-level` (every ~60 ms) drives waveform bar heights — **must not** go into the live region (spam, against HIG).
 
 ## Goal
 
@@ -37,14 +39,14 @@ Web live regions work in the Copyosity webview. When all windows are hidden and 
 
 ## Checklist
 
-- [ ] `**voice-a11y.ts`\*\* — types, message constants, `subscribeVoiceA11y`, dedup helpers
+- [ ] **`voice-a11y.ts`** — types, message constants, `subscribeVoiceA11y`, dedup helpers
 - [ ] **Rust `lib.rs`** — `voice-a11y` events, seq, HUD visible until transcription ends, delayed hide
-- [ ] `**overlay/+page.svelte**` — phase state machine, `aria-busy`, processing visuals
-- [ ] `**VoiceA11yAnnouncer.svelte**` — global sr-only announcer
-- [ ] `**+layout.svelte**` — mount announcer (main + settings + overlay routes)
+- [ ] **`overlay/+page.svelte`** — phase state machine, `aria-busy`, capsule visuals in `aria-hidden` wrapper
+- [ ] **`VoiceA11yAnnouncer.svelte`** — global sr-only announcer
+- [ ] **`+layout.svelte`** — mount announcer (main + settings + overlay routes)
 - [ ] **Permissions** — description in `voice-overlay-commands.toml`
 - [x] **HIG audit** — item 32 baseline in [audit-hig.md](audit-hig.md); full cycle — this plan
-- [ ] **CHANGELOG** — Unreleased: voice a11y lifecycle
+- [ ] **CHANGELOG** — 0.6.0: voice a11y lifecycle
 - [ ] **Verification** — `npm run check`, `cargo check`, manual VoiceOver pass
 
 ---
@@ -183,15 +185,15 @@ State: `phase`, `statusMessage`, `busy`.
   {#if statusMessage}
     <span class="sr-only">{statusMessage}</span>
   {/if}
-  <div class="content" aria-hidden="true">
-    <!-- mic + eq -->
+  <div class="capsule" aria-hidden="true">
+    <!-- pulse dot + waveform + timer -->
   </div>
 </div>
 ```
 
 - `onMount`: listen to `voice-a11y`, update state (`shouldAnnounceInOverlay`)
-- On `processing` / terminal: mic without pulse, bars static (reuse reduced-motion path)
-- `audio-level` listener — **do not** touch live region
+- On `processing` / terminal: static capsule (reuse reduced-motion path)
+- `audio-level` listener — **only** updates bar heights inside `aria-hidden`; never the live region
 
 ---
 
@@ -232,7 +234,7 @@ Update [audit-hig.md](audit-hig.md) item 32:
 
 ## CHANGELOG
 
-In Unreleased `[CHANGELOG.md](../../CHANGELOG.md)`:
+In **0.6.0** or later `[CHANGELOG.md](../../CHANGELOG.md)`:
 
 - Voice: full screen-reader lifecycle for recording HUD
 - Voice: HUD stays visible during transcription

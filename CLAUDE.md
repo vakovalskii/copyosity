@@ -25,7 +25,7 @@ make fix && make check                   # full-stack or cross-cutting changes
 
 ## Icons
 
-UI icons are macOS SF Symbols (`SfSymbol` + generated `registry.ts`). Adding or changing icons: [docs/architecture/sf-symbols.md](docs/architecture/sf-symbols.md). Regenerate on macOS: `make export-sf-symbols`.
+Product UI uses inline stroke SVG (`SectionIcon.svelte`, `ChevronDown.svelte`, and component-local paths). Icon sizes come from `--icon-size-*` in `tokens.css`.
 
 ## Local AI Onboarding
 

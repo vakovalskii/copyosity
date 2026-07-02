@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import SfSymbol from "$lib/components/SfSymbol.svelte";
   import type { TagChip } from "$lib/overlay-filters";
 
   const {
@@ -33,14 +32,15 @@
   }
 
   function scrollFadeMask(start: boolean, end: boolean): string {
+    const fade = "var(--overlay-grid-pad-x)";
     if (!start && !end) return "none";
     if (start && end) {
-      return "linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent)";
+      return `linear-gradient(90deg, transparent, #000 ${fade}, #000 calc(100% - ${fade}), transparent)`;
     }
     if (end) {
-      return "linear-gradient(90deg, #000 calc(100% - 16px), transparent)";
+      return `linear-gradient(90deg, #000 calc(100% - ${fade}), transparent)`;
     }
-    return "linear-gradient(90deg, transparent, #000 16px, #000)";
+    return `linear-gradient(90deg, transparent, #000 ${fade}, #000)`;
   }
 
   const scrollMask = $derived(scrollFadeMask(fadeStart, fadeEnd));
@@ -87,7 +87,11 @@
         aria-pressed={activeTag === tag}
         onclick={() => onselect?.(tag)}
       >
-        <SfSymbol name="photo" class="format-icon" />
+        <svg class="format-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
         <span>{tag}</span>
         <span class="tag-count">{count}</span>
       </button>
@@ -113,125 +117,9 @@
 </div>
 
 <style>
-  .tag-filter-bar {
-    flex-shrink: 0;
-    padding: 0 16px;
-  }
-
-  .tag-filter-scroll {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    overflow-x: auto;
-    scrollbar-width: none;
-    padding: 2px 0;
-  }
-
-  .tag-filter-scroll::-webkit-scrollbar {
-    display: none;
-  }
-
-  .filter-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 11px;
-    border-radius: var(--radius-pill);
-    border: 1px solid var(--border-soft);
-    cursor: pointer;
-    white-space: nowrap;
-    font: inherit;
-    font-size: var(--font-size-sm);
-    line-height: 1.2;
-    flex-shrink: 0;
-    transition:
-      background var(--duration-fast) var(--ease-interactive),
-      border-color var(--duration-fast) var(--ease-interactive),
-      color var(--duration-fast) var(--ease-interactive);
-  }
-
-  .filter-chip-reset {
-    background: var(--surface-3);
-    color: var(--color-text-secondary);
-  }
-
-  .filter-chip-reset:hover:not(:disabled, [aria-busy="true"]) {
-    background: var(--surface-7);
-    border-color: var(--border-strong);
-  }
-
-  .filter-chip.active {
-    background: var(--surface-accent);
-    border-color: var(--border-accent-soft);
-    color: var(--color-accent-chip);
-  }
-
-  .filter-chip.active:hover:not(:disabled, [aria-busy="true"]) {
-    background: var(--surface-accent-hover);
-    border-color: var(--border-accent-medium);
-    color: var(--color-accent-chip);
-  }
-
-  .filter-chip.active .tag-count,
-  .filter-chip.active:hover .tag-count {
-    background: rgb(var(--rgb-accent) / 28%);
-    color: var(--color-accent-chip);
-  }
-
-  .filter-chip.active:hover .tag-count {
-    background: rgb(var(--rgb-accent) / 36%);
-  }
-
-  .filter-chip-format {
-    background: var(--surface-5);
-    border-color: var(--border-default);
-    color: var(--color-text-muted);
-    font-family: "SF Mono", Menlo, Monaco, monospace;
-    text-transform: lowercase;
-  }
-
-  .filter-chip-format:hover:not(:disabled, [aria-busy="true"]) {
-    background: var(--surface-7);
-    border-color: var(--border-strong);
-    color: var(--color-text-body);
-  }
-
-  .filter-chip-format.active :global(.format-icon) {
-    opacity: 1;
-  }
-
-  .filter-chip-semantic {
-    background: var(--surface-3);
-    color: var(--color-text-secondary);
-    text-transform: lowercase;
-  }
-
-  .filter-chip-semantic:hover:not(:disabled, [aria-busy="true"]) {
-    background: var(--surface-7);
-    border-color: var(--border-strong);
-  }
-
-  .tag-count {
-    display: inline-flex;
-    min-width: 18px;
-    justify-content: center;
-    padding: 2px 5px;
-    border-radius: var(--radius-pill);
-    background: var(--surface-8);
-    font-size: var(--font-size-2xs);
-    line-height: 1;
-    font-family: inherit;
-  }
-
-  .tag-filter-divider {
-    flex-shrink: 0;
-    align-self: center;
-    width: 1px;
-    height: 18px;
-    margin: 0 2px;
-    border-radius: 1px;
-    background: var(--border-emphasis);
-    box-shadow: 0 0 0 1px rgb(var(--rgb-white) / 6%);
-    opacity: 0.95;
+  .format-icon {
+    width: var(--icon-size-chip);
+    height: var(--icon-size-chip);
+    opacity: 0.85;
   }
 </style>

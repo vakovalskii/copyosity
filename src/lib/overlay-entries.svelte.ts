@@ -25,6 +25,7 @@ import {
   entryMatchesKind,
   entryMatchesTag,
   isFormatTag,
+  isSemanticTagUiEnabled,
   hasImageEntries,
   hasTextEntries,
   reconcileOverlayFilterState,
@@ -604,7 +605,7 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
     try {
       const settings = await getAppSettings();
       settingsLoadError = null;
-      const enabled = settings.ai_tagging_enabled;
+      const enabled = isSemanticTagUiEnabled(settings);
       let filtersChanged = false;
       if (enabled !== aiTaggingEnabled) {
         if (!enabled) {
@@ -769,6 +770,17 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
     if (!usesFilteredDisplayList() || !catalogEntry) return;
     const tagged: ClipboardEntry = { ...catalogEntry, tags };
     if (entryMatchesActiveFilters(tagged)) {
+      void reloadDisplayList(false, false);
+    }
+  }
+
+  function applyEntryOcr(entryId: number, ocrText: string) {
+    const patch = (entry: ClipboardEntry) =>
+      entry.id === entryId ? { ...entry, ocr_text: ocrText } : entry;
+    entries = entries.map(patch);
+    catalogEntries = catalogEntries.map(patch);
+
+    if (searchQuery) {
       void reloadDisplayList(false, false);
     }
   }
@@ -969,6 +981,7 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
     debouncedSearch,
     removeEntry,
     applyEntryTags,
+    applyEntryOcr,
     handlePinned,
     handleCollectionSelect,
     handleContentKindChange,

@@ -169,6 +169,30 @@ fn activate_for_settings_window() {
     }
 }
 
+/// Sidebar (184px) + content max-width (540px) + horizontal padding.
+const SETTINGS_WINDOW_WIDTH: f64 = 760.0;
+const SETTINGS_WINDOW_HEIGHT: f64 = 720.0;
+const SETTINGS_WINDOW_MIN_WIDTH: f64 = 680.0;
+const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 560.0;
+
+fn ensure_settings_window_size(window: &tauri::WebviewWindow) {
+    use tauri::LogicalSize;
+
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let Ok(size) = window.inner_size() else {
+        return;
+    };
+    let width = size.width as f64 / scale;
+    let height = size.height as f64 / scale;
+    if width >= SETTINGS_WINDOW_MIN_WIDTH && height >= SETTINGS_WINDOW_MIN_HEIGHT {
+        return;
+    }
+    let _ = window.set_size(LogicalSize::new(
+        SETTINGS_WINDOW_WIDTH,
+        SETTINGS_WINDOW_HEIGHT,
+    ));
+}
+
 #[tauri::command]
 pub fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -183,8 +207,8 @@ pub fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
 
     // If settings window already exists, just focus it
     if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.show();
-        let _ = window.set_focus();
+        ensure_settings_window_size(&window);
+        crate::present_settings_window(&window);
         #[cfg(target_os = "macos")]
         activate_for_settings_window();
         let _ = window.emit("settings-shown", ());
@@ -198,14 +222,16 @@ pub fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::App("/settings".into()),
     )
     .title("Copyosity Settings")
-    .inner_size(580.0, 680.0)
-    .resizable(true);
+    .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
+    .min_inner_size(SETTINGS_WINDOW_MIN_WIDTH, SETTINGS_WINDOW_MIN_HEIGHT)
+    .resizable(true)
+    .center();
 
     let window = builder.build().map_err(|e| e.to_string())?;
-    let _ = window.show();
-    let _ = window.set_focus();
+    crate::present_settings_window(&window);
     #[cfg(target_os = "macos")]
     activate_for_settings_window();
+    let _ = window.emit("settings-shown", ());
 
     Ok(())
 }
@@ -235,12 +261,12 @@ pub fn update_app_settings(
     voice_transcription_enabled: Option<bool>,
     ai_tagging_enabled: Option<bool>,
     overlay_shortcut_hints_enabled: Option<bool>,
+    hub_enabled: Option<bool>,
     hub_url: Option<String>,
     hub_token: Option<String>,
     hub_chat_model: Option<String>,
     hub_tagging_enabled: Option<bool>,
     hub_transcribe_enabled: Option<bool>,
-    hub_search_enabled: Option<bool>,
     voice_polish_enabled: Option<bool>,
     voice_polish_model: Option<String>,
     voice_polish_screenshot: Option<bool>,
@@ -255,6 +281,15 @@ pub fn update_app_settings(
     }
 
     let was_tagging_enabled = db.is_ai_tagging_enabled();
+    let prior_hub_enabled = db
+        .get_app_settings()
+        .map_err(|e| e.to_string())?
+        .hub_enabled;
+    let next_hub_enabled = hub_enabled.unwrap_or(prior_hub_enabled);
+
+    if hub_enabled.is_some() {
+        crate::sync_palette_shortcut_for_hub(&app, next_hub_enabled)?;
+    }
 
     let settings = db
         .update_app_settings(
@@ -268,12 +303,12 @@ pub fn update_app_settings(
             voice_transcription_enabled,
             ai_tagging_enabled,
             overlay_shortcut_hints_enabled,
+            hub_enabled,
             hub_url.as_deref(),
             hub_token.as_deref(),
             hub_chat_model.as_deref(),
             hub_tagging_enabled,
             hub_transcribe_enabled,
-            hub_search_enabled,
             voice_polish_enabled,
             voice_polish_model.as_deref(),
             voice_polish_screenshot,
@@ -283,7 +318,12 @@ pub fn update_app_settings(
             voice_selected_text,
             board_vertical,
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            if hub_enabled.is_some() {
+                let _ = crate::sync_palette_shortcut_for_hub(&app, prior_hub_enabled);
+            }
+            e.to_string()
+        })?;
 
     ollama::set_active_model(&settings.ollama_model);
 
@@ -297,6 +337,12 @@ pub fn update_app_settings(
     db.cleanup_old_entries(settings.retention_days)
         .map_err(|e| e.to_string())?;
     emit_history_changed(&app);
+
+    if hub_enabled.is_some() {
+        if let Err(e) = crate::refresh_tray_menu(&app) {
+            eprintln!("Tray menu refresh failed: {e}");
+        }
+    }
 
     Ok(settings)
 }
@@ -410,15 +456,26 @@ pub fn retag_entry(
     db: State<'_, Arc<Database>>,
     entry_id: i64,
 ) -> Result<Vec<String>, String> {
-    if !ollama::is_tagging_ready(db.inner()) {
+    if !crate::tagging::is_retag_ready(db.inner()) {
         return Ok(Vec::new());
     }
 
-    let Some(text) = db.get_entry_text(entry_id).map_err(|e| e.to_string())? else {
+    let Some(entry) = db.get_entry_by_id(entry_id).map_err(|e| e.to_string())? else {
         return Ok(Vec::new());
     };
 
-    let tags = match crate::tagging::tag(db.inner(), &text) {
+    let tagged = match entry.content_type.as_str() {
+        "text" => entry
+            .text_content
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .and_then(|text| crate::tagging::tag(db.inner(), text)),
+        "image" => crate::tagging::tag_image_entry(db.inner(), &entry),
+        _ => None,
+    };
+
+    let tags = match tagged {
         Some(tags) => {
             db.set_entry_tags(entry_id, &tags)
                 .map_err(|e| e.to_string())?;
@@ -580,7 +637,7 @@ pub fn check_ollama_status() -> Result<ollama::OllamaStatus, String> {
 
 #[tauri::command]
 pub fn is_tagging_ready(db: State<'_, Arc<Database>>) -> Result<bool, String> {
-    Ok(ollama::is_tagging_ready(db.inner()))
+    Ok(crate::tagging::is_retag_ready(db.inner()))
 }
 
 #[tauri::command]
@@ -614,6 +671,11 @@ pub async fn test_ollama_tagging() -> Result<Option<Vec<String>>, String> {
 #[tauri::command]
 pub fn rebind_voice_shortcut(app: tauri::AppHandle) -> Result<String, String> {
     crate::register_voice_shortcut(&app)
+}
+
+#[tauri::command]
+pub fn rebind_palette_shortcut(app: tauri::AppHandle) -> Result<(), String> {
+    crate::register_palette_shortcut(&app)
 }
 
 #[tauri::command]

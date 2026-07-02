@@ -1,8 +1,25 @@
 import type { ClipboardEntry, OverlayTagCounts } from "$lib/types";
 
 import { cardTagDisplayLabel } from "./card-tag-label.ts";
+import { resolveImageFormatBadge } from "./image-meta.ts";
 
 export type ContentKind = "all" | "text" | "image";
+
+/** Settings fields that gate semantic tag chips and card tag rows in the overlay. */
+export type SemanticTagUiSettings = {
+  ai_tagging_enabled: boolean;
+  hub_enabled: boolean;
+  hub_tagging_enabled: boolean;
+  hub_token: string;
+};
+
+/** Semantic tags/filters are shown when local AI tagging or hub tagging is configured. */
+export function isSemanticTagUiEnabled(settings: SemanticTagUiSettings): boolean {
+  return (
+    settings.ai_tagging_enabled ||
+    (settings.hub_enabled && settings.hub_tagging_enabled && Boolean(settings.hub_token?.trim()))
+  );
+}
 
 export type TagChip = [tag: string, count: number];
 
@@ -43,6 +60,10 @@ export function entryMatchesTag(entry: ClipboardEntry, tag: string): boolean {
     return (entry.tags ?? []).some((entryTag) => cardTagDisplayLabel(entryTag) === target);
   }
   if ((entry.tags ?? []).includes(tag)) return true;
+  if (entry.content_type === "image") {
+    const badge = resolveImageFormatBadge(entry.image_format ?? null, entry.image_thumb ?? null);
+    if (badge && badge.toLowerCase() === tag.toLowerCase()) return true;
+  }
   return false;
 }
 
@@ -67,6 +88,10 @@ function tagCountsToChips(counts: { tag: string; count: number }[]): TagChip[] {
   return counts.map((item) => [item.tag, item.count] as TagChip);
 }
 
+function sortFormatChips(chips: TagChip[]): TagChip[] {
+  return sortTagsByCount(chips);
+}
+
 function mergeSemanticChipsByDisplayLabel(counts: { tag: string; count: number }[]): TagChip[] {
   const merged = new Map<string, number>();
   for (const { tag, count } of counts) {
@@ -84,7 +109,7 @@ function chipsFromServerCounts(
   showRowA: boolean,
 ): TagBarChips {
   const kindFilterActive = aiTaggingEnabled && showRowA;
-  let formatChips = tagCountsToChips(counts.format);
+  let formatChips = sortFormatChips(tagCountsToChips(counts.format));
   let semanticChips = mergeSemanticChipsByDisplayLabel(counts.semantic);
   let resetLabel = "All tags";
 

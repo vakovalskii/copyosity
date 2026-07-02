@@ -1,0 +1,154 @@
+/*
+ * Overlay tag / format filter chips — TagFilterBar + vertical board tags.
+ * Colors: tokens.css
+ */
+
+.tag-filter-bar {
+  flex-shrink: 0;
+  padding: 0 var(--overlay-grid-pad-x);
+}
+
+.tag-filter-scroll {
+  display: flex;
+  align-items: center;
+  gap: var(--space-stack);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: var(--space-segment-inset) 0;
+}
+
+.tag-filter-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-chip-gap);
+  padding: var(--padding-chip);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-tight);
+  flex-shrink: 0;
+  transition:
+    background var(--duration-fast) var(--ease-interactive),
+    border-color var(--duration-fast) var(--ease-interactive),
+    color var(--duration-fast) var(--ease-interactive);
+}
+
+.filter-chip--compact {
+  font-size: var(--font-size-xs);
+  padding: 7px 11px;
+  gap: 7px;
+  background: var(--surface-5);
+  color: var(--color-text-secondary);
+}
+
+.filter-chip--compact:hover:not(:disabled, [aria-busy="true"]) {
+  background: var(--surface-8);
+  border-color: var(--border-emphasis);
+}
+
+.filter-chip--compact.filter-chip-reset {
+  background: var(--surface-3);
+}
+
+.filter-chip--compact.filter-chip-reset:hover:not(:disabled, [aria-busy="true"]) {
+  background: var(--surface-7);
+  border-color: var(--border-strong);
+}
+
+.filter-chip-reset {
+  background: var(--surface-3);
+  color: var(--color-text-secondary);
+}
+
+.filter-chip-reset:hover:not(:disabled, [aria-busy="true"]) {
+  background: var(--surface-7);
+  border-color: var(--border-strong);
+}
+
+.filter-chip.active {
+  background: var(--surface-accent);
+  border-color: var(--border-accent-soft);
+  color: var(--color-accent-chip);
+}
+
+.filter-chip.active:hover:not(:disabled, [aria-busy="true"]) {
+  background: var(--surface-accent-hover);
+  border-color: var(--border-accent-medium);
+  color: var(--color-accent-chip);
+}
+
+.filter-chip--muted.active {
+  background: var(--surface-accent-muted);
+  border-color: var(--border-accent-soft);
+  color: var(--color-text-primary);
+}
+
+.filter-chip.active .tag-count,
+.filter-chip.active:hover .tag-count {
+  background: var(--surface-chip-count-active);
+  color: var(--color-accent-chip);
+}
+
+.filter-chip.active:hover .tag-count {
+  background: var(--surface-chip-count-active-hover);
+}
+
+.filter-chip-format {
+  background: var(--surface-5);
+  border-color: var(--border-default);
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
+  text-transform: lowercase;
+}
+
+.filter-chip-format:hover:not(:disabled, [aria-busy="true"]) {
+  background: var(--surface-7);
+  border-color: var(--border-strong);
+  color: var(--color-text-body);
+}
+
+.filter-chip-format.active :global(.format-icon) {
+  opacity: 1;
+}
+
+.filter-chip-semantic {
+  background: var(--surface-3);
+  color: var(--color-text-secondary);
+  text-transform: lowercase;
+}
+
+.filter-chip-semantic:hover:not(:disabled, [aria-busy="true"]) {
+  background: var(--surface-7);
+  border-color: var(--border-strong);
+}
+
+.tag-count {
+  display: inline-flex;
+  min-width: var(--size-chip-count-min);
+  justify-content: center;
+  padding: var(--padding-chip-count);
+  border-radius: var(--radius-pill);
+  background: var(--surface-8);
+  font-size: var(--font-size-2xs);
+  line-height: 1;
+  font-family: inherit;
+}
+
+.tag-filter-divider {
+  flex-shrink: 0;
+  align-self: center;
+  width: 1px;
+  height: var(--size-chip-count-min);
+  margin: 0 var(--space-segment-inset);
+  border-radius: 1px;
+  background: var(--border-emphasis);
+  box-shadow: 0 0 0 1px rgb(var(--rgb-white) / 6%);
+  opacity: 0.95;
+}

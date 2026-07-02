@@ -1,0 +1,77 @@
+/*
+ * Shared overlay shell chrome — header icon buttons, footer strips.
+ * Colors: tokens.css
+ */
+
+.overlay-icon-btn {
+  box-sizing: border-box;
+  width: var(--overlay-header-control-height);
+  height: var(--overlay-header-control-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  background: var(--surface-6);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-control);
+  color: var(--color-text-body);
+  cursor: pointer;
+}
+
+.overlay-icon-btn:hover:not(:disabled, [aria-busy="true"]) {
+  background: var(--surface-10);
+  border-color: var(--border-emphasis);
+}
+
+.overlay-icon-btn--settings svg {
+  width: var(--icon-size-overlay-header-settings);
+  height: var(--icon-size-overlay-header-settings);
+  fill: currentcolor;
+}
+
+.overlay-icon-btn--close svg {
+  width: var(--icon-size-overlay-header-close);
+  height: var(--icon-size-overlay-header-close);
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.overlay-icon-btn-icon {
+  width: var(--icon-size-overlay-header-settings);
+  height: var(--icon-size-overlay-header-settings);
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.overlay-icon-btn-icon--close {
+  width: var(--icon-size-overlay-header-close);
+  height: var(--icon-size-overlay-header-close);
+  stroke-width: 2;
+}
+
+.overlay-header {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+  padding: var(--overlay-grid-pad-y) var(--overlay-grid-pad-x);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-1);
+  flex: 0 0 calc(var(--overlay-header-control-height) + var(--overlay-header-pad-block));
+  height: calc(var(--overlay-header-control-height) + var(--overlay-header-pad-block));
+  max-height: calc(var(--overlay-header-control-height) + var(--overlay-header-pad-block));
+  min-height: 0;
+  overflow: hidden;
+}
+
+.overlay-footer-strip {
+  flex-shrink: 0;
+  background: var(--surface-1);
+}

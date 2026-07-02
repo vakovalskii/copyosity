@@ -11,7 +11,6 @@ RUST_RUN = bash "$(APP_DIR)/scripts/run-rust.sh"
 	check check-frontend check-backend \
 	lint lint-frontend lint-backend \
 	fix fix-frontend fix-backend \
-	export-sf-symbols \
 	_verify-rust-env _compile-backend _test-backend \
 	clean-cache clean-cache-aggressive clean-all \
 	build-macos build-macos-intel build-macos-arm \
@@ -35,9 +34,6 @@ help:
 	@echo "  make fix-backend      Auto-fix Rust formatting and Clippy issues"
 	@echo "  make lint-backend     Verify Rust lint and formatting"
 	@echo "  make check-backend    Run Rust compile checks, lint, and tests"
-	@echo ""
-	@echo "Icons (macOS only):"
-	@echo "  make export-sf-symbols  Regenerate src/lib/sf-symbols/registry.ts"
 	@echo ""
 	@echo "Recommended cycles:"
 	@echo "  Frontend-only: make fix-frontend && make check-frontend"
@@ -79,10 +75,6 @@ fix-frontend:
 
 fix-backend:
 	$(RUST_RUN) 'cargo fmt && cargo clippy --fix --allow-dirty --allow-staged --all-targets -- -D warnings && cargo fmt'
-
-# Regenerate SF Symbol paths (macOS + Xcode required). See docs/architecture/sf-symbols.md.
-export-sf-symbols:
-	swift "$(APP_DIR)/scripts/export-sf-symbols.swift"
 
 # --- Backend internals ---
 

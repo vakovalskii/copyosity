@@ -14,6 +14,14 @@ import {
   formatCardTagLabel,
 } from "./card-tag-label.ts";
 
+describe("card tag constants", () => {
+  it("keeps truncation policy thresholds stable", () => {
+    assert.equal(CARD_TAG_THREE_LABEL_BUDGET, 22);
+    assert.equal(CARD_TAG_NEVER_TRUNCATE_MAX_LEN, 7);
+    assert.equal(CARD_TAG_TRUNCATE_LABEL_MIN, 12);
+  });
+});
+
 describe("formatCardTagLabel", () => {
   it("abbreviates widely recognized long tags", () => {
     assert.equal(formatCardTagLabel("kubernetes"), "k8s");
@@ -83,8 +91,7 @@ describe("cardTagThreeTruncateFlags", () => {
     const labels = ["12345678", "12345678", "12345678"];
     assert.equal(labels.join("").length, 24);
     const flags = cardTagThreeTruncateFlags(labels);
-    assert.equal(flags.filter(Boolean).length, 1);
-    assert.equal(flags.filter(Boolean).length + flags.filter((f) => !f).length, 3);
+    assert.deepEqual(flags, [true, false, false]);
   });
 
   it("never truncates labels at or below the short-tag limit", () => {
@@ -163,12 +170,5 @@ describe("cardTagTitle", () => {
   it("omits title when the label is shown in full without clipping risk", () => {
     assert.equal(cardTagTitle("api", "api", false), undefined);
     assert.equal(cardTagTitle("docker", "docker", false), undefined);
-  });
-});
-
-describe("card tag layout constants", () => {
-  it("documents the short-tag and budget limits", () => {
-    assert.equal(CARD_TAG_NEVER_TRUNCATE_MAX_LEN, 7);
-    assert.equal(CARD_TAG_THREE_LABEL_BUDGET, 22);
   });
 });

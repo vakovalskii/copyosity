@@ -1,6 +1,6 @@
 {
   "name": "copyosity",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "",
   "license": "MIT",
   "type": "module",
@@ -25,29 +25,29 @@
     "prepare": "lefthook install"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.0",
-    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "marked": "^18.0.5"
   },
   "devDependencies": {
-    "@sveltejs/adapter-static": "^3.0.6",
-    "@sveltejs/kit": "^2.65.0",
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.68.0",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
-    "@tauri-apps/cli": "^2.11.2",
-    "@types/node": "^25.9.3",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^25.9.4",
     "lefthook": "^2.1.9",
     "oxfmt": "^0.54.0",
-    "oxlint": "^1.69.0",
+    "oxlint": "^1.72.0",
     "postcss-html": "^1.8.1",
-    "stylelint": "^17.13.0",
+    "stylelint": "^17.14.0",
     "stylelint-config-html": "^1.1.0",
     "stylelint-config-standard": "^40.0.0",
     "stylelint-declaration-strict-value": "^1.11.1",
     "stylelint-order": "^8.1.1",
-    "svelte": "^5.56.3",
-    "svelte-check": "^4.6.0",
+    "svelte": "^5.56.4",
+    "svelte-check": "^4.7.1",
     "typescript": "^6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.1.2"
   },
   "overrides": {
     "cookie": "^0.7.2"

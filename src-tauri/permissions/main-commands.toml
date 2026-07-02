@@ -26,4 +26,5 @@ commands.allow = [
   # Read candidate for header status; add for one-tap Exclude (same trust as settings).
   "get_excludable_app_candidate",
   "add_excludable_app_candidate",
+  "open_command_palette",
 ]

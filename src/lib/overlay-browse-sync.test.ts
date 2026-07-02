@@ -30,6 +30,16 @@ describe("shouldSyncLeadingCardAfterScroll", () => {
       false,
     );
   });
+
+  it("syncs when keyboard browse guard has exactly expired", () => {
+    assert.equal(
+      shouldSyncLeadingCardAfterScroll({
+        keyboardBrowseUntil: 1_000,
+        now: 1_000,
+      }),
+      true,
+    );
+  });
 });
 
 describe("shouldScheduleTrackpadLeadingSync", () => {
@@ -181,6 +191,29 @@ describe("trackpad leading sync after keyboard (intentional)", () => {
     assert.equal(shouldSyncLeadingCardAfterScroll({ keyboardBrowseUntil: 500, now: 1_000 }), true);
   });
 
+  it("drains suppress across multiple scrollend events", () => {
+    const first = handleScrollEndBrowseSync({
+      suppressSelectionSyncCount: 2,
+      keyboardBrowseUntil: 0,
+      now: 1_000,
+    });
+    assert.deepEqual(first, { nextSuppressCount: 1, shouldSyncLeading: false });
+
+    const second = handleScrollEndBrowseSync({
+      suppressSelectionSyncCount: first.nextSuppressCount,
+      keyboardBrowseUntil: 0,
+      now: 1_001,
+    });
+    assert.deepEqual(second, { nextSuppressCount: 0, shouldSyncLeading: false });
+
+    const third = handleScrollEndBrowseSync({
+      suppressSelectionSyncCount: second.nextSuppressCount,
+      keyboardBrowseUntil: 0,
+      now: 1_002,
+    });
+    assert.deepEqual(third, { nextSuppressCount: 0, shouldSyncLeading: true });
+  });
+
   it("drains suppress one count per scrollend; sync only after counter reaches zero", () => {
     const first = handleScrollEndBrowseSync({
       suppressSelectionSyncCount: 1,
@@ -195,20 +228,5 @@ describe("trackpad leading sync after keyboard (intentional)", () => {
       now: 1_001,
     });
     assert.deepEqual(second, { nextSuppressCount: 0, shouldSyncLeading: true });
-  });
-
-  it("idle debounce uses the same policy as scrollend (shared handleScrollEndBrowseSync)", () => {
-    assert.deepEqual(
-      handleScrollEndBrowseSync({
-        suppressSelectionSyncCount: 1,
-        keyboardBrowseUntil: 0,
-        now: 1_000,
-      }),
-      handleScrollEndBrowseSync({
-        suppressSelectionSyncCount: 1,
-        keyboardBrowseUntil: 0,
-        now: 1_000,
-      }),
-    );
   });
 });

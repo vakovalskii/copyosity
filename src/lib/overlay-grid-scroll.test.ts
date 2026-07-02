@@ -3,12 +3,15 @@ import { describe, it } from "node:test";
 
 import {
   indexOfLeadingVisibleCard,
+  indexOfLeadingVisibleCardVertical,
   isCardOffScreen,
+  isCardOffScreenVertical,
   nextIndexAfterKeyboardArrow,
   shouldAnchorKeyboardSelectionBeforeArrow,
 } from "./overlay-grid-scroll.ts";
 
 const viewport = { left: 0, right: 400 };
+const viewportVertical = { top: 0, bottom: 600 };
 
 /** Documents the rejected anchor policy (leading≠selected) — freezes rapid → at card 1. */
 function antiPatternNextAfterArrowRight(selected: number): number {
@@ -70,6 +73,54 @@ describe("isCardOffScreen", () => {
 
   it("returns false when the card intersects the padded viewport", () => {
     assert.equal(isCardOffScreen(viewport, 16, 16, { left: 112, right: 332 }), false);
+  });
+});
+
+describe("indexOfLeadingVisibleCardVertical", () => {
+  it("returns the card aligned nearest the padded viewport top", () => {
+    const cards = [
+      { top: -120, bottom: 100 },
+      { top: 112, bottom: 332 },
+      { top: 344, bottom: 564 },
+    ];
+
+    assert.equal(indexOfLeadingVisibleCardVertical(viewportVertical, 16, 16, cards), 1);
+  });
+
+  it("returns -1 for an empty list", () => {
+    assert.equal(indexOfLeadingVisibleCardVertical(viewportVertical, 16, 16, []), -1);
+  });
+
+  it("falls back to the card nearest the padded top when none intersect", () => {
+    const cards = [
+      { top: -500, bottom: -280 },
+      { top: -260, bottom: -40 },
+    ];
+
+    assert.equal(indexOfLeadingVisibleCardVertical(viewportVertical, 16, 16, cards), 1);
+  });
+});
+
+describe("isCardOffScreenVertical", () => {
+  it("returns true when the card is fully above the padded viewport", () => {
+    assert.equal(
+      isCardOffScreenVertical(viewportVertical, 16, 16, { top: -300, bottom: -80 }),
+      true,
+    );
+  });
+
+  it("returns true when the card is fully below the padded viewport", () => {
+    assert.equal(
+      isCardOffScreenVertical(viewportVertical, 16, 16, { top: 620, bottom: 840 }),
+      true,
+    );
+  });
+
+  it("returns false when the card intersects the padded viewport", () => {
+    assert.equal(
+      isCardOffScreenVertical(viewportVertical, 16, 16, { top: 112, bottom: 332 }),
+      false,
+    );
   });
 });
 

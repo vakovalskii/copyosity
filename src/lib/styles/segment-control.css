@@ -1,0 +1,60 @@
+/*
+ * macOS segmented control — overlay header (History/Starred, content kind).
+ * Colors: tokens.css
+ */
+
+.segment-track {
+  display: inline-flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  height: var(--overlay-header-control-height);
+  gap: var(--space-segment-inset);
+  padding: var(--space-segment-inset);
+  border-radius: var(--radius-control);
+  background: var(--surface-3);
+  border: 1px solid var(--border-soft);
+}
+
+.segment-item {
+  min-width: 72px;
+  height: calc(var(--overlay-header-control-height) - 4px);
+  padding: 0 var(--control-chevron-inset);
+  border: none;
+  border-radius: var(--radius-control-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--duration-fast) var(--ease-interactive),
+    color var(--duration-fast) var(--ease-interactive),
+    box-shadow var(--duration-fast) var(--ease-interactive);
+}
+
+.segment-item:hover:not(:disabled, [aria-busy="true"]) {
+  color: var(--color-text-body);
+  background: var(--surface-5);
+}
+
+.segment-item[aria-selected="true"],
+.segment-item[aria-pressed="true"] {
+  background: var(--surface-7);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-inset-highlight);
+  border: 1px solid var(--border-default);
+}
+
+.segment-item[aria-selected="true"]:hover:not(:disabled, [aria-busy="true"]),
+.segment-item[aria-pressed="true"]:hover:not(:disabled, [aria-busy="true"]) {
+  background: var(--surface-8);
+  border-color: var(--border-medium);
+}
+
+.segment-item:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-accent-input);
+}

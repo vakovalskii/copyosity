@@ -235,21 +235,29 @@ pub fn is_concealed() -> bool {
     }
 }
 
+/// Remember a specific app as the paste target (voice hotkey, palette open, etc.).
+pub fn remember_paste_target_for_pid(pid: i32) {
+    if pid <= 0 || pid == std::process::id() as i32 {
+        return;
+    }
+    PASTE_TARGET_PID.store(pid, Ordering::SeqCst);
+    #[cfg(target_os = "macos")]
+    {
+        crate::app_exclusion::remember_from_pid(pid);
+        let focus = capture_focus_for_pid(pid);
+        paste_log(format!(
+            "remember pid={pid} focus={}",
+            if focus.is_some() { "yes" } else { "no" }
+        ));
+        store_focused_ui_element(focus);
+        capture_mouse_location();
+    }
+}
+
 /// Remember frontmost app before the panel becomes key (call before `show_and_make_key`).
 pub fn remember_paste_target() {
     if let Some(pid) = frontmost_pid_excluding_self() {
-        PASTE_TARGET_PID.store(pid, Ordering::SeqCst);
-        #[cfg(target_os = "macos")]
-        {
-            crate::app_exclusion::remember_from_pid(pid);
-            let focus = capture_focus_for_pid(pid);
-            paste_log(format!(
-                "remember pid={pid} focus={}",
-                if focus.is_some() { "yes" } else { "no" }
-            ));
-            store_focused_ui_element(focus);
-            capture_mouse_location();
-        }
+        remember_paste_target_for_pid(pid);
     }
 }
 
@@ -319,6 +327,24 @@ mod tests {
         mark_own_clipboard_write(99);
         assert!(should_ignore_capture(99));
         assert!(!should_ignore_capture(42));
+    }
+
+    #[test]
+    fn remember_paste_target_for_pid_ignores_invalid_pids() {
+        let previous = PASTE_TARGET_PID.load(Ordering::SeqCst);
+        remember_paste_target_for_pid(0);
+        remember_paste_target_for_pid(-1);
+        remember_paste_target_for_pid(std::process::id() as i32);
+        assert_eq!(PASTE_TARGET_PID.load(Ordering::SeqCst), previous);
+
+        remember_paste_target_for_pid(42_001);
+        assert_eq!(PASTE_TARGET_PID.load(Ordering::SeqCst), 42_001);
+        PASTE_TARGET_PID.store(previous, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn remember_paste_target_for_pid_is_send_for_background_spawn() {
+        let _job: Box<dyn Send + 'static> = Box::new(|| remember_paste_target_for_pid(1));
     }
 
     #[test]

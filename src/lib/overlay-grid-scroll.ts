@@ -3,6 +3,11 @@ export interface HorizontalRect {
   right: number;
 }
 
+export interface VerticalRect {
+  top: number;
+  bottom: number;
+}
+
 /** Leftmost card intersecting the padded horizontal viewport (matches scroll-snap start). */
 export function indexOfLeadingVisibleCard(
   viewport: HorizontalRect,
@@ -56,6 +61,61 @@ export function isCardOffScreen(
   const visibleLeft = viewport.left + padLeft;
   const visibleRight = viewport.right - padRight;
   return card.right <= visibleLeft || card.left >= visibleRight;
+}
+
+/** Topmost card intersecting the padded vertical viewport. */
+export function indexOfLeadingVisibleCardVertical(
+  viewport: VerticalRect,
+  padTop: number,
+  padBottom: number,
+  cards: VerticalRect[],
+  slack = 2,
+): number {
+  if (cards.length === 0) return -1;
+
+  const visibleTop = viewport.top + padTop;
+  const visibleBottom = viewport.bottom - padBottom;
+
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+
+  for (let i = 0; i < cards.length; i++) {
+    const card = cards[i];
+    if (card.bottom <= visibleTop - slack) continue;
+    if (card.top >= visibleBottom + slack) break;
+
+    const distance = Math.abs(card.top - visibleTop);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = i;
+    }
+  }
+
+  if (bestIndex >= 0) return bestIndex;
+
+  let closestIndex = 0;
+  let closestDistance = Infinity;
+  for (let i = 0; i < cards.length; i++) {
+    const distance = Math.abs(cards[i].top - visibleTop);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestIndex = i;
+    }
+  }
+
+  return closestIndex;
+}
+
+/** True when the card does not intersect the padded vertical viewport. */
+export function isCardOffScreenVertical(
+  viewport: VerticalRect,
+  padTop: number,
+  padBottom: number,
+  card: VerticalRect,
+): boolean {
+  const visibleTop = viewport.top + padTop;
+  const visibleBottom = viewport.bottom - padBottom;
+  return card.bottom <= visibleTop || card.top >= visibleBottom;
 }
 
 /**

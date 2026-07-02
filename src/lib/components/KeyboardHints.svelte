@@ -104,11 +104,11 @@
     font-size: 1em;
     font-weight: 500;
     line-height: 1;
-    border-radius: 4px;
-    background: rgb(var(--rgb-white) / 5.5%);
-    border: 1px solid rgb(var(--rgb-white) / 7%);
+    border-radius: var(--radius-code);
+    background: var(--surface-kbd);
+    border: 1px solid var(--border-kbd);
     color: var(--color-text-subtle);
-    box-shadow: 0 0.5px 0 rgb(var(--rgb-black) / 12%);
+    box-shadow: var(--shadow-kbd);
   }
 
   .hint-action {

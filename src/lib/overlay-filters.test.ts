@@ -9,6 +9,7 @@ import {
   catalogHasHistory,
   buildTagBarModel,
   entryMatchesTag,
+  isSemanticTagUiEnabled,
   type ReconcileOverlayFiltersOptions,
 } from "./overlay-filters.ts";
 
@@ -300,6 +301,40 @@ describe("buildTagBarModel with server tag counts", () => {
     assert.deepEqual(model.formatChips, [["png", 24]]);
   });
 
+  it("sorts format chips by count descending", () => {
+    const model = buildTagBarModel({
+      entries: [makeImageEntry(1, "PNG")],
+      contentKind: "all",
+      aiTaggingEnabled: false,
+      displayTagCounts: {
+        semantic: [],
+        format: [
+          { tag: "gif", count: 87 },
+          { tag: "jpg", count: 5 },
+          { tag: "png", count: 256 },
+        ],
+        has_text: false,
+        has_images: true,
+      },
+      layoutTagCounts: {
+        semantic: [],
+        format: [
+          { tag: "gif", count: 87 },
+          { tag: "jpg", count: 5 },
+          { tag: "png", count: 256 },
+        ],
+        has_text: false,
+        has_images: true,
+      },
+    });
+
+    assert.deepEqual(model.formatChips, [
+      ["png", 256],
+      ["gif", 87],
+      ["jpg", 5],
+    ]);
+  });
+
   it("merges semantic chips that share a UI label", () => {
     const model = buildTagBarModel({
       entries: [makeEntry(1)],
@@ -345,6 +380,16 @@ describe("entryMatchesTag", () => {
     assert.equal(entryMatchesTag(entry, "png"), false);
   });
 
+  it("matches format tags from image_format when tags omit format", () => {
+    const entry = {
+      ...makeImageEntry(5, "jpg"),
+      tags: ["screenshot"],
+      image_format: "JPG",
+    };
+    assert.equal(entryMatchesTag(entry, "jpg"), true);
+    assert.equal(entryMatchesTag(entry, "png"), false);
+  });
+
   it("matches semantic tags from entry.tags", () => {
     const entry = { ...makeEntry(2), tags: ["api"] };
     assert.equal(entryMatchesTag(entry, "api"), true);
@@ -356,5 +401,31 @@ describe("entryMatchesTag", () => {
     assert.equal(entryMatchesTag(jsEntry, "js"), true);
     assert.equal(entryMatchesTag(fullEntry, "js"), true);
     assert.equal(entryMatchesTag(fullEntry, "javascript"), true);
+  });
+});
+
+describe("isSemanticTagUiEnabled", () => {
+  it("is true for hub tagging when local AI is off", () => {
+    assert.equal(
+      isSemanticTagUiEnabled({
+        ai_tagging_enabled: false,
+        hub_enabled: true,
+        hub_tagging_enabled: true,
+        hub_token: "sk-test",
+      }),
+      true,
+    );
+  });
+
+  it("is false when hub master switch is off", () => {
+    assert.equal(
+      isSemanticTagUiEnabled({
+        ai_tagging_enabled: false,
+        hub_enabled: false,
+        hub_tagging_enabled: true,
+        hub_token: "sk-test",
+      }),
+      false,
+    );
   });
 });

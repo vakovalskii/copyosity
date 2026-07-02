@@ -6,6 +6,20 @@
  * Busy buttons: label in .app-btn-label, overlay spinner in .app-btn-spinner.
  * Use class "is-busy" while loading — do NOT set disabled during busy (WebKit pauses animations).
  */
+
+/* WebKit/macOS uses arrow cursor on <button> by default; pointer on all click targets. */
+button:not(:disabled, .is-busy, .is-locked) {
+  cursor: pointer;
+}
+
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+a[href] {
+  cursor: pointer;
+}
+
 button.app-btn {
   position: relative;
   -webkit-tap-highlight-color: transparent;
@@ -48,6 +62,21 @@ button.app-btn.is-busy .app-btn-spinner {
   border-top-color: var(--spinner-head);
   border-radius: 50%;
   animation: app-btn-spin var(--duration-spinner) linear infinite;
+}
+
+.app-btn-spinner-icon--sm {
+  width: 10px;
+  height: 10px;
+}
+
+.app-btn-spinner-icon--success {
+  border-color: var(--surface-10);
+  border-top-color: var(--color-success-text);
+}
+
+.app-btn-spinner-icon--palette {
+  border-color: rgb(var(--rgb-white) / 25%);
+  border-top-color: var(--color-palette-link);
 }
 
 @keyframes app-btn-spin {

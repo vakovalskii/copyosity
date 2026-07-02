@@ -27,6 +27,7 @@ commands.allow = [
   "unload_ollama_model",
   "test_ollama_tagging",
   "rebind_voice_shortcut",
+  "rebind_palette_shortcut",
   "list_microphones",
   "quit_app",
 ]

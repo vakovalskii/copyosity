@@ -1,65 +1,163 @@
 # Features backlog
 
-Living backlog for product features, fixes, and cross-cutting work. Shipped items are recorded in [CHANGELOG.md](../../CHANGELOG.md); note the release version on the line when an item ships.
+Living backlog for product features, fixes, and cross-cutting work. **Open items are listed first**; checked items below record what shipped and where it came from. Release details: [CHANGELOG.md](../../CHANGELOG.md).
 
 Not a feature spec — items with a linked `feature-*.md` keep the full design there; open items without a spec stay detailed in this file.
 
 **Related plans:** [feature-overlay-content-tag-filters.md](feature-overlay-content-tag-filters.md) · [feature-voice-hud-accessibility.md](feature-voice-hud-accessibility.md) · [feature-appearance-theme.md](feature-appearance-theme.md) · [audit-hig.md](audit-hig.md) · [feature-quick-look-preview.md](feature-quick-look-preview.md)
 
----
-
-## Security hardening
-
-- [x] **Explicit Tauri capabilities for the** `settings` **window** — **0.3.0** — first scoped `settings.json` instead of a shared broad default.
-      **0.4.0:** three-window ACL — `main.json`, `settings.json`, `voice_overlay.json` with explicit `commands.allow` via permission sets (`main-window-commands`, `settings-window-commands`, `voice-overlay-events`). Settings keeps config, exclusions, Ollama, accessibility, and history commands; it does **not** get `paste_entry` or `activate_entry`. Voice overlay is events-only. Details: [release-macos-intel-gate.md](release-macos-intel-gate.md) §8.
-
-- [x] **Validate Ollama model names before** `ollama pull` — **0.3.0** — `ollama::validate_model_name` (trim, length ≤ 128, safe character set) before pull and settings persistence.
-      **0.4.0:** no rule change; `pull_ollama_model` and related Ollama IPC stay on the settings capability set only (not main or voice overlay). Unit tests cover common names, whitespace trim, empty/too-long names, and rejection of shell-metacharacter injection.
-
-- [x] `cargo audit` **in release workflow** — **0.4.0** — dependency audit step in GitHub Actions before release artifacts ship.
-
-- [x] **Per-window IPC command scoping** — **0.4.0** — sensitive commands limited per window: `paste_entry` / `activate_entry` on `main` only; `clear_history`, `start_ollama_server`, exclusion editing on `settings` only; `voice_overlay` cannot invoke those. Complements the capabilities work above.
+**Legend:** **fork** — added on the Copyosity fork (pre–upstream merge, preserved in 0.5.1) · **upstream** — brought in with upstream v0.5.1 merge
 
 ---
 
-## Developer toolchain
+## Open — features
 
-- [x] **Lefthook pre-commit** — **0.4.0** — [Lefthook](https://github.com/evilmartians/lefthook) git hooks (`lefthook.yml`): parallel jobs per file type (JS/TS, Svelte, CSS, docs, Rust), piped auto-fix pipelines (Oxfmt → Oxlint/Stylelint), `stage_fixed` restaging, `skip_in_ci`. Full gate remains `make check` / CI.
-
----
-
-## Features
-
-- [x] **Infinite scroll** — **0.4.0** — lazy loading entries on horizontal scroll (`get_entries` with `limit` + `offset`; prefetch on scroll, backfill after local deletes, **Try again** on failed page loads)
-
-- [x] **Overlay content & tag filters** — **0.4.0**
-      Server-side tag and content-kind filtering in the clipboard overlay: format chips always, semantic chips when AI tagging is on; DB-wide chip counts; image card meta (dimensions, file size) instead of a generic label; filter chips visually distinct from card metadata tags; static panel height **415 / 450 px** (keyboard hints toggle); Content Kind row (All / Text / Images) temporarily hidden in UI. Spec: [feature-overlay-content-tag-filters.md](feature-overlay-content-tag-filters.md).
-
-- [ ] **Shortcut recorder** (voice + future overlay shortcut)
-  - Replace text inputs with a shortcut recorder control
-  - Show symbols in the UI; persist a canonical string for Rust
+- [ ] **Shortcut recorder** (voice, overlay, palette)
+  - Replace text inputs with a shortcut recorder control (System Settings pattern)
+  - Cover all global shortcuts:
+    - **Voice transcription** — today: text field `voice_shortcut` in Settings
+    - **Clipboard overlay** — today: hardcoded `⌘⇧V` / `Ctrl+Shift+V` in Rust
+    - **Agent / command palette** — today: hardcoded `⌘⇧Space` / `Ctrl+Shift+Space` in Rust
+  - Show symbols in the UI; persist a canonical string for Rust `parse_shortcut`
   - States: idle / recording / invalid / conflict
   - `aria-label`: “Shortcut, click to record”; `aria-live="polite"` while recording
-  - Keypress commits the shortcut without requiring Enter on Save (System Settings pattern)
+  - Keypress commits the shortcut without requiring Enter on Save
+  - Conflict detection across voice / overlay / palette shortcuts
+  - Tray menu labels and overlay header tooltips read from the same display helper
 
-- [ ] **Voice transcription improvements** — large HUD accessibility and transcription lifecycle pass; spec: [feature-voice-hud-accessibility.md](feature-voice-hud-accessibility.md)
-  - Full screen-reader lifecycle: recording → processing → terminal (success / empty / error / not configured)
+- [ ] **Voice HUD accessibility** — full screen-reader lifecycle for the recording capsule; spec: [feature-voice-hud-accessibility.md](feature-voice-hud-accessibility.md)
+  - Recording → processing → terminal (success / empty / error / not configured)
   - HUD stays visible during transcription; delayed hide after terminal announcement
   - Global announcer + phase state machine; no live-region spam from audio level
   - Rust `voice-a11y` events, seq, and permissions in capabilities
 
 - [ ] **Custom collections**
-  - “Name…” field appears when the user clicks **+** to the right of **Clipboard History** / **Starred** tabs — creates a new user-defined collection tab for grouping clipboard entries
-  - Backend already supports assigning entries (`set_entry_collection`); finish the UI so cards can add/move entries (`setEntryCollection` is not wired today)
-  - Today: create a collection, switch to it (filters by `collection_id`), delete it — but new collections stay empty until entries are assigned another way (e.g. DB directly)
-  - Ship end-to-end grouping: assign/remove entries from cards (or equivalent UX) so collections are usable without manual data fixes
+  - Backend supports `set_entry_collection`; UI to assign/remove entries from cards is not wired
+  - Today: create tab, filter by `collection_id`, delete — new collections stay empty without manual assignment
 
-- [ ] **Quick Look preview on Space** — Finder-style full entry preview on selected card (`Space`); deferred from [audit-hig.md](audit-hig.md) item 14. Spec: [feature-quick-look-preview.md](feature-quick-look-preview.md)
+- [ ] **Quick Look preview on Space** — Finder-style full entry preview; spec: [feature-quick-look-preview.md](feature-quick-look-preview.md)
 
-- [ ] **Appearance — Light / Dark / Automatic** — native macOS theme switching with cool blue-gray light palette, Settings → Appearance segmented control (Light · Dark · Automatic), CSS token refactor (`--rgb-elevation-tint`, `data-theme`), persistence in `AppSettings`, live sync across overlay / voice HUD / settings. Deferred from [audit-hig.md](audit-hig.md) item 7. Spec: [feature-appearance-theme.md](feature-appearance-theme.md)
+- [ ] **URL / link recognition** — treat detected URLs as a first-class clipboard kind, with a dedicated **link** tag and filter chips (same product pattern as image format tags). No spec file yet; design mirrors [feature-overlay-content-tag-filters.md](feature-overlay-content-tag-filters.md) image pipeline.
+  - **Detection** — on text capture, parse `http(s)://`, `www.`, and common TLD shapes; support single-URL clipboard rows and multi-line text where the primary payload is one URL; normalize (strip trailing punctuation, lowercase host for dedup, keep display URL for cards).
+  - **Storage** — extend entry model beyond `text` / `image` (e.g. `content_kind` / `link_url` column or `detected_url` + `url_host`); persist canonical URL for paste-back and search; do not rely on AI semantic tags for “this is a link”.
+  - **Tag model** — pin a format-style tag (e.g. `link` or `url`) separate from semantic tags; chip bar always shows **Link** counts when link entries exist (like `png` / `jpg` / `gif` for images); filter SQL counts link rows via column + tag UNION (same dedup rules as `image_format`).
+  - **Overlay UI** — card header/badge **Link** (or short host, e.g. `github.com`); optional footer line with truncated URL; Row B format chip **link** when AI tagging is off; when AI is on, link chip stays in the format group (semantic chips unchanged). Content Kind row may gain **Links** segment (deferred until Row A is re-enabled).
+  - **Search** — include normalized URL and host in overlay search / DB index (like `ocr_text` for images).
+  - **Paste** — paste restores the stored URL string (not markdown wrapper unless source had it).
+  - **Backfill** — one-time migration for legacy text rows that are URL-only (`UPDATE` kind + tag from `text_content` heuristic).
+  - **Non-goals (v1):** fetching page titles, favicons, or Open Graph previews; breaking apart markdown `[label](url)` into two entries.
+
+- [ ] **Appearance — Light / Dark / Automatic** — system theme switching; cool blue-gray light palette; persistence + live sync across all windows. Upstream emerald accent is separate. Spec: [feature-appearance-theme.md](feature-appearance-theme.md)
+
+- [ ] **Command palette polish** (remainder) — baseline shipped in **0.6.0**; open:
+  - **Accessibility:** `aria-live="polite"` for agent progress, errors, and terminal states; richer mic labels (recording vs idle)
+  - **Hub-disabled UX:** visible empty/disabled state when `hub_enabled=false` (backend already gates palette IPC)
+  - **Min-dot keyboard access:** restore via keyboard (today mouse-only drag/double-click)
+  - **Error recovery:** retry action on agent/search failure (today error text only)
 
 ---
 
-## Fixes
+## Open — fixes
 
 - [ ] **Production build transparency** — verify and fix on macOS 15+ (known Tauri issue [#13415](https://github.com/tauri-apps/tauri/issues/13415))
+
+---
+
+## Shipped — security hardening (fork)
+
+- [x] **Explicit Tauri capabilities for the** `settings` **window** — **0.3.0** — first scoped `settings.json` instead of a shared broad default.
+
+  ```
+  **0.4.0:** three-window ACL — `main.json`, `settings.json`, `voice_overlay.json` with explicit `commands.allow` via permission sets. **0.5.1:** `palette.json` added for the command palette.
+  ```
+
+- [x] **Validate Ollama model names before** `ollama pull` — **0.3.0** — `ollama::validate_model_name` (trim, length ≤ 128, safe character set) before pull and settings persistence. `pull_ollama_model` stays on the settings capability set only.
+
+- [x] `cargo audit` **in release workflow** — **0.4.0** — dependency audit step in GitHub Actions before release artifacts ship.
+
+- [x] **Per-window IPC command scoping** — **0.4.0** — sensitive commands limited per window: `paste_entry` / `activate_entry` on `main` only; `clear_history`, `start_ollama_server`, exclusion editing on `settings` only; `voice_overlay` events-only; palette scoped to hub search/agent/voice IPC.
+
+---
+
+## Shipped — developer toolchain (fork)
+
+- [x] **Lefthook pre-commit** — **0.4.0** — parallel staged auto-fix (Oxfmt, Oxlint, Stylelint, `cargo fmt`, `cargo clippy --fix --lib`); full gate remains `make check` / CI.
+
+- [x] **Oxlint / Oxfmt / Stylelint +** `make fix` / `make lint` / `make check` — **0.4.0** — validation contract in `AGENTS.md`.
+
+- [x] **macOS Intel (x86_64) release matrix** — **0.4.0** — `make build-macos-intel`, arch-specific DMGs in `dist/macos/`. Plan: [build-macos-intel.md](build-macos-intel.md).
+
+---
+
+## Shipped — features (fork)
+
+Clipboard overlay and macOS integration (mostly **0.4.0**, preserved through **0.5.1** merge):
+
+- [x] **macOS paste pipeline** — `clipboard_macos/` on **objc2**: paste-target remember/restore, AX tree walk, synthetic Cmd+V, Accessibility trust; panel hides before user-initiated paste; Messages / Electron targets.
+
+- [x] **Unified clipboard writes** — `clipboard_write.rs` **Copy** / **Paste** modes; monitor skips own writes and concealed pasteboard.
+
+- [x] **Infinite scroll** — lazy loading on horizontal scroll (`get_entries` with `limit` + `offset`; prefetch, backfill, **Try again** on failed pages).
+
+- [x] **Overlay content & tag filters** — server-side `search` / `tag` / `content_kind`; format chips always, semantic chips when AI tagging on; DB-wide chip counts; image card meta (dimensions, file size). Spec: [feature-overlay-content-tag-filters.md](feature-overlay-content-tag-filters.md).
+
+- [x] **Overlay scroll-snap** — horizontal snap to whole cards; selection syncs to leading visible card; keyboard `←/→` re-anchor policy.
+
+- [x] **Overlay keyboard hints** — footer strip; optional via **Settings → History → Keyboard shortcuts** (default on); static height **415 / 450 px**.
+
+- [x] **Overlay search** — `⌘F` / `/`; two-step Esc; Unicode case-insensitive DB search; denser search field on vibrancy.
+
+- [x] **Image capture & card meta** — PNG / JPG / GIF from pasteboard or Finder (~20 MB); format badges and filter chips; dimensions and file size on cards (`image_format`, `image_width`, `image_height`, `image_byte_size`). _Deferred follow-up:_ full image-pipeline reconciliation (legacy rows, retag format-tag drift) — track in a future backlog item if needed.
+
+Settings and product policy (fork):
+
+- [x] **AI tagging toggle** — off by default; `is_tagging_ready` IPC; Ollama onboarding per `CLAUDE.md`; tag backfill when enabled.
+
+- [x] **Voice transcription toggle** — off by default; Whisper fields disabled when off.
+
+- [x] **Privacy — excluded apps** — native picker, add by name, overlay **Exclude [App]**; bundle IDs as stable keys.
+
+- [x] **Clear history** — unpinned / all with confirm; live counts via `history-changed`.
+
+- [x] **Design system & HIG pass (baseline)** — `tokens.css`, `form-controls.css`, reduced motion/transparency, overlay a11y baseline. Tracker: [audit-hig.md](audit-hig.md).
+
+---
+
+## Shipped — upstream merge (0.5.1)
+
+Brought in with upstream; not original fork work:
+
+- [x] **NeuralDeep Hub** — settings pane, hub tagging / transcription / search, `/v1/models` list.
+
+- [x] **Command palette / Agent** — `Cmd+Shift+Space`, ReAct agent, session history, draggable palette window.
+
+- [x] **On-device OCR** (macOS Vision) — **0.6.0** — `ocr_text` in DB, overlay search, live `entry-ocr` updates; recognized text under image thumbnails on cards (`imageOcrPreviewText` / `ClipboardCard`). Quick Look will show the same text when that feature ships.
+
+- [x] **Hub multimodal image tagging**.
+
+- [x] **Voice overlay capsule** — pulse dot, scrolling waveform, duration timer (replaces fork mic + EQ HUD).
+
+- [x] **Emerald accent theme** (`#10b981`) — upstream palette; separate from Light/Dark/Automatic backlog.
+
+- [x] **Active-screen board positioning** + **vertical mini-clipboard** (`board_vertical`) — docked-right list, compact cards, `↑/↓` hints.
+
+- [x] **Voice polishing** — context-aware LLM cleanup; selected-text command mode.
+
+- [x] **Settings sidebar layout** — NeuralDeep · Voice · Local AI · History · Permissions panes; stroke SVG icons.
+
+- [x] **Platform gating** — `get_platform` IPC; macOS-only sections hidden on Windows.
+
+- [x] **Windows experimental CI** — hollow shell build (`build-windows` job). macOS remains the supported product.
+
+---
+
+## Shipped — palette baseline (0.6.0)
+
+Command palette polish items completed in this release (remainder tracked above):
+
+- [x] Agent/Web mode switch with Tab; session history (localStorage, 50 sessions)
+- [x] Streaming agent progress + error display; markdown answers
+- [x] Draggable top bar, resize grip, minimize-to-dot
+- [x] Keyboard hints footer; voice input; Insert / Copy / Close actions
+- [x] Shared `overlay-icon-btn` + HIG hover on palette controls
+- [x] Overlay header hub icon for palette launch (distinct from clipboard search)

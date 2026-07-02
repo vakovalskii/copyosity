@@ -47,3 +47,6 @@ settings-voice2.png
 .playwright-mcp/
 theme-check.png
 theme-voice.png
+
+# --- Local verification artifacts ---
+/outputs/

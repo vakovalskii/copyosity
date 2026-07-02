@@ -8,7 +8,9 @@ mod clipboard_write;
 mod commands;
 mod db;
 mod hub;
+mod image_format;
 mod macos_app;
+mod macos_window;
 mod mactools;
 mod ocr;
 mod ollama;
@@ -22,7 +24,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    tray::TrayIconBuilder,
     Emitter, Manager,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
@@ -47,7 +49,7 @@ pub(crate) static PENDING_PASTE_AFTER_HIDE: AtomicBool = AtomicBool::new(false);
 const PANEL_LEVEL_IDLE: i64 = 3;
 /// Main panel level while shown — above fullscreen apps.
 #[cfg(target_os = "macos")]
-const PANEL_LEVEL_ACTIVE: i64 = 24;
+const PANEL_LEVEL_ACTIVE: i64 = macos_window::FULLSCREEN_AUXILIARY_LEVEL;
 
 /// PID of the app that was frontmost when the voice hotkey was pressed.
 /// Used to deliver the synthesized Cmd+V directly to that app instead of
@@ -91,7 +93,8 @@ fn transcribe_with_settings(
     samples: Vec<f32>,
     sample_rate: u32,
 ) -> Result<String, String> {
-    let use_hub = settings.hub_transcribe_enabled
+    let use_hub = settings.hub_enabled
+        && settings.hub_transcribe_enabled
         && !settings.hub_token.is_empty()
         && !settings.hub_url.trim().is_empty();
     let (url, tok) = if use_hub {
@@ -125,6 +128,65 @@ static CURRENT_VOICE_SHORTCUT: std::sync::OnceLock<std::sync::Mutex<Option<Short
 
 fn voice_shortcut_mutex() -> &'static std::sync::Mutex<Option<Shortcut>> {
     CURRENT_VOICE_SHORTCUT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+static CURRENT_PALETTE_SHORTCUT: std::sync::OnceLock<std::sync::Mutex<Option<Shortcut>>> =
+    std::sync::OnceLock::new();
+
+fn palette_shortcut_mutex() -> &'static std::sync::Mutex<Option<Shortcut>> {
+    CURRENT_PALETTE_SHORTCUT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn palette_shortcut() -> Shortcut {
+    #[cfg(target_os = "macos")]
+    {
+        Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space)
+    }
+}
+
+/// Register (or unregister) the hub agent-search shortcut for an explicit hub state.
+pub fn sync_palette_shortcut_for_hub(
+    app: &tauri::AppHandle,
+    hub_enabled: bool,
+) -> Result<(), String> {
+    if !hub_enabled {
+        if let Some(old) = palette_shortcut_mutex().lock().unwrap().take() {
+            let _ = app.global_shortcut().unregister(old);
+        }
+        return Ok(());
+    }
+
+    let new_shortcut = palette_shortcut();
+
+    {
+        let mut current = palette_shortcut_mutex().lock().unwrap();
+        if let Some(old) = current.take() {
+            let _ = app.global_shortcut().unregister(old);
+        }
+    }
+
+    let palette_handle = app.clone();
+    app.global_shortcut()
+        .on_shortcut(new_shortcut, move |_app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                toggle_command_palette(&palette_handle);
+            }
+        })
+        .map_err(|e| format!("Failed to register palette shortcut: {}", e))?;
+
+    *palette_shortcut_mutex().lock().unwrap() = Some(new_shortcut);
+    Ok(())
+}
+
+/// Register (or unregister) the hub agent-search shortcut from current DB settings.
+pub fn register_palette_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
+    let db = app.state::<std::sync::Arc<db::Database>>();
+    let settings = db.get_app_settings().map_err(|e| e.to_string())?;
+    sync_palette_shortcut_for_hub(app, settings.hub_enabled)
 }
 
 /// Parse a string like "option+space", "cmd+space", "ctrl+alt+space" into a Shortcut.
@@ -269,7 +331,6 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 use tauri_nspanel::panel::NSWindowStyleMask;
-                use tauri_nspanel::CollectionBehavior;
 
                 let window = app.get_webview_window("main").unwrap();
                 let panel = window
@@ -277,7 +338,7 @@ pub fn run() {
                     .expect("Failed to convert window to panel");
 
                 // Floating above other windows like Spotlight
-                panel.set_level(24); // NSPopUpMenuWindowLevel
+                panel.set_level(PANEL_LEVEL_ACTIVE);
                 panel.set_style_mask(
                     NSWindowStyleMask::Borderless
                         | NSWindowStyleMask::NonactivatingPanel
@@ -285,10 +346,7 @@ pub fn run() {
                 );
                 // Show on all spaces including over fullscreen apps
                 panel.set_collection_behavior(
-                    CollectionBehavior::new()
-                        .can_join_all_spaces()
-                        .full_screen_auxiliary()
-                        .into(),
+                    macos_window::fullscreen_auxiliary_collection_behavior(),
                 );
                 overlay_dismiss::install_overlay_dismiss_guards();
             }
@@ -296,10 +354,11 @@ pub fn run() {
             let tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Copyosity")
-                .menu(&build_tray_menu(app)?)
+                .menu(&build_tray_menu(app.handle())?)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "open" => toggle_window(app.app_handle()),
                     "search" => toggle_command_palette(app.app_handle()),
+                    "overlay" => toggle_window(app.app_handle()),
                     "settings" => {
                         let _ = commands::open_settings_window(app.app_handle().clone());
                     }
@@ -307,17 +366,6 @@ pub fn run() {
                         let _ = commands::quit_app(app.app_handle().clone());
                     }
                     _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        toggle_window(app);
-                    }
                 })
                 .build(app)?;
             app.manage(tray);
@@ -341,18 +389,10 @@ pub fn run() {
                     }
                 })?;
 
-            // Command palette (hub agent search): Cmd+Shift+Space.
-            let palette_shortcut =
-                Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
-            let palette_handle = app.handle().clone();
-            app.global_shortcut().on_shortcut(
-                palette_shortcut,
-                move |_app, _shortcut, event| {
-                    if event.state == ShortcutState::Pressed {
-                        toggle_command_palette(&palette_handle);
-                    }
-                },
-            )?;
+            // Command palette (hub agent search): Cmd+Shift+Space when hub is enabled.
+            if let Err(e) = register_palette_shortcut(app.handle()) {
+                eprintln!("Palette shortcut registration failed: {}", e);
+            }
 
             // Pre-create voice overlay panel so it's ready without stealing focus later
             ensure_voice_overlay(app.handle());
@@ -371,6 +411,32 @@ pub fn run() {
             let settings = db.get_app_settings().expect("Failed to load app settings");
             ollama::set_active_model(&settings.ollama_model);
             let _ = db.cleanup_old_entries(settings.retention_days);
+
+            {
+                let db_backfill = db.clone();
+                std::thread::spawn(move || {
+                    loop {
+                        match db_backfill.backfill_missing_image_formats(100) {
+                            Ok(0) => break,
+                            Ok(_) => {}
+                            Err(e) => {
+                                eprintln!("image format backfill error: {e}");
+                                std::thread::sleep(std::time::Duration::from_secs(5));
+                            }
+                        }
+                    }
+                    loop {
+                        match db_backfill.backfill_missing_image_meta(100) {
+                            Ok(0) => break,
+                            Ok(_) => {}
+                            Err(e) => {
+                                eprintln!("image meta backfill error: {e}");
+                                std::thread::sleep(std::time::Duration::from_secs(5));
+                            }
+                        }
+                    }
+                });
+            }
 
             if settings.ai_tagging_enabled {
                 ollama::ensure_runtime();
@@ -420,6 +486,7 @@ pub fn run() {
             commands::unload_ollama_model,
             commands::test_ollama_tagging,
             commands::rebind_voice_shortcut,
+            commands::rebind_palette_shortcut,
             commands::list_microphones,
             commands::hub_test_connection,
             commands::hub_list_models,
@@ -453,6 +520,12 @@ pub fn run() {
         });
 }
 
+pub(crate) fn present_settings_window(window: &tauri::WebviewWindow) {
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+}
+
 fn toggle_window(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
@@ -467,6 +540,7 @@ fn toggle_window(app: &tauri::AppHandle) {
                 PANEL_HIDE_SCHEDULED.store(false, Ordering::Release);
                 LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
                 panel.set_level(PANEL_LEVEL_ACTIVE);
+                macos_window::configure_fullscreen_auxiliary_panel(&*panel);
                 panel.show_and_make_key();
                 overlay_dismiss::set_outside_click_dismiss(app, true);
                 let _ = app.emit("window-show", ());
@@ -544,12 +618,29 @@ fn main_panel_visible(app: &tauri::AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-fn build_tray_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
+fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let version = &app.package_info().version;
     let version_label = format!("Copyosity v{}", version);
 
+    let hub_enabled = app
+        .try_state::<std::sync::Arc<db::Database>>()
+        .and_then(|db| db.get_app_settings().ok())
+        .map(|s| s.hub_enabled)
+        .unwrap_or(false);
+
     let status = MenuItem::with_id(app, "open", "Open Copyosity", true, None::<&str>)?;
-    let search = MenuItem::with_id(app, "search", "Agent Search  ⌘⇧Space", true, None::<&str>)?;
+    let search = MenuItem::with_id(
+        app,
+        "search",
+        "Agent Search  ⌘⇧Space",
+        hub_enabled,
+        None::<&str>,
+    )?;
+    #[cfg(target_os = "macos")]
+    let overlay_label = "Open Clipboard  ⌘⇧V";
+    #[cfg(not(target_os = "macos"))]
+    let overlay_label = "Open Clipboard  Ctrl+Shift+V";
+    let overlay = MenuItem::with_id(app, "overlay", overlay_label, true, None::<&str>)?;
     let ver = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
@@ -557,8 +648,17 @@ fn build_tray_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     Menu::with_items(
         app,
-        &[&status, &search, &ver, &sep, &settings, &sep2, &quit],
+        &[
+            &status, &search, &overlay, &ver, &sep, &settings, &sep2, &quit,
+        ],
     )
+}
+
+pub fn refresh_tray_menu(app: &tauri::AppHandle) -> Result<(), String> {
+    let tray = app.state::<tauri::tray::TrayIcon<tauri::Wry>>();
+    let menu = build_tray_menu(app).map_err(|e| e.to_string())?;
+    tray.set_menu(Some(menu))
+        .map_err(|e| format!("Failed to refresh tray menu: {e}"))
 }
 
 /// Run the transcription through the hub polish step when enabled, falling back
@@ -569,7 +669,8 @@ fn maybe_polish(settings: &db::AppSettings, raw: &str) -> String {
     let app_kind = std::mem::take(&mut *VOICE_APP_KIND.lock().unwrap());
     let selection = VOICE_SELECTION.lock().unwrap().take();
 
-    if !settings.voice_polish_enabled
+    if !settings.hub_enabled
+        || !settings.voice_polish_enabled
         || settings.hub_token.trim().is_empty()
         || settings.hub_url.trim().is_empty()
         || settings.voice_polish_model.trim().is_empty()
@@ -647,6 +748,7 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
             if let Some(pid) = frontmost_app_pid() {
                 if pid != std::process::id() as i32 {
                     VOICE_TARGET_PID.store(pid, Ordering::Relaxed);
+                    clipboard_macos::remember_paste_target_for_pid(pid);
                     eprintln!("[voice] captured target pid={}", pid);
 
                     // Context-aware polishing: classify the target app and grab a
@@ -759,7 +861,8 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                     };
                     // Route to the hub's transcription endpoint when enabled,
                     // otherwise use the standalone Whisper server config.
-                    let use_hub = settings.hub_transcribe_enabled
+                    let use_hub = settings.hub_enabled
+                        && settings.hub_transcribe_enabled
                         && !settings.hub_token.is_empty()
                         && !settings.hub_url.trim().is_empty();
                     let (whisper_url, whisper_token) = if use_hub {
@@ -801,6 +904,10 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                             std::thread::sleep(std::time::Duration::from_millis(100));
                             #[cfg(target_os = "macos")]
                             {
+                                let voice_pid = VOICE_TARGET_PID.swap(0, Ordering::Relaxed);
+                                if voice_pid > 0 {
+                                    clipboard_macos::remember_paste_target_for_pid(voice_pid);
+                                }
                                 clipboard_macos::spawn_automated_paste(false);
                             }
                             #[cfg(not(target_os = "macos"))]
@@ -846,11 +953,11 @@ fn ensure_voice_overlay(app: &tauri::AppHandle) {
             use tauri_nspanel::WebviewWindowExt;
 
             if let Ok(panel) = win.to_panel::<CopyosityPanel>() {
-                panel.set_level(24);
                 panel.set_style_mask(
                     NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel,
                 );
                 panel.set_becomes_key_only_if_needed(true);
+                macos_window::configure_fullscreen_auxiliary_panel(&*panel);
             }
         }
     }
@@ -998,6 +1105,18 @@ fn classify_app_kind(bundle_id: &str) -> &'static str {
 /// Toggle the command palette. Captures the frontmost app first so the answer
 /// can be inserted there, then shows the palette and gives it keyboard focus.
 fn toggle_command_palette(app: &tauri::AppHandle) {
+    let db = app.state::<std::sync::Arc<db::Database>>();
+    let settings = match db.get_app_settings() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[palette] failed to load settings: {}", e);
+            return;
+        }
+    };
+    if !settings.hub_enabled {
+        return;
+    }
+
     #[cfg(target_os = "macos")]
     {
         use tauri_nspanel::ManagerExt;
@@ -1010,11 +1129,19 @@ fn toggle_command_palette(app: &tauri::AppHandle) {
             if let Some(pid) = frontmost_app_pid() {
                 if pid != std::process::id() as i32 {
                     PALETTE_TARGET_PID.store(pid, Ordering::Relaxed);
+                    clipboard_macos::remember_paste_target_for_pid(pid);
                 }
             }
             // Don't re-center on show — keep the window where the user last
             // moved/resized it (it was centered once at creation).
-            panel.show_and_make_key();
+            macos_window::present_fullscreen_auxiliary_panel(&*panel);
+            let _ = app.emit("palette-show", ());
+        } else if let Some(window) = app.get_webview_window("command_palette") {
+            if window.is_visible().unwrap_or(false) {
+                let _ = window.hide();
+                return;
+            }
+            macos_window::present_fullscreen_auxiliary_webview(&window);
             let _ = app.emit("palette-show", ());
         }
     }
@@ -1046,8 +1173,14 @@ fn ensure_command_palette(app: &tauri::AppHandle) {
         use tauri_nspanel::panel::NSWindowStyleMask;
         use tauri_nspanel::WebviewWindowExt;
         if let Ok(panel) = win.to_panel::<CopyosityPanel>() {
-            panel.set_level(24);
-            panel.set_style_mask(NSWindowStyleMask::Borderless | NSWindowStyleMask::Resizable);
+            panel.set_style_mask(
+                NSWindowStyleMask::Borderless
+                    | NSWindowStyleMask::NonactivatingPanel
+                    | NSWindowStyleMask::Resizable,
+            );
+            macos_window::configure_fullscreen_auxiliary_panel(&*panel);
+        } else {
+            eprintln!("[palette] failed to convert command_palette to NSPanel");
         }
     }
 }
@@ -1057,6 +1190,9 @@ fn ensure_command_palette(app: &tauri::AppHandle) {
 fn palette_search(app: tauri::AppHandle, query: String) -> Result<String, String> {
     let db = app.state::<std::sync::Arc<db::Database>>();
     let s = db.get_app_settings().map_err(|e| e.to_string())?;
+    if !s.hub_enabled {
+        return Err("NeuralDeep hub is disabled in Settings".to_string());
+    }
     hub::web_search(&s.hub_url, &s.hub_token, &query, 5)
 }
 
@@ -1072,6 +1208,9 @@ fn open_command_palette(app: tauri::AppHandle) {
 fn palette_agent(app: tauri::AppHandle, query: String) -> Result<(), String> {
     let db = app.state::<std::sync::Arc<db::Database>>();
     let s = db.get_app_settings().map_err(|e| e.to_string())?;
+    if !s.hub_enabled {
+        return Err("NeuralDeep hub is disabled in Settings".to_string());
+    }
     std::thread::spawn(move || {
         agent::run(&app, &s.hub_url, &s.hub_token, &query);
     });
@@ -1129,57 +1268,34 @@ fn palette_hide(app: tauri::AppHandle) {
 /// Hide the palette and paste `text` into the app that was frontmost when it opened.
 #[tauri::command]
 fn palette_insert(app: tauri::AppHandle, text: String) {
+    let target_pid = PALETTE_TARGET_PID.swap(0, Ordering::Relaxed);
     if let Ok(mut clipboard) = arboard::Clipboard::new() {
-        let _ = clipboard.set_text(&text);
+        let _ = clipboard_write::write_text(
+            &mut clipboard,
+            text,
+            clipboard_write::ClipboardWriteMode::Paste,
+        );
     }
     palette_hide(app);
-    std::thread::sleep(std::time::Duration::from_millis(120));
-    let target_pid = PALETTE_TARGET_PID.swap(0, Ordering::Relaxed);
-    simulate_cmd_v(target_pid);
-}
-
-#[cfg(target_os = "macos")]
-fn simulate_cmd_v(target_pid: i32) {
-    unsafe {
-        type CGEventSourceRef = *mut std::ffi::c_void;
-        type CGEventRef = *mut std::ffi::c_void;
-        #[link(name = "CoreGraphics", kind = "framework")]
-        extern "C" {
-            fn CGEventCreateKeyboardEvent(
-                source: CGEventSourceRef,
-                keycode: u16,
-                key_down: bool,
-            ) -> CGEventRef;
-            fn CGEventSetFlags(event: CGEventRef, flags: u64);
-            fn CGEventPost(tap: u32, event: CGEventRef);
-            fn CGEventPostToPid(pid: i32, event: CGEventRef);
-            fn CFRelease(cf: *mut std::ffi::c_void);
+    #[cfg(target_os = "macos")]
+    {
+        if target_pid > 0 {
+            clipboard_macos::remember_paste_target_for_pid(target_pid);
         }
-        let down = CGEventCreateKeyboardEvent(std::ptr::null_mut(), 9, true);
-        let up = CGEventCreateKeyboardEvent(std::ptr::null_mut(), 9, false);
-        if !down.is_null() && !up.is_null() {
-            CGEventSetFlags(down, 0x00100000);
-            CGEventSetFlags(up, 0x00100000);
-            if target_pid > 0 {
-                CGEventPostToPid(target_pid, down);
-                CGEventPostToPid(target_pid, up);
-            } else {
-                CGEventPost(0, down);
-                CGEventPost(0, up);
-            }
-        }
-        // Free each event independently to avoid leaking on partial allocation.
-        if !down.is_null() {
-            CFRelease(down);
-        }
-        if !up.is_null() {
-            CFRelease(up);
-        }
+        clipboard_macos::spawn_automated_paste(false);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        simulate_cmd_v(target_pid);
     }
 }
 
 #[cfg(not(target_os = "macos"))]
-fn simulate_cmd_v(_target_pid: i32) {}
+fn simulate_cmd_v(target_pid: i32) {
+    // Non-macOS: post synthetic Cmd+V via platform APIs when available.
+    let _ = target_pid;
+}
 
 /// Synthesize Cmd+C, delivered to `target_pid` when valid. Used to read the
 /// current text selection of the target app (selected-text command mode).
@@ -1360,15 +1476,20 @@ pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow, height_px: f
 #[cfg(test)]
 mod overlay_height_tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn remembered_height_defaults_to_compact() {
+        let _guard = TEST_LOCK.lock().unwrap();
         reset_remembered_overlay_height_for_tests();
         assert_eq!(remembered_overlay_height(), OVERLAY_HEIGHT_COMPACT);
     }
 
     #[test]
     fn remember_overlay_height_round_trips() {
+        let _guard = TEST_LOCK.lock().unwrap();
         reset_remembered_overlay_height_for_tests();
         remember_overlay_height(508.0);
         assert_eq!(remembered_overlay_height(), 508.0);
@@ -1377,6 +1498,7 @@ mod overlay_height_tests {
 
     #[test]
     fn remember_overlay_height_clamps_out_of_range_values() {
+        let _guard = TEST_LOCK.lock().unwrap();
         reset_remembered_overlay_height_for_tests();
         remember_overlay_height(999.0);
         assert_eq!(remembered_overlay_height(), OVERLAY_HEIGHT_MAX);

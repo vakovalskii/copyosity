@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { parseEntryTaggedEvent, type Collection, type ExcludableAppCandidate } from "$lib/types";
+  import { parseEntryOcrEvent, parseEntryTaggedEvent, type Collection, type ExcludableAppCandidate } from "$lib/types";
   import {
     getCollections,
     getAppSettings,
@@ -11,6 +11,7 @@
     activateEntry,
     getExcludableAppCandidate,
     addExcludableAppCandidate,
+    openCommandPalette,
   } from "$lib/api";
   import {
     alreadyExcludedFromHistoryLabel,
@@ -30,6 +31,7 @@
     isFormatTag,
     contentKindEmptyLabel,
     formatTagEmptyLabel,
+    type TagChip,
   } from "$lib/overlay-filters";
   import { createOverlayEntriesStore } from "$lib/overlay-entries.svelte";
   import { overlayEscapeAction } from "$lib/overlay-search";
@@ -49,7 +51,9 @@
   import { shouldLoadNextEntryPage } from "$lib/overlay-pagination";
   import {
     indexOfLeadingVisibleCard,
+    indexOfLeadingVisibleCardVertical,
     isCardOffScreen,
+    isCardOffScreenVertical,
     nextIndexAfterKeyboardArrow,
   } from "$lib/overlay-grid-scroll";
   import {
@@ -69,7 +73,20 @@
     { keys: "Esc", action: "clear search / dismiss" },
   ];
 
+  const overlayVerticalShortcutHints: KeyboardHint[] = [
+    { prefix: "Click", action: "copy" },
+    { keys: "↵", action: "paste" },
+    { prefix: "2× click", action: "paste" },
+    { keys: ["↑", "↓"], action: "browse" },
+    { keys: "Esc", action: "dismiss" },
+  ];
+
   let boardVertical = $state(false);
+  let hubEnabled = $state(false);
+
+  const activeOverlayShortcutHints = $derived(
+    boardVertical ? overlayVerticalShortcutHints : overlayShortcutHints,
+  );
   let selectedIndex = $state(-1);
   let gridEl: HTMLDivElement | undefined = $state();
   let appEl: HTMLDivElement | undefined = $state();
@@ -110,7 +127,19 @@
 
   async function loadLayout() {
     try {
-      boardVertical = (await getAppSettings()).board_vertical;
+      const previous = boardVertical;
+      const settings = await getAppSettings();
+      boardVertical = settings.board_vertical;
+      hubEnabled = settings.hub_enabled;
+      if (!visible || previous === boardVertical) return;
+      const height = overlayHeightForLayout({
+        showShortcutHints: overlay.overlayShortcutHintsEnabled,
+      });
+      await applyOverlayHeight(height, false);
+      if (gridEl) {
+        gridEl.scrollLeft = 0;
+        gridEl.scrollTop = 0;
+      }
     } catch (e) {
       console.error("Failed to load layout:", e);
     }
@@ -146,6 +175,11 @@
     }),
   );
 
+  const verticalTagChips = $derived<TagChip[]>([
+    ...tagBarModel.formatChips,
+    ...tagBarModel.semanticChips,
+  ]);
+
   const overlayLayoutHeight = $derived(
     overlayHeightForLayout({
       showShortcutHints: overlay.overlayShortcutHintsEnabled,
@@ -171,6 +205,8 @@
       lastLayoutHeight = null;
       return;
     }
+    // Vertical panel height is fixed in Rust; the hints footer flexes inside it.
+    if (boardVertical) return;
     if (lastLayoutHeight === height) return;
     const previous = lastLayoutHeight;
     lastLayoutHeight = height;
@@ -412,7 +448,6 @@
       gridEl.scrollLeft = 0;
       gridEl.scrollTop = 0;
     }
-    void loadLayout();
     suppressSelectionSyncCount = 0;
     keyboardBrowseUntil = 0;
 
@@ -425,6 +460,8 @@
           await finalizePendingNativeHide();
           if (seq !== revealSeq) return;
         }
+        await loadLayout();
+        if (seq !== revealSeq) return;
         const ready = await prepareOverlayLayout(seq);
         if (!ready || seq !== revealSeq) return;
         await afterLayoutFlush();
@@ -535,6 +572,16 @@
       }, 100);
     }
 
+    function handleEntryOcr(event: { payload: unknown }) {
+      const parsed = parseEntryOcrEvent(event.payload);
+      if (!parsed) return;
+      if (parsed.kind === "legacy-id") {
+        void overlay.reloadDisplayList(false, false);
+        return;
+      }
+      overlay.applyEntryOcr(parsed.payload.entryId, parsed.payload.ocrText);
+    }
+
     function handleEntryTagged(event: { payload: unknown }) {
       const parsed = parseEntryTaggedEvent(event.payload);
       if (!parsed) return;
@@ -551,6 +598,7 @@
       void overlay.syncOverlaySettings();
       void loadLayout();
     });
+    const unlistenOcr = listen("entry-ocr", handleEntryOcr);
     const unlistenTagged = listen("entry-tagged", handleEntryTagged);
 
     const unlistenShow = listen("window-show", () => {
@@ -659,6 +707,7 @@
       overlay.dispose();
       unlistenClipboard.then((fn) => fn());
       unlistenHistory.then((fn) => fn());
+      unlistenOcr.then((fn) => fn());
       unlistenTagged.then((fn) => fn());
       unlistenShow.then((fn) => fn());
       unlistenHideRequest.then((fn) => fn());
@@ -672,10 +721,32 @@
     selectedIndex = index;
   }
 
+  function getGridVerticalScrollInsets(container: HTMLElement) {
+    const style = getComputedStyle(container);
+    return {
+      top: parseFloat(style.paddingTop) || 0,
+      bottom: parseFloat(style.paddingBottom) || 0,
+    };
+  }
+
   function leadingVisibleCardIndex(): number {
     if (!gridEl || filteredEntries.length === 0) return -1;
 
     const wrappers = gridEl.querySelectorAll(".card-wrapper");
+    const viewport = gridEl.getBoundingClientRect();
+
+    if (boardVertical) {
+      const cardRects: { top: number; bottom: number }[] = [];
+      wrappers.forEach((wrapper) => {
+        if (wrapper instanceof HTMLElement) {
+          const rect = wrapper.getBoundingClientRect();
+          cardRects.push({ top: rect.top, bottom: rect.bottom });
+        }
+      });
+      const { top: padTop, bottom: padBottom } = getGridVerticalScrollInsets(gridEl);
+      return indexOfLeadingVisibleCardVertical(viewport, padTop, padBottom, cardRects);
+    }
+
     const cardRects: { left: number; right: number }[] = [];
     wrappers.forEach((wrapper) => {
       if (wrapper instanceof HTMLElement) {
@@ -685,7 +756,6 @@
     });
 
     const { left: padLeft, right: padRight } = getGridScrollInsets(gridEl);
-    const viewport = gridEl.getBoundingClientRect();
     return indexOfLeadingVisibleCard(viewport, padLeft, padRight, cardRects);
   }
 
@@ -694,6 +764,7 @@
     const index = leadingVisibleCardIndex();
     if (index < 0) return;
     selectedIndex = index;
+    if (boardVertical) return;
     scrollToSelected({ keyboardScroll: false, suppressLeadingSync: false });
   }
 
@@ -709,7 +780,19 @@
       isTrusted: event.isTrusted,
     });
 
-    if (
+    if (boardVertical) {
+      if (
+        shouldLoadNextEntryPage({
+          scrollLeft: target.scrollTop,
+          clientWidth: target.clientHeight,
+          scrollWidth: target.scrollHeight,
+          hasMore: overlay.entriesHasMore && !overlay.displayFetchFailed,
+          loading: overlay.loadingMoreEntries || overlay.displayListPending,
+        })
+      ) {
+        void overlay.loadNextEntryPage();
+      }
+    } else if (
       shouldLoadNextEntryPage({
         scrollLeft: target.scrollLeft,
         clientWidth: target.clientWidth,
@@ -721,7 +804,7 @@
       void overlay.loadNextEntryPage();
     }
 
-    if (shouldScheduleTrackpadLeadingSync({ keyboardBrowseUntil, now })) {
+    if (!boardVertical && shouldScheduleTrackpadLeadingSync({ keyboardBrowseUntil, now })) {
       scheduleTrackpadScrollSync();
     }
   }
@@ -761,10 +844,15 @@
 
     let selectedOffScreen = false;
     if (wrapper instanceof HTMLElement) {
-      const { left: padLeft, right: padRight } = getGridScrollInsets(gridEl);
       const viewport = gridEl.getBoundingClientRect();
       const rect = wrapper.getBoundingClientRect();
-      selectedOffScreen = isCardOffScreen(viewport, padLeft, padRight, rect);
+      if (boardVertical) {
+        const { top: padTop, bottom: padBottom } = getGridVerticalScrollInsets(gridEl);
+        selectedOffScreen = isCardOffScreenVertical(viewport, padTop, padBottom, rect);
+      } else {
+        const { left: padLeft, right: padRight } = getGridScrollInsets(gridEl);
+        selectedOffScreen = isCardOffScreen(viewport, padLeft, padRight, rect);
+      }
     }
 
     return { leadingIndex, selectedOffScreen, wrapperMissing };
@@ -777,6 +865,7 @@
   }
 
   function handleGridScrollEnd() {
+    if (boardVertical) return;
     clearTimeout(scrollIdleSyncTimer);
     scrollIdleSyncTimer = undefined;
     finishIdleScrollSync();
@@ -867,7 +956,7 @@
         const measureEl = scrollMeasureEl(card);
         measureEl.scrollIntoView({
           behavior,
-          block: "center",
+          block: "nearest",
           inline: "nearest",
         });
       } else {
@@ -893,82 +982,142 @@
   data-panel-motion={panelMotionMode}
   bind:this={appEl}
 >
-  <header class="header">
+  <header class="header overlay-header">
     <SearchBar bind:this={searchBar} value={overlay.searchQuery} onchange={overlay.debouncedSearch} />
-    <CollectionTabs
-      {collections}
-      activeId={overlay.activeCollectionId}
-      activePinned={overlay.pinnedOnly}
-      onselect={overlay.handleCollectionSelect}
-      onupdate={loadCollections}
-    />
-    <div class="header-actions">
-      {#if platformIsMacOS() && excludeCandidate && !excludeCandidate.alreadyExcluded}
-        {@const excludeLabel = excludeFromClipboardHistoryAriaLabel(
-          excludeCandidate.displayName,
-        )}
-        <button
-          class="exclude-app-btn app-btn"
-          type="button"
-          aria-label={excludeLabel}
-          aria-busy={excludeBusy}
-          disabled={excludeBusy}
-          onclick={() => void handleExcludeFromPanel()}
-        >
-          <span class="exclude-app-btn-text"
-            >{excludeFromHistoryLabel(excludeCandidate.displayName)}</span
+    {#if boardVertical}
+      <div class="header-actions">
+        {#if platformIsMacOS() && hubEnabled}
+          <button
+            class="overlay-icon-btn overlay-icon-btn--agent app-btn"
+            type="button"
+            aria-label="Open command palette (Cmd+Shift+Space)"
+            title="Open command palette · ⌘⇧Space"
+            onclick={() => void openCommandPalette()}
           >
-        </button>
-      {/if}
-      {#if platformIsMacOS() && excludeNotice}
-        <span
-          class="status-hint exclude-notice"
-          class:neutral={excludeNoticeTone === "neutral"}
-          class:warn={excludeNoticeTone === "warn"}
-          aria-live="polite"
+            <svg class="overlay-icon-btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"
+              />
+              <path d="M5 3v4M3 5h4" />
+              <path d="M19 17v4M17 19h4" />
+            </svg>
+          </button>
+        {/if}
+        <button
+          class="overlay-icon-btn overlay-icon-btn--settings app-btn"
+          type="button"
+          aria-label="Open settings"
+          onclick={() => openSettingsWindow()}
         >
-          {excludeNotice}
-        </span>
-      {/if}
-      <button
-        class="settings-btn app-btn"
-        type="button"
-        aria-label="Web search (Cmd+Shift+Space)"
-        title="Web search · ⌘⇧Space"
-        onclick={() => invoke("open_command_palette")}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"
-          />
-        </svg>
-      </button>
-      <button
-        class="settings-btn app-btn"
-        type="button"
-        aria-label="Open settings"
-        onclick={() => openSettingsWindow()}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.13.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39.96c.5.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.13-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"
-          />
-        </svg>
-      </button>
-      <button
-        class="close-btn app-btn"
-        type="button"
-        aria-label="Close overlay"
-        onclick={() => forceHideWindow()}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M18.3 5.7a1 1 0 0 0-1.4-1.4L12 9.17 7.1 4.3a1 1 0 0 0-1.4 1.4L10.6 11 5.7 15.9a1 1 0 1 0 1.4 1.4L12 12.83l4.9 4.87a1 1 0 0 0 1.4-1.4L13.4 11z" />
-        </svg>
-      </button>
-    </div>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.13.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.13-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"
+            />
+          </svg>
+        </button>
+      </div>
+    {:else}
+      <CollectionTabs
+        {collections}
+        activeId={overlay.activeCollectionId}
+        activePinned={overlay.pinnedOnly}
+        onselect={overlay.handleCollectionSelect}
+        onupdate={loadCollections}
+      />
+      <div class="header-actions">
+        {#if platformIsMacOS() && excludeCandidate && !excludeCandidate.alreadyExcluded}
+          {@const excludeLabel = excludeFromClipboardHistoryAriaLabel(
+            excludeCandidate.displayName,
+          )}
+          <button
+            class="exclude-app-btn app-btn"
+            type="button"
+            aria-label={excludeLabel}
+            aria-busy={excludeBusy}
+            disabled={excludeBusy}
+            onclick={() => void handleExcludeFromPanel()}
+          >
+            <span class="exclude-app-btn-text"
+              >{excludeFromHistoryLabel(excludeCandidate.displayName)}</span
+            >
+          </button>
+        {/if}
+        {#if platformIsMacOS() && excludeNotice}
+          <span
+            class="status-hint exclude-notice"
+            class:neutral={excludeNoticeTone === "neutral"}
+            class:warn={excludeNoticeTone === "warn"}
+            aria-live="polite"
+          >
+            {excludeNotice}
+          </span>
+        {/if}
+        {#if platformIsMacOS() && hubEnabled}
+          <button
+            class="overlay-icon-btn overlay-icon-btn--agent app-btn"
+            type="button"
+            aria-label="Open command palette (Cmd+Shift+Space)"
+            title="Open command palette · ⌘⇧Space"
+            onclick={() => void openCommandPalette()}
+          >
+            <svg class="overlay-icon-btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"
+              />
+              <path d="M5 3v4M3 5h4" />
+              <path d="M19 17v4M17 19h4" />
+            </svg>
+          </button>
+        {/if}
+        <button
+          class="overlay-icon-btn overlay-icon-btn--settings app-btn"
+          type="button"
+          aria-label="Open settings"
+          onclick={() => openSettingsWindow()}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.13.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.13-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"
+            />
+          </svg>
+        </button>
+        <button
+          class="close-btn overlay-icon-btn overlay-icon-btn--close app-btn"
+          type="button"
+          aria-label="Close overlay"
+          onclick={() => forceHideWindow()}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6" />
+          </svg>
+        </button>
+      </div>
+    {/if}
   </header>
 
-  {#if settingsSyncNotice || tagBarModel.showRowB}
+  {#if boardVertical && tagBarModel.showRowB}
+    <div class="vertical-tag-groups">
+      <button
+        class="filter-chip filter-chip--compact filter-chip-reset app-btn"
+        class:active={!overlay.activeTag}
+        type="button"
+        onclick={() => overlay.handleTagReset()}
+      >
+        All tags
+      </button>
+      {#each verticalTagChips as [tag, count] (tag)}
+        <button
+          class="filter-chip filter-chip--compact filter-chip--muted app-btn"
+          class:active={overlay.activeTag === tag}
+          type="button"
+          onclick={() => overlay.handleTagSelect(tag)}
+        >
+          <span>{tag}</span>
+          <span class="tag-count">{count}</span>
+        </button>
+      {/each}
+    </div>
+  {:else if settingsSyncNotice || tagBarModel.showRowB}
     <div class="filter-zone">
       {#if settingsSyncNotice}
         <p
@@ -1057,6 +1206,7 @@
         <div class="card-wrapper">
           <ClipboardCard
             {entry}
+            compactVertical={boardVertical}
             retagAvailable={overlay.retagAvailable}
             aiTaggingEnabled={overlay.aiTaggingEnabled}
             selected={i === selectedIndex}
@@ -1070,7 +1220,7 @@
     {/if}
   </div>
   {#if filteredEntries.length > 0 && overlay.loadMoreFailed}
-    <div class="load-more-banner" role="status" aria-live="polite">
+    <div class="load-more-banner overlay-footer-strip" role="status" aria-live="polite">
       <p class="hint">Couldn't load more entries</p>
       <button class="empty-retry-btn" type="button" onclick={() => overlay.retryLoadMore()}>
         Try again
@@ -1078,31 +1228,28 @@
     </div>
   {/if}
   {#if overlay.overlayShortcutHintsEnabled}
-    <footer class="overlay-shortcuts">
-      <KeyboardHints hints={overlayShortcutHints} />
+    <footer class="overlay-shortcuts overlay-footer-strip" class:vertical={boardVertical}>
+      <KeyboardHints hints={activeOverlayShortcutHints} />
     </footer>
   {/if}
 </div>
 
 <style>
   :global(body) {
-    margin: 0;
-    padding: 0;
     background: transparent;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-family: var(--font-family-system);
     color: var(--color-text-body);
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
   }
 
-  :global(*) {
-    box-sizing: border-box;
-  }
-
   .app {
-    width: 100vw;
-    height: 100vh;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
     background: var(--surface-app);
     backdrop-filter: blur(var(--panel-blur-visible)) saturate(1.15);
     -webkit-backdrop-filter: blur(var(--panel-blur-visible)) saturate(1.15);
@@ -1158,14 +1305,39 @@
   }
 
   .header {
+    overflow: hidden;
+  }
+
+  .app.vertical .header {
+    flex: 0 0 auto;
+    gap: var(--space-stack);
+    height: auto;
+    max-height: none;
+    min-height: calc(var(--overlay-header-control-height) + var(--overlay-header-pad-block));
+    overflow: visible;
+  }
+
+  .app.vertical .header :global(.search-bar) {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .vertical-tag-groups {
     display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-default);
-    background: var(--surface-1);
+    gap: var(--space-stack);
+    padding:
+      var(--overlay-filter-pad-top)
+      calc(var(--overlay-grid-pad-x) + var(--overlay-scrollbar-gutter))
+      var(--space-stack)
+      var(--overlay-grid-pad-x);
+    overflow-x: auto;
     flex-shrink: 0;
-    min-height: calc(var(--overlay-header-control-height) + 24px);
+    scrollbar-width: none;
+    scroll-padding-inline: var(--overlay-grid-pad-x);
+  }
+
+  .vertical-tag-groups::-webkit-scrollbar {
+    display: none;
   }
 
   .filter-zone {
@@ -1193,16 +1365,18 @@
   */
 
   .settings-sync-notice {
-    margin: 0 16px;
+    margin: 0 var(--overlay-grid-pad-x);
   }
 
   .header-actions {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-stack);
     margin-left: auto;
-    flex-shrink: 0;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .exclude-app-btn {
@@ -1217,13 +1391,13 @@
     font-size: var(--font-size-sm);
     font-weight: 500;
     color: var(--color-text-secondary);
-    opacity: 0.72;
+    opacity: var(--opacity-muted-control);
     cursor: pointer;
     white-space: nowrap;
   }
 
   .exclude-app-btn:hover:not(:disabled, [aria-busy="true"]) {
-    opacity: 0.92;
+    opacity: var(--opacity-muted-control-hover);
     background: var(--surface-warning-subtle);
     border-color: var(--border-warning);
     color: var(--color-text-body);
@@ -1247,44 +1421,17 @@
     white-space: nowrap;
   }
 
-  .settings-btn,
-  .close-btn {
-    box-sizing: border-box;
-    width: var(--overlay-header-control-height);
-    height: var(--overlay-header-control-height);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--surface-6);
-    border: 1px solid var(--border-soft);
-    border-radius: var(--radius-control);
-    color: var(--color-text-body);
-    cursor: pointer;
-  }
-
-  .settings-btn:hover:not(:disabled, [aria-busy="true"]),
-  .close-btn:hover:not(:disabled, [aria-busy="true"]) {
-    background: var(--surface-10);
-    border-color: var(--border-emphasis);
-  }
-
-  .settings-btn svg,
-  .close-btn svg {
-    width: 18px;
-    height: 18px;
-    fill: currentcolor;
-  }
-
   .grid-container {
     flex: 1;
     display: flex;
     gap: 12px;
-    padding: var(--overlay-grid-pad-y) 16px;
-    scroll-padding-inline: 16px;
+    padding: var(--overlay-grid-pad-y) var(--overlay-grid-pad-x);
+    scroll-padding-inline: var(--overlay-grid-pad-x);
     overflow: auto hidden;
     scroll-snap-type: x mandatory;
     align-items: flex-start;
     min-height: 0;
+    min-width: 0;
   }
 
   .grid-container.vertical {
@@ -1292,7 +1439,10 @@
     overflow: hidden auto;
     scroll-snap-type: y proximity;
     align-items: stretch;
+    padding-inline: var(--overlay-grid-pad-x);
     scroll-padding-inline: 0;
+    min-height: 0;
+    scrollbar-gutter: stable;
   }
 
   .grid-container.vertical .card-wrapper {
@@ -1300,12 +1450,51 @@
     scroll-snap-align: center;
   }
 
+  /* Compact vertical rows (upstream max-height); preview area shrinks so footer fits. */
   .grid-container.vertical :global(.card) {
     width: 100%;
     min-width: 0;
     height: auto;
     min-height: 60px;
-    max-height: 190px;
+    max-height: var(--card-max-height-vertical);
+  }
+
+  .grid-container.vertical :global(.card-header) {
+    margin-bottom: 6px;
+  }
+
+  .grid-container.vertical :global(.card-body) {
+    flex: 0 0 var(--card-body-height-vertical);
+    height: var(--card-body-height-vertical);
+    min-height: 0;
+  }
+
+  .grid-container.vertical :global(.text-preview) {
+    padding: 8px 10px;
+  }
+
+  .grid-container.vertical :global(.text-content) {
+    font-size: var(--card-preview-font-size-vertical);
+    line-height: var(--card-preview-line-height-vertical);
+    max-height: calc(
+      var(--card-preview-line-height-vertical) * var(--card-preview-line-count-vertical)
+    );
+    -webkit-line-clamp: var(--card-preview-line-count-vertical);
+    line-clamp: var(--card-preview-line-count-vertical);
+  }
+
+  .grid-container.vertical :global(.image-preview) {
+    gap: 0;
+  }
+
+  .grid-container.vertical :global(.image-preview img),
+  .grid-container.vertical :global(.image-placeholder) {
+    height: var(--card-image-height-vertical);
+  }
+
+  .grid-container.vertical :global(.card-footer) {
+    padding-top: 6px;
+    gap: 6px;
   }
 
   .card-wrapper {
@@ -1365,7 +1554,7 @@
     align-items: center;
     justify-content: center;
     gap: 12px;
-    padding: 8px 16px;
+    padding: 8px var(--overlay-grid-pad-x);
     border-top: 1px solid var(--border-default);
     background: var(--surface-1);
   }
@@ -1376,8 +1565,20 @@
 
   .overlay-shortcuts {
     flex-shrink: 0;
-    padding: 6px 16px 8px;
+    padding: 6px var(--overlay-grid-pad-x) 8px;
     border-top: 1px solid var(--border-default);
     background: var(--surface-1);
+  }
+
+  .overlay-shortcuts.vertical {
+    padding:
+      var(--space-chip-gap)
+      calc(var(--overlay-grid-pad-x) + var(--overlay-scrollbar-gutter))
+      var(--space-stack)
+      var(--overlay-grid-pad-x);
+  }
+
+  .overlay-shortcuts.vertical :global(.keyboard-hints) {
+    row-gap: 4px;
   }
 </style>

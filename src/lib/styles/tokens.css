@@ -24,15 +24,26 @@
   /* HIG 8pt grid: stack = related controls in one group; section = separate fields */
   --space-stack: 0.5rem;
   --space-section: 0.75rem;
+  /* Gap between settings islands (form-section) and pane head → first island */
+  --space-island-gap: var(--space-section);
   /* Nested groups inside one section card — symmetric pad above/below subsection rules */
   --space-subsection: 1rem;
   --space-field: 0.375rem;
   --space-row: 0.25rem;
+  --space-gap-md: 0.625rem; /* 10px — status rows, nav items, form-actions */
   --space-hint: var(--space-field);
   --space-control-y: 0.375rem;
   --space-control-x: 0.625rem;
-  /* Distance from control right border to chevron right edge (select + ActionMenu). */
+  --space-segment-inset: 2px;
+  --space-chip-gap: var(--space-field); /* 6px — chip internals, card footer */
+  --space-panel-inline: 14px; /* form-section, voice capsule, palette shell */
+  --space-hint-indent: 18px; /* status-hint margin, chip count min-width */
+  --overlay-header-pad-block: 24px; /* header min-height calc (12px × 2) */
+  /* Select chevron — right edge inset, icon size, and label gap (HIG-aligned). */
   --control-chevron-inset: 12px;
+  --control-chevron-slot: calc(
+    var(--control-chevron-inset) + var(--icon-size-chevron) + var(--space-stack)
+  );
   /* Inset grouped lists (macOS Settings table-in-group rhythm) */
   --inset-list-pad-inline: 0.75rem;
   --inset-list-pad-block: 0.5rem;
@@ -42,6 +53,45 @@
   /* ── Card chrome (rem — scales with Dynamic Type) ─── */
   --card-width: 13.75rem;
   --card-height: 18rem;
+  --size-form-control: 32px; /* settings inputs / selects — matches overlay header controls */
+  --size-form-textarea-line: calc(var(--font-size-md) * var(--line-height-body));
+  --size-form-textarea-pad-block: calc(var(--space-control-y) * 2);
+  --size-form-textarea-border: 2px;
+  --size-form-textarea: calc(
+    var(--size-form-textarea-border) + var(--size-form-textarea-pad-block) +
+      var(--size-form-textarea-line) * 3
+  );
+  /* Vertical mini-board — line count, line-height, and body height stay in sync. */
+  --card-preview-font-size-vertical: var(--font-size-xs);
+  --card-preview-line-height-vertical: 16px;
+  --card-preview-line-count-vertical: 4;
+  --card-preview-pad-block-vertical: 16px;
+  --card-body-height-vertical: calc(
+    var(--card-preview-pad-block-vertical) + var(--card-preview-line-count-vertical) *
+      var(--card-preview-line-height-vertical)
+  );
+  --card-max-height-vertical: 198px;
+  --card-image-height-vertical: 52px;
+  /* Horizontal card preview layout (ClipboardCard) */
+  --card-preview-height: 168px;
+  --card-image-thumb-h-ocr: 72px;
+  --card-image-thumb-h-only: 86px;
+  --card-image-preview-gap: var(--space-gap-md);
+  --card-preview-pad-block: 20px;
+  --card-preview-pad-block-ocr: 16px;
+  --card-ocr-line-clamp: 4;
+  --card-text-preview-pad: 10px 12px;
+  --card-text-preview-pad-ocr: 8px;
+  --card-hover-lift: -2px;
+  --size-card-action-hit: 24px;
+  --card-type-pad: 3px 8px;
+  --card-type-gap: 5px;
+  --card-footer-min-height: 16px;
+  --card-entry-tag-pad: 2px 7px;
+  /* Copied HUD — scaled from horizontal card (~288px → ~198px, ratio ≈ 0.69). */
+  --card-copied-icon-size-vertical: 48px;
+  --card-copied-label-size-vertical: 1.125rem;
+  --card-copied-gap-vertical: 8px;
 
   /* ── Corner radius (macOS HIG — concentric nested surfaces) ─ */
   --radius-card-padding: 12px; /* .card padding — must match ClipboardCard `.card` padding */
@@ -55,7 +105,7 @@
 
   /* Overlay header — single control height (search, segments, icon buttons) */
   --overlay-header-control-height: 32px;
-  /* SF Symbol display sizes — one token per semantic icon block.
+  /* Icon display sizes — one token per semantic icon block.
    * card-action (14px) and card-copied (24px): visually verified after fill-glyph migration. */
   --icon-size-overlay-header-settings: 16px;
   --icon-size-overlay-header-close: 13px;
@@ -73,16 +123,19 @@
   --icon-size-voice-mic: 18px;
   /* Symmetric vertical rhythm — matches header padding (12px, HIG 8pt grid) */
   --overlay-filter-pad-top: 12px;
+  --overlay-grid-pad-x: 16px;
   --overlay-grid-pad-y: 12px;
+  /* Reserve space beside the vertical list scrollbar so tag chips align with cards */
+  --overlay-scrollbar-gutter: var(--space-stack);
 
   /* ── RGB channels (for alpha compositing) ──────────── */
   --rgb-white: 255 255 255;
   --rgb-black: 0 0 0;
-  --rgb-accent: 96 134 230;
-  --rgb-accent-deep: 82 118 206;
-  --rgb-accent-focus: 94 140 255;
-  --rgb-accent-border: 120 160 255;
-  --rgb-accent-selected: 100 140 255;
+  --rgb-accent: 52 211 153;
+  --rgb-accent-deep: 16 185 129;
+  --rgb-accent-focus: 110 231 183;
+  --rgb-accent-border: 110 231 183;
+  --rgb-accent-selected: 52 211 153;
   --rgb-danger: 255 107 107;
   --rgb-danger-soft: 248 113 113;
   /* Muted sage green — matched to accent/danger visual weight on dark surfaces */
@@ -91,6 +144,8 @@
   --rgb-warning: 251 191 36;
   --rgb-warning-bright: 255 200 50;
   --rgb-voice-bar-end: 251 146 60;
+  --rgb-recording: 248 83 75;
+  --rgb-agent: 155 120 255;
   --rgb-overlay: 20 20 26;
   --rgb-settings-bg: 30 30 36;
   --rgb-voice-bg: 18 18 24;
@@ -122,14 +177,14 @@
   --color-text-tab-hover: #dddddd;
   --color-text-placeholder: rgb(var(--rgb-text-placeholder) / 35%);
 
-  /* ── Accent text ───────────────────────────────────── */
-  --color-accent-icon: #8fa8dc;
-  --color-accent-text: #c4d4ff;
-  --color-accent-text-tag: #cdddff;
-  --color-accent-text-soft: #9eb8ff;
-  --color-accent-link: #7da4ff;
-  --color-accent-link-hover: #a8c4ff;
-  --color-accent-chip: #eef3ff;
+  /* ── Accent text (upstream 0.5.1 emerald — #10b981 / #34d399) ─ */
+  --color-accent-icon: #6ee7b7;
+  --color-accent-text: #a7f3d0;
+  --color-accent-text-tag: #a7f3d0;
+  --color-accent-text-soft: #6ee7b7;
+  --color-accent-link: #34d399;
+  --color-accent-link-hover: #6ee7b7;
+  --color-accent-chip: #d1fae5;
 
   /* ── Semantic text ─────────────────────────────────── */
   --color-danger: #ff6b6b;
@@ -138,6 +193,7 @@
   --color-danger-soft: #f87171;
   /* Success scale — cool sage, same energy as danger-soft / accent-icon */
   --color-success: #54b07c;
+  --color-success-soft: var(--color-success);
   --color-success-text: #6bbf8f;
   --color-success-control: #4ea574;
   --color-warning: #fbbf24;
@@ -247,6 +303,14 @@
   --surface-menu: var(--surface-select-option);
   --surface-menu-hover: #2e3038;
   --surface-menu-hover-destructive: #3a2c2e;
+  --surface-sidebar: rgb(var(--rgb-black) / 22%);
+  --surface-bar: rgb(var(--rgb-settings-bg) / 92%);
+  --surface-scrim: rgb(var(--rgb-black) / 45%);
+  --surface-kbd: rgb(var(--rgb-white) / 5.5%);
+  --border-kbd: rgb(var(--rgb-white) / 7%);
+  --shadow-kbd: 0 0.5px 0 rgb(var(--rgb-black) / 12%);
+  --surface-chip-count-active: rgb(var(--rgb-accent) / 28%);
+  --surface-chip-count-active-hover: rgb(var(--rgb-accent) / 36%);
 
   /* ── Shadows ───────────────────────────────────────── */
   --shadow-elevated: 0 18px 50px rgb(var(--rgb-black) / 28%);
@@ -257,6 +321,27 @@
   --shadow-inset-press: inset 0 1px 2px rgb(var(--rgb-black) / 20%);
   --shadow-inset-highlight: inset 0 1px 0 rgb(var(--rgb-white) / 8%);
   --shadow-toggle-knob: 0 1px 2px rgb(var(--rgb-black) / 28%);
+  --shadow-voice-capsule: 0 8px 28px rgb(var(--rgb-black) / 40%);
+  --shadow-recording-pulse: 0 0 0 7px rgb(var(--rgb-recording) / 0%);
+
+  /* ── macOS-style checkboxes (Settings sub-preferences) ─ */
+  --size-checkbox: 16px;
+  --size-chip-count-min: 18px;
+  --size-hit-target-sm: 28px;
+  --padding-chip-count: 2px 5px;
+  --padding-chip: 6px 11px;
+  --radius-checkbox: 4px;
+  --radius-code: var(--radius-checkbox); /* inline code, kbd hints */
+  --space-checkbox-gap: 8px;
+  --space-checkbox-indent: calc(var(--size-checkbox) + var(--space-checkbox-gap));
+  --line-height-checkbox-align: calc(var(--font-size-sm) * var(--line-height-body));
+  --surface-checkbox: rgb(var(--rgb-white) / 4%);
+  --border-checkbox: rgb(var(--rgb-white) / 22%);
+  --border-checkbox-hover: rgb(var(--rgb-white) / 30%);
+  --surface-checkbox-checked: var(--color-success-control);
+  --border-checkbox-checked: var(--border-success-control);
+  --color-checkbox-mark: #f4f6fa;
+  --ring-checkbox-focus: var(--ring-success-control);
 
   /* ── Text controls (rest → hover → focus → keyboard focus) ─ */
   --surface-control: var(--surface-6);
@@ -282,6 +367,43 @@
   /* ── Text selection (brand accent — global ::selection below) ─ */
   --selection-bg: rgb(var(--rgb-accent-focus) / 42%);
   --selection-text: var(--color-text-bright);
+
+  /* ── Typography stacks ─────────────────────────────── */
+  --font-family-system:
+    -apple-system, blinkmacsystemfont, "Segoe UI", roboto, "Helvetica Neue", sans-serif;
+  --font-family-mono: "SF Mono", menlo, monaco, monospace;
+
+  /* ── Palette agent mode (distinct from main accent) ── */
+  --color-agent: #9b78ff;
+  --color-agent-text: #d2bcff;
+  --color-palette-chat-text: #acc4ff;
+  --surface-agent-muted: rgb(var(--rgb-agent) / 25%);
+  --surface-agent-subtle: rgb(var(--rgb-agent) / 22%);
+  --border-agent: rgb(var(--rgb-agent) / 40%);
+  --surface-palette-chat: rgb(var(--rgb-accent) / 26%);
+  --surface-palette-chat-subtle: rgb(var(--rgb-accent) / 24%);
+  --gradient-agent-orb: radial-gradient(circle at 35% 30%, #b69bff, #7b5cff 70%);
+  --shadow-agent-orb: 0 4px 16px rgb(123 92 255 / 50%);
+  --color-palette-link: #8aa0ff;
+  --surface-code-block: rgb(var(--rgb-black) / 30%);
+  --blur-palette-panel: 20px;
+  --font-size-palette-search: 1.125rem;
+  --font-size-palette-mode: 0.6875rem;
+  --font-size-palette-markdown-heading: 0.9375rem;
+  --gradient-resize-grip: linear-gradient(
+    135deg,
+    transparent 0 50%,
+    rgb(var(--rgb-white) / 35%) 50% 60%,
+    transparent 60% 70%,
+    rgb(var(--rgb-white) / 35%) 70% 80%,
+    transparent 80%
+  );
+  --size-min-dot: 44px;
+  --size-resize-grip: 16px;
+
+  /* ── Voice HUD capsule ─────────────────────────────── */
+  --blur-voice-capsule: 16px;
+  --color-recording-pulse: rgb(var(--rgb-recording) / 60%);
 
   /* ── Motion (launcher / HUD) ───────────────────────── */
   /* Raycast-style: ~150ms hover, ~250–300ms panel, faster dismiss than open. */
@@ -318,8 +440,8 @@
     rgb(var(--rgb-accent) / 42%) 0%,
     rgb(var(--rgb-accent-deep) / 52%) 100%
   );
-  /* Semantic alias; baked hex for --icon-chevron-down comes from --color-text-primary at export time. */
-  --icon-chevron-select-fill: var(--color-text-primary);
+  /* Chevron for native <select> — same glyph as ChevronDown.svelte (WebKit needs data URI). */
+  --icon-chevron-color: rgb(var(--rgb-white) / 85%);
   --icon-chevron-down: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2016%2016'%3E%3Cpath%20fill%3D'%23edf1f8'%20fill-opacity%3D'0.85'%20d%3D'M8.00%2011.66%20C8.19%2011.66%208.38%2011.58%208.51%2011.44%20L14.30%205.51%20C14.43%205.38%2014.50%205.22%2014.50%205.03%20C14.50%204.64%2014.21%204.34%2013.82%204.34%20C13.63%204.34%2013.46%204.42%2013.33%204.53%20L7.60%2010.39%20L8.40%2010.39%20L2.67%204.53%20C2.55%204.42%202.38%204.34%202.18%204.34%20C1.79%204.34%201.50%204.64%201.50%205.03%20C1.50%205.22%201.57%205.38%201.70%205.52%20L7.49%2011.44%20C7.64%2011.58%207.81%2011.66%208.00%2011.66%20Z'%2F%3E%3C%2Fsvg%3E");
   --gradient-voice-bar: linear-gradient(
     180deg,
@@ -342,6 +464,8 @@
   --opacity-disabled: 0.48;
   --opacity-busy: 0.88;
   --opacity-section-disabled: 0.42;
+  --opacity-muted-control: 0.72;
+  --opacity-muted-control-hover: 0.92;
 }
 
 html {

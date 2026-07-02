@@ -58,7 +58,7 @@ Requires **macOS 12+** on **Apple Silicon** (M1 and later) or **Intel** (x86_64)
 | Apple Silicon (M1, M2, M3, …) | `Copyosity_*_aarch64.dmg` |
 | Intel                         | `Copyosity_*_x86_64.dmg`  |
 
-1. Pick the DMG for your architecture from the [latest release](https://github.com/vakovalskii/copyosity/releases/latest) (for example `Copyosity_0.5.1_aarch64.dmg` or `Copyosity_0.5.1_x86_64.dmg`).
+1. Pick the DMG for your architecture from the [latest release](https://github.com/vakovalskii/copyosity/releases/latest) (for example `Copyosity_0.6.0_aarch64.dmg` or `Copyosity_0.6.0_x86_64.dmg`).
 2. Open the DMG and drag **Copyosity** into **Applications**.
 3. Launch it. On first run macOS will ask for **Accessibility** permission
    (needed to paste into other apps) and, depending on the features you use,
@@ -165,10 +165,6 @@ commit discipline, and local‑AI onboarding rules).
 
 See [docs/architecture/macos-paste-pipeline.md](docs/architecture/macos-paste-pipeline.md).
 
-### Icons (SF Symbols)
-
-UI icons use macOS SF Symbols via `SfSymbol` and a generated registry. To add or change icons: [docs/architecture/sf-symbols.md](docs/architecture/sf-symbols.md). Regenerate on macOS: `make export-sf-symbols`.
-
 ### Release
 
 ```bash
@@ -181,4 +177,4 @@ make release-macos       # Signed + notarized, native arch
 make notarize-info       # Check notarization status
 ```
 
-Artifacts for local testing land in `dist/macos/` (for example `Copyosity_0.5.1_x86_64.dmg`).
+Artifacts for local testing land in `dist/macos/` (for example `Copyosity_0.6.0_x86_64.dmg`).
