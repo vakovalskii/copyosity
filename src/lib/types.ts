@@ -13,6 +13,10 @@ export interface ClipboardEntry {
   collection_id: number | null;
   tags: string[];
   ocr_text?: string | null;
+  image_format?: string | null;
+  image_width?: number | null;
+  image_height?: number | null;
+  image_byte_size?: number | null;
 }
 
 export interface Collection {
@@ -20,6 +24,24 @@ export interface Collection {
   name: string;
   color: string | null;
   sort_order: number;
+}
+
+export interface HistoryCounts {
+  total: number;
+  unpinned: number;
+  pinned: number;
+}
+
+export interface TagCount {
+  tag: string;
+  count: number;
+}
+
+export interface OverlayTagCounts {
+  semantic: TagCount[];
+  format: TagCount[];
+  has_text: boolean;
+  has_images: boolean;
 }
 
 export interface AppSettings {
@@ -30,12 +52,12 @@ export interface AppSettings {
   whisper_server_model: string;
   voice_shortcut: string;
   selected_microphone: string;
+  hub_enabled: boolean;
   hub_url: string;
   hub_token: string;
   hub_chat_model: string;
   hub_tagging_enabled: boolean;
   hub_transcribe_enabled: boolean;
-  hub_search_enabled: boolean;
   voice_polish_enabled: boolean;
   voice_polish_model: string;
   voice_polish_screenshot: boolean;
@@ -44,6 +66,9 @@ export interface AppSettings {
   voice_dictionary: string;
   voice_selected_text: boolean;
   board_vertical: boolean;
+  voice_transcription_enabled: boolean;
+  ai_tagging_enabled: boolean;
+  overlay_shortcut_hints_enabled: boolean;
 }
 
 export interface AudioInputDevice {
@@ -65,7 +90,87 @@ export interface ModelCatalog {
   options: ModelOption[];
 }
 
+/** `entry-tagged` Tauri event payload (Rust: `db::EntryTaggedPayload`). */
+export interface EntryTaggedPayload {
+  entryId: number;
+  tags: string[];
+}
+
+export function isEntryTaggedPayload(payload: unknown): payload is EntryTaggedPayload {
+  if (typeof payload !== "object" || payload === null) return false;
+  const record = payload as Record<string, unknown>;
+  return (
+    typeof record.entryId === "number" &&
+    Array.isArray(record.tags) &&
+    record.tags.every((tag) => typeof tag === "string")
+  );
+}
+
+export type ParsedEntryTaggedEvent =
+  | { kind: "payload"; payload: EntryTaggedPayload }
+  | { kind: "legacy-id"; entryId: number };
+
+/**
+ * Parse `entry-tagged` event payload. Accepts current `{ entryId, tags }` and
+ * legacy bare entry id (pre-0.4 payload shape) for rolling upgrades.
+ */
+export function parseEntryTaggedEvent(payload: unknown): ParsedEntryTaggedEvent | null {
+  if (isEntryTaggedPayload(payload)) {
+    return { kind: "payload", payload };
+  }
+  if (typeof payload === "number" && Number.isInteger(payload) && payload > 0) {
+    return { kind: "legacy-id", entryId: payload };
+  }
+  return null;
+}
+
+/** `entry-ocr` Tauri event payload (Rust: `db::EntryOcrPayload`). */
+export interface EntryOcrPayload {
+  entryId: number;
+  ocrText: string;
+}
+
+export function isEntryOcrPayload(payload: unknown): payload is EntryOcrPayload {
+  if (typeof payload !== "object" || payload === null) return false;
+  const record = payload as Record<string, unknown>;
+  return (
+    typeof record.entryId === "number" &&
+    typeof record.ocrText === "string" &&
+    record.ocrText.length > 0
+  );
+}
+
+export type ParsedEntryOcrEvent =
+  | { kind: "payload"; payload: EntryOcrPayload }
+  | { kind: "legacy-id"; entryId: number };
+
+/**
+ * Parse `entry-ocr` event payload. Accepts `{ entryId, ocrText }` and legacy bare id.
+ */
+export function parseEntryOcrEvent(payload: unknown): ParsedEntryOcrEvent | null {
+  if (isEntryOcrPayload(payload)) {
+    return { kind: "payload", payload };
+  }
+  if (typeof payload === "number" && Number.isInteger(payload) && payload > 0) {
+    return { kind: "legacy-id", entryId: payload };
+  }
+  return null;
+}
+
 export interface ExcludedApp {
   id: number;
-  bundle_id: string;
+  bundleId: string;
+  displayName: string;
+}
+
+export interface ExcludableAppCandidate {
+  bundleId: string;
+  displayName: string;
+  alreadyExcluded: boolean;
+  source: "remembered" | "frontmost";
+}
+
+export interface ExcludeAppResult {
+  displayName: string;
+  alreadyExcluded: boolean;
 }

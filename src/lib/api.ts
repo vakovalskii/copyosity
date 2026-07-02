@@ -1,5 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, AudioInputDevice, ClipboardEntry, Collection, ExcludedApp, ModelCatalog } from "./types";
+
+import type {
+  AppSettings,
+  AudioInputDevice,
+  ClipboardEntry,
+  Collection,
+  ExcludedApp,
+  ExcludableAppCandidate,
+  ExcludeAppResult,
+  HistoryCounts,
+  ModelCatalog,
+  OverlayTagCounts,
+} from "./types";
+
+/** Page size for entry list pagination; mirrored by the backend default. */
+export const ENTRY_PAGE_SIZE = 50;
 
 export async function getEntries(opts?: {
   limit?: number;
@@ -7,10 +22,29 @@ export async function getEntries(opts?: {
   collection_id?: number | null;
   pinned_only?: boolean;
   search?: string | null;
+  tag?: string | null;
+  /** DB tag strings that share the UI label in `tag` (semantic filters only). */
+  tag_variants?: string[] | null;
+  content_kind?: "text" | "image" | null;
 }): Promise<ClipboardEntry[]> {
   return invoke("get_entries", {
-    limit: opts?.limit ?? 50,
+    limit: opts?.limit ?? ENTRY_PAGE_SIZE,
     offset: opts?.offset ?? 0,
+    collectionId: opts?.collection_id ?? null,
+    pinnedOnly: opts?.pinned_only ?? false,
+    search: opts?.search ?? null,
+    tag: opts?.tag ?? null,
+    tagVariants: opts?.tag_variants ?? null,
+    contentKind: opts?.content_kind ?? null,
+  });
+}
+
+export async function getOverlayTagCounts(opts?: {
+  collection_id?: number | null;
+  pinned_only?: boolean;
+  search?: string | null;
+}): Promise<OverlayTagCounts> {
+  return invoke("get_overlay_tag_counts", {
     collectionId: opts?.collection_id ?? null,
     pinnedOnly: opts?.pinned_only ?? false,
     search: opts?.search ?? null,
@@ -25,7 +59,10 @@ export async function pinEntry(id: number, pinned: boolean): Promise<void> {
   return invoke("pin_entry", { id, pinned });
 }
 
-export async function setEntryCollection(entryId: number, collectionId: number | null): Promise<void> {
+export async function setEntryCollection(
+  entryId: number,
+  collectionId: number | null,
+): Promise<void> {
   return invoke("set_entry_collection", { entryId, collectionId });
 }
 
@@ -45,6 +82,14 @@ export async function clearHistory(): Promise<void> {
   return invoke("clear_history");
 }
 
+export async function clearAllHistory(): Promise<void> {
+  return invoke("clear_all_history");
+}
+
+export async function getHistoryCounts(): Promise<HistoryCounts> {
+  return invoke("get_history_counts");
+}
+
 export async function hideMainWindow(): Promise<void> {
   return invoke("hide_main_window");
 }
@@ -61,12 +106,12 @@ export async function updateAppSettings(opts: {
   whisper_server_model?: string | null;
   voice_shortcut?: string | null;
   selected_microphone?: string | null;
+  hub_enabled?: boolean | null;
   hub_url?: string | null;
   hub_token?: string | null;
   hub_chat_model?: string | null;
   hub_tagging_enabled?: boolean | null;
   hub_transcribe_enabled?: boolean | null;
-  hub_search_enabled?: boolean | null;
   voice_polish_enabled?: boolean | null;
   voice_polish_model?: string | null;
   voice_polish_screenshot?: boolean | null;
@@ -75,6 +120,9 @@ export async function updateAppSettings(opts: {
   voice_dictionary?: string | null;
   voice_selected_text?: boolean | null;
   board_vertical?: boolean | null;
+  voice_transcription_enabled?: boolean | null;
+  ai_tagging_enabled?: boolean | null;
+  overlay_shortcut_hints_enabled?: boolean | null;
 }): Promise<AppSettings> {
   return invoke("update_app_settings", {
     ollamaModel: opts.ollama_model ?? null,
@@ -84,12 +132,12 @@ export async function updateAppSettings(opts: {
     whisperServerModel: opts.whisper_server_model ?? null,
     voiceShortcut: opts.voice_shortcut ?? null,
     selectedMicrophone: opts.selected_microphone ?? null,
+    hubEnabled: opts.hub_enabled ?? null,
     hubUrl: opts.hub_url ?? null,
     hubToken: opts.hub_token ?? null,
     hubChatModel: opts.hub_chat_model ?? null,
     hubTaggingEnabled: opts.hub_tagging_enabled ?? null,
     hubTranscribeEnabled: opts.hub_transcribe_enabled ?? null,
-    hubSearchEnabled: opts.hub_search_enabled ?? null,
     voicePolishEnabled: opts.voice_polish_enabled ?? null,
     voicePolishModel: opts.voice_polish_model ?? null,
     voicePolishScreenshot: opts.voice_polish_screenshot ?? null,
@@ -98,6 +146,9 @@ export async function updateAppSettings(opts: {
     voiceDictionary: opts.voice_dictionary ?? null,
     voiceSelectedText: opts.voice_selected_text ?? null,
     boardVertical: opts.board_vertical ?? null,
+    voiceTranscriptionEnabled: opts.voice_transcription_enabled ?? null,
+    aiTaggingEnabled: opts.ai_tagging_enabled ?? null,
+    overlayShortcutHintsEnabled: opts.overlay_shortcut_hints_enabled ?? null,
   });
 }
 
@@ -119,6 +170,10 @@ export async function rebindVoiceShortcut(): Promise<string> {
   return invoke("rebind_voice_shortcut");
 }
 
+export async function rebindPaletteShortcut(): Promise<void> {
+  return invoke("rebind_palette_shortcut");
+}
+
 export async function getModelCatalog(): Promise<ModelCatalog> {
   return invoke("get_model_catalog");
 }
@@ -127,20 +182,36 @@ export async function getExcludedApps(): Promise<ExcludedApp[]> {
   return invoke("get_excluded_apps");
 }
 
-export async function addExcludedApp(bundleId: string): Promise<void> {
-  return invoke("add_excluded_app", { bundleId });
+export async function addExcludedApp(appNameOrBundleId: string): Promise<ExcludeAppResult> {
+  return invoke("add_excluded_app", { appNameOrBundleId });
 }
 
 export async function removeExcludedApp(id: number): Promise<void> {
   return invoke("remove_excluded_app", { id });
 }
 
-export async function addFrontmostAppToExcluded(): Promise<string | null> {
-  return invoke("add_frontmost_app_to_excluded");
+export async function getExcludableAppCandidate(): Promise<ExcludableAppCandidate | null> {
+  return invoke("get_excludable_app_candidate");
 }
 
-export async function retagEntry(entryId: number): Promise<void> {
+export async function addExcludableAppCandidate(): Promise<ExcludeAppResult | null> {
+  return invoke("add_excludable_app_candidate");
+}
+
+export async function openCommandPalette(): Promise<void> {
+  return invoke("open_command_palette");
+}
+
+export async function pickAppToExclude(): Promise<ExcludeAppResult | null> {
+  return invoke("pick_app_to_exclude");
+}
+
+export async function retagEntry(entryId: number): Promise<string[]> {
   return invoke("retag_entry", { entryId });
+}
+
+export async function isTaggingReady(): Promise<boolean> {
+  return invoke("is_tagging_ready");
 }
 
 export async function copyEntry(entryId: number): Promise<void> {
@@ -159,6 +230,7 @@ export async function quitApp(): Promise<void> {
   return invoke("quit_app");
 }
 
+/** @deprecated Use activateEntry for paste-into-target behavior. */
 export async function pasteEntry(text: string): Promise<void> {
   return invoke("paste_entry", { text });
 }
@@ -167,11 +239,16 @@ export interface OllamaStatus {
   cli_installed: boolean;
   server_running: boolean;
   model_installed: boolean;
+  model_loaded: boolean;
   model_name: string;
 }
 
-export async function checkAccessibility(): Promise<boolean> {
-  return invoke("check_accessibility");
+export async function checkAccessibility(prompt = false): Promise<boolean> {
+  return invoke("check_accessibility", { prompt });
+}
+
+export async function openAccessibilitySettings(): Promise<void> {
+  return invoke("open_accessibility_settings");
 }
 
 export async function checkOllamaStatus(): Promise<OllamaStatus> {

@@ -235,7 +235,10 @@ pub fn web_search(base_url: &str, token: &str, query: &str, limit: u32) -> Resul
         let title = pick(item, &["title", "name", "channel", "header"])
             .unwrap_or_else(|| format!("Result {}", i + 1));
         let link = pick(item, &["url", "link", "href", "source"]);
-        let snippet = pick(item, &["snippet", "text", "content", "description", "summary"]);
+        let snippet = pick(
+            item,
+            &["snippet", "text", "content", "description", "summary"],
+        );
 
         out.push_str(&format!("{}. {}\n", i + 1, title));
         if let Some(link) = link {
@@ -254,7 +257,12 @@ pub fn web_search(base_url: &str, token: &str, query: &str, limit: u32) -> Resul
 /// Agent quick-search: ask the hub chat model a question and return its answer.
 /// Kept for the chat-based fallback / future use.
 #[allow(dead_code)]
-pub fn agent_search(base_url: &str, token: &str, model: &str, query: &str) -> Result<String, String> {
+pub fn agent_search(
+    base_url: &str,
+    token: &str,
+    model: &str,
+    query: &str,
+) -> Result<String, String> {
     let base = normalize_base(base_url);
     if base.is_empty() {
         return Err("Hub URL is empty".to_string());
@@ -277,7 +285,9 @@ pub fn agent_search(base_url: &str, token: &str, model: &str, query: &str) -> Re
         messages: vec![
             ChatMessage {
                 role: "system",
-                content: "You are a fast, concise assistant. Answer directly and briefly. No preamble.".to_string(),
+                content:
+                    "You are a fast, concise assistant. Answer directly and briefly. No preamble."
+                        .to_string(),
             },
             ChatMessage {
                 role: "user",
@@ -317,7 +327,8 @@ const IMAGE_TAG_PROMPT: &str = "Classify this image. Return strict JSON only: {\
 /// caller can fall back to OCR-text tagging.
 pub fn tag_image(base_url: &str, token: &str, model: &str, image_b64: &str) -> Option<Vec<String>> {
     let base = normalize_base(base_url);
-    if base.is_empty() || token.trim().is_empty() || model.trim().is_empty() || image_b64.is_empty() {
+    if base.is_empty() || token.trim().is_empty() || model.trim().is_empty() || image_b64.is_empty()
+    {
         return None;
     }
 
@@ -436,7 +447,9 @@ fn build_polish_prompt(
     let custom = custom_prompt.trim();
     if !custom.is_empty() {
         let clean: String = custom.chars().take(2000).collect();
-        p.push_str("\n\nAdditional user instructions (apply unless they conflict with the rules above):\n");
+        p.push_str(
+            "\n\nAdditional user instructions (apply unless they conflict with the rules above):\n",
+        );
         p.push_str(&clean);
     }
 
@@ -502,7 +515,10 @@ pub fn polish_text(
     if let Some(sel) = selected_text {
         if !sel.trim().is_empty() {
             let clipped: String = sel.chars().take(6000).collect();
-            user_text.push_str(&format!("<selected_text>\n{}\n</selected_text>\n\n", clipped));
+            user_text.push_str(&format!(
+                "<selected_text>\n{}\n</selected_text>\n\n",
+                clipped
+            ));
         }
     }
     user_text.push_str(&format!("<transcription>\n{}\n</transcription>", raw));
@@ -546,7 +562,11 @@ pub fn polish_text(
         .as_str()
         .map(|s| s.to_string())
         // Some reasoning models put the answer in reasoning_content.
-        .or_else(|| json["choices"][0]["message"]["reasoning_content"].as_str().map(|s| s.to_string()))
+        .or_else(|| {
+            json["choices"][0]["message"]["reasoning_content"]
+                .as_str()
+                .map(|s| s.to_string())
+        })
         .ok_or_else(|| "Hub returned no content".to_string())?;
 
     let cleaned = content.trim().trim_matches('"').trim().to_string();

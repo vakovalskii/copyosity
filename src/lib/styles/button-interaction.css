@@ -1,0 +1,132 @@
+/*
+ * Shared macOS-like button interaction states.
+ * Apply class="app-btn" to <button> elements; keep per-button colors locally.
+ * Colors: tokens.css
+ *
+ * Busy buttons: label in .app-btn-label, overlay spinner in .app-btn-spinner.
+ * Use class "is-busy" while loading — do NOT set disabled during busy (WebKit pauses animations).
+ */
+
+/* WebKit/macOS uses arrow cursor on <button> by default; pointer on all click targets. */
+button:not(:disabled, .is-busy, .is-locked) {
+  cursor: pointer;
+}
+
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+a[href] {
+  cursor: pointer;
+}
+
+button.app-btn {
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background var(--duration-fast) var(--ease-interactive),
+    border-color var(--duration-fast) var(--ease-interactive),
+    color var(--duration-fast) var(--ease-interactive),
+    opacity var(--duration-fast) var(--ease-interactive),
+    filter var(--duration-fast) var(--ease-interactive),
+    box-shadow var(--duration-fast) var(--ease-interactive);
+}
+
+.app-btn-label {
+  transition: opacity var(--duration-fast) var(--ease-interactive);
+}
+
+button.app-btn.is-busy .app-btn-label {
+  opacity: 0;
+}
+
+.app-btn-spinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-interactive);
+}
+
+button.app-btn.is-busy .app-btn-spinner {
+  opacity: 1;
+}
+
+.app-btn-spinner-icon {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--spinner-track);
+  border-top-color: var(--spinner-head);
+  border-radius: 50%;
+  animation: app-btn-spin var(--duration-spinner) linear infinite;
+}
+
+.app-btn-spinner-icon--sm {
+  width: 10px;
+  height: 10px;
+}
+
+.app-btn-spinner-icon--success {
+  border-color: var(--surface-10);
+  border-top-color: var(--color-success-text);
+}
+
+.app-btn-spinner-icon--palette {
+  border-color: rgb(var(--rgb-white) / 25%);
+  border-top-color: var(--color-palette-link);
+}
+
+@keyframes app-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.app-btn-spinner-icon.is-inline {
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+button.app-btn.is-busy {
+  pointer-events: none;
+  cursor: default;
+  opacity: var(--opacity-busy);
+}
+
+button.app-btn.is-locked {
+  pointer-events: none;
+  cursor: default;
+  opacity: var(--opacity-disabled);
+}
+
+button.app-btn:active:not(.is-busy, .is-locked, :disabled) {
+  filter: brightness(0.9);
+  box-shadow: var(--shadow-inset-press);
+  transition-duration: var(--duration-micro);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-btn-spinner-icon {
+    animation-duration: var(--duration-spinner-reduced);
+  }
+}
+
+button.app-btn:focus-visible,
+[data-input-modality="keyboard"] button.app-btn:focus {
+  outline: none;
+  box-shadow: var(--ring-accent);
+}
+
+button.app-btn:focus-visible:active:not(.is-busy, .is-locked, :disabled),
+[data-input-modality="keyboard"] button.app-btn:focus:active:not(.is-busy, .is-locked, :disabled) {
+  box-shadow: var(--shadow-inset-press), var(--ring-accent);
+}
+
+button.app-btn:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+  pointer-events: none;
+}

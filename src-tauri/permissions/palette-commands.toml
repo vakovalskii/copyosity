@@ -1,0 +1,15 @@
+"$schema" = "../gen/schemas/desktop-schema.json"
+
+[[permission]]
+identifier = "palette-window-commands"
+description = "Command palette: hub search, agent, voice, insert"
+commands.allow = [
+  "get_platform",
+  "palette_search",
+  "palette_hide",
+  "palette_insert",
+  "open_command_palette",
+  "palette_agent",
+  "palette_voice_start",
+  "palette_voice_stop",
+]

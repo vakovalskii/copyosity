@@ -1,0 +1,25 @@
+/*
+ * Shared Tauri window baseline — import via +layout.svelte.
+ * Routes add only window-specific body overrides (background, color).
+ *
+ * Plain selectors only (no :global()): this file is a global CSS import, not
+ * a Svelte \3c style> block — :global() is invalid here and browsers ignore it.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}

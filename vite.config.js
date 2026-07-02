@@ -1,7 +1,6 @@
-import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
+import { defineConfig } from "vite";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
@@ -10,9 +9,17 @@ export default defineConfig(async () => ({
   build: {
     target: "esnext",
     cssMinify: true,
+    // Skip gzip size pass — saves ~200–500ms on production builds
+    reportCompressedSize: false,
   },
   optimizeDeps: {
-    include: ["svelte", "@tauri-apps/api"],
+    include: [
+      "svelte",
+      "@tauri-apps/api/core",
+      "@tauri-apps/api/event",
+      "@tauri-apps/api/window",
+      "@tauri-apps/plugin-opener",
+    ],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
@@ -34,6 +41,15 @@ export default defineConfig(async () => ({
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
+    },
+    warmup: {
+      clientFiles: [
+        "./src/routes/+page.svelte",
+        "./src/routes/settings/+page.svelte",
+        "./src/routes/overlay/+page.svelte",
+        "./src/lib/components/*.svelte",
+        "./src/lib/**/*.ts",
+      ],
     },
   },
 }));

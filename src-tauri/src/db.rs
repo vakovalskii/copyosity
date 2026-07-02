@@ -1,4 +1,5 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -14,7 +15,15 @@ pub struct AppSettings {
     pub voice_shortcut: String,
     /// Selected microphone device name (empty = default)
     pub selected_microphone: String,
+    /// When false, voice shortcut is not registered (default off).
+    pub voice_transcription_enabled: bool,
+    /// When false, clipboard entries are not auto-tagged (default off).
+    pub ai_tagging_enabled: bool,
+    /// When false, hide the footer shortcut strip on the clipboard overlay (default on).
+    pub overlay_shortcut_hints_enabled: bool,
     // --- NeuralDeep hub integration ---
+    /// When false, hub API calls and the agent-search shortcut are disabled (default off).
+    pub hub_enabled: bool,
     /// Base URL of the NeuralDeep hub (OpenAI-compatible), e.g. https://neuraldeep.ru
     pub hub_url: String,
     /// Per-user API token for the hub (Bearer).
@@ -25,8 +34,6 @@ pub struct AppSettings {
     pub hub_tagging_enabled: bool,
     /// Use the hub for voice transcription.
     pub hub_transcribe_enabled: bool,
-    /// Enable the hub agent quick-search command palette.
-    pub hub_search_enabled: bool,
     // --- Context-aware voice polishing (stolen from opentypeless) ---
     /// Run transcribed voice through the LLM to clean/format it before pasting.
     pub voice_polish_enabled: bool,
@@ -69,7 +76,7 @@ pub struct ClipboardEntry {
     pub id: i64,
     pub content_type: String, // "text", "image", "file"
     pub text_content: Option<String>,
-    pub image_data: Option<String>, // base64-encoded
+    pub image_data: Option<String>,  // base64-encoded
     pub image_thumb: Option<String>, // base64-encoded thumbnail
     pub source_app: Option<String>,
     pub source_app_icon: Option<String>, // base64-encoded
@@ -83,6 +90,50 @@ pub struct ClipboardEntry {
     /// Text recognized from an image via on-device OCR (Vision). None for text entries.
     #[serde(default)]
     pub ocr_text: Option<String>,
+    /// Display format for image entries: GIF, PNG, JPG.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_width: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_height: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_byte_size: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HistoryCounts {
+    pub total: i64,
+    pub unpinned: i64,
+    pub pinned: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct TagCount {
+    pub tag: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct OverlayTagCounts {
+    pub semantic: Vec<TagCount>,
+    pub format: Vec<TagCount>,
+    pub has_text: bool,
+    pub has_images: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryTaggedPayload {
+    pub entry_id: i64,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryOcrPayload {
+    pub entry_id: i64,
+    pub ocr_text: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -94,9 +145,190 @@ pub struct Collection {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ExcludedApp {
     pub id: i64,
     pub bundle_id: String,
+    pub display_name: String,
+}
+
+fn lowercase_search_text(text: &str) -> String {
+    text.to_lowercase()
+}
+
+const FORMAT_TAG_ORDER: &[&str] = &["gif", "jpg", "png"];
+const SEMANTIC_TAG_LIMIT: i64 = 8;
+
+fn push_entry_list_filters(
+    sql: &mut String,
+    param_values: &mut Vec<Box<dyn rusqlite::types::ToSql>>,
+    table_prefix: &str,
+    collection_id: Option<i64>,
+    pinned_only: bool,
+    search: Option<&str>,
+) {
+    if let Some(cid) = collection_id {
+        sql.push_str(&format!(" AND {table_prefix}collection_id = ?"));
+        param_values.push(Box::new(cid));
+    }
+    if pinned_only {
+        sql.push_str(&format!(" AND {table_prefix}is_pinned = 1"));
+    }
+    if let Some(q) = search {
+        let q_lower = lowercase_search_text(q);
+        if !q_lower.is_empty() {
+            sql.push_str(&format!(
+                " AND ({table_prefix}text_content_search LIKE ? OR {table_prefix}ocr_text LIKE ?)"
+            ));
+            let pattern = format!("%{q_lower}%");
+            param_values.push(Box::new(pattern.clone()));
+            param_values.push(Box::new(pattern));
+        }
+    }
+}
+
+fn is_format_tag(tag: &str) -> bool {
+    matches!(tag, "gif" | "jpg" | "png")
+}
+
+fn push_content_kind_filter(sql: &mut String, table_prefix: &str, content_kind: &str) {
+    match content_kind {
+        "text" => sql.push_str(&format!(" AND {table_prefix}content_type = 'text'")),
+        "image" => sql.push_str(&format!(" AND {table_prefix}content_type = 'image'")),
+        _ => {}
+    }
+}
+
+fn push_entry_tag_filter(
+    sql: &mut String,
+    param_values: &mut Vec<Box<dyn rusqlite::types::ToSql>>,
+    table_prefix: &str,
+    tag: &str,
+    tag_variants: Option<&[String]>,
+) {
+    let id_col = format!("{table_prefix}id");
+    if is_format_tag(tag) {
+        sql.push_str(&format!(
+            " AND {table_prefix}content_type = 'image' AND (
+              CASE
+                WHEN UPPER({table_prefix}image_format) IN ('JPG', 'JPEG') THEN 'jpg'
+                WHEN UPPER({table_prefix}image_format) = 'GIF' THEN 'gif'
+                WHEN UPPER({table_prefix}image_format) = 'PNG' THEN 'png'
+                ELSE NULL
+              END = ?
+              OR EXISTS (
+                SELECT 1 FROM clipboard_tags ct
+                WHERE ct.entry_id = {id_col} AND ct.tag = ?
+              )
+            )"
+        ));
+        param_values.push(Box::new(tag.to_owned()));
+        param_values.push(Box::new(tag.to_owned()));
+    } else {
+        let tags: Vec<String> = match tag_variants {
+            Some(variants) if !variants.is_empty() => variants.to_vec(),
+            _ => vec![tag.to_owned()],
+        };
+        let placeholders = tags.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        sql.push_str(&format!(
+            " AND {table_prefix}content_type = 'text' AND EXISTS (
+                SELECT 1 FROM clipboard_tags ct
+                WHERE ct.entry_id = {id_col} AND ct.tag IN ({placeholders})
+              )"
+        ));
+        for variant in tags {
+            param_values.push(Box::new(variant));
+        }
+    }
+}
+
+fn backfill_text_content_search(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, text_content
+         FROM clipboard_entries
+         WHERE text_content_search IS NULL
+           AND text_content IS NOT NULL",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    for (id, text) in rows {
+        tx.execute(
+            "UPDATE clipboard_entries SET text_content_search = ?1 WHERE id = ?2",
+            params![lowercase_search_text(&text), id],
+        )?;
+    }
+    tx.commit()
+}
+
+fn resolve_image_format(entry: &mut ClipboardEntry) {
+    if entry.content_type != "image" {
+        return;
+    }
+
+    if let Some(ref fmt) = entry.image_format {
+        let normalized = crate::image_format::normalize(fmt).to_owned();
+        if normalized != *fmt {
+            entry.image_format = Some(normalized);
+        }
+        return;
+    }
+
+    let b64 = entry.image_data.as_deref().or(entry.image_thumb.as_deref());
+    if let Some(b64) = b64 {
+        entry.image_format = Some(crate::image_format::detect_from_b64(b64).to_owned());
+    }
+}
+
+fn decode_image_dimensions(b64: &str) -> Option<(i64, i64)> {
+    use base64::Engine;
+    use image::GenericImageView;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    let image = image::load_from_memory(&bytes).ok()?;
+    let (width, height) = image.dimensions();
+    Some((width as i64, height as i64))
+}
+
+fn resolve_image_meta(entry: &mut ClipboardEntry) {
+    if entry.content_type != "image" {
+        return;
+    }
+
+    if entry.image_width.is_some()
+        && entry.image_height.is_some()
+        && entry.image_byte_size.is_some()
+    {
+        return;
+    }
+
+    let b64 = entry.image_data.as_deref().or(entry.image_thumb.as_deref());
+    let Some(b64) = b64 else {
+        return;
+    };
+
+    if entry.image_width.is_none() || entry.image_height.is_none() {
+        if let Some((width, height)) = decode_image_dimensions(b64) {
+            entry.image_width = Some(width);
+            entry.image_height = Some(height);
+        }
+    }
+
+    if entry.image_byte_size.is_none() {
+        use base64::Engine;
+        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) {
+            entry.image_byte_size = Some(bytes.len() as i64);
+        }
+    }
+}
+
+fn hydrate_image_entry(entry: &mut ClipboardEntry) {
+    resolve_image_format(entry);
 }
 
 pub struct Database {
@@ -109,10 +341,12 @@ impl Database {
         let db_path = app_dir.join("copyosity.db");
         let conn = Connection::open(db_path)?;
 
-        conn.execute_batch("
+        conn.execute_batch(
+            "
             PRAGMA journal_mode=WAL;
             PRAGMA foreign_keys=ON;
-        ")?;
+        ",
+        )?;
 
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS collections (
@@ -135,7 +369,12 @@ impl Database {
                 created_at TEXT NOT NULL,
                 is_pinned INTEGER DEFAULT 0,
                 collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,
-                ocr_text TEXT
+                text_content_search TEXT,
+                ocr_text TEXT,
+                image_format TEXT,
+                image_width INTEGER,
+                image_height INTEGER,
+                image_byte_size INTEGER
             );
 
             CREATE INDEX IF NOT EXISTS idx_entries_created_at ON clipboard_entries(created_at DESC);
@@ -170,7 +409,12 @@ impl Database {
 
         Self::run_migrations(&conn)?;
 
-        Ok(Self { conn: Mutex::new(conn) })
+        #[cfg(target_os = "macos")]
+        crate::macos_app::migrate_legacy_excluded_app_names(&conn)?;
+
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     /// Versioned schema migrations via PRAGMA user_version.
@@ -185,7 +429,76 @@ impl Database {
             conn.execute_batch("PRAGMA user_version = 1;")?;
         }
 
+        if version < 2 {
+            let _ = conn.execute(
+                "ALTER TABLE clipboard_entries ADD COLUMN text_content_search TEXT",
+                [],
+            );
+            backfill_text_content_search(conn)?;
+            conn.execute_batch("PRAGMA user_version = 2;")?;
+        }
+
+        if version < 3 {
+            let _ = conn.execute(
+                "ALTER TABLE clipboard_entries ADD COLUMN image_format TEXT",
+                [],
+            );
+            let _ = conn.execute(
+                "UPDATE clipboard_entries SET image_format = 'JPG' WHERE image_format = 'JPEG'",
+                [],
+            );
+            let _ = conn.execute(
+                "UPDATE clipboard_tags SET tag = 'jpg' WHERE tag = 'jpeg'",
+                [],
+            );
+            let _ = conn.execute(
+                "ALTER TABLE clipboard_entries ADD COLUMN image_width INTEGER",
+                [],
+            );
+            let _ = conn.execute(
+                "ALTER TABLE clipboard_entries ADD COLUMN image_height INTEGER",
+                [],
+            );
+            let _ = conn.execute(
+                "ALTER TABLE clipboard_entries ADD COLUMN image_byte_size INTEGER",
+                [],
+            );
+            conn.execute_batch("PRAGMA user_version = 3;")?;
+        }
+
         Ok(())
+    }
+
+    /// One-time migration: pre-0.6.0 hub users had no `hub_enabled` master switch.
+    fn migrate_hub_enabled_if_needed(&self) -> Result<(), rusqlite::Error> {
+        if self.get_setting("hub_enabled")?.is_some() {
+            return Ok(());
+        }
+        let legacy_search = self
+            .get_setting("hub_search_enabled")?
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let legacy_tagging = self
+            .get_setting("hub_tagging_enabled")?
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let has_token = !self
+            .get_setting("hub_token")?
+            .unwrap_or_default()
+            .trim()
+            .is_empty();
+        let hub_transcribe = self
+            .get_setting("hub_transcribe_enabled")?
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let voice_polish = self
+            .get_setting("voice_polish_enabled")?
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let enabled = legacy_search
+            || (legacy_tagging && has_token)
+            || (has_token && (hub_transcribe || voice_polish));
+        self.set_setting("hub_enabled", if enabled { "true" } else { "false" })
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, rusqlite::Error> {
@@ -212,7 +525,14 @@ impl Database {
         Ok(())
     }
 
+    pub fn is_ai_tagging_enabled(&self) -> bool {
+        self.get_app_settings()
+            .map(|s| s.ai_tagging_enabled)
+            .unwrap_or(false)
+    }
+
     pub fn get_app_settings(&self) -> Result<AppSettings, rusqlite::Error> {
+        self.migrate_hub_enabled_if_needed()?;
         let ollama_model = self
             .get_setting("ollama_model")?
             .unwrap_or_else(|| "qwen3:4b-instruct-2507-q4_K_M".to_string());
@@ -222,9 +542,7 @@ impl Database {
             .filter(|days| matches!(*days, 1 | 7 | 30 | 180))
             .unwrap_or(30);
 
-        let whisper_server_url = self
-            .get_setting("whisper_server_url")?
-            .unwrap_or_default();
+        let whisper_server_url = self.get_setting("whisper_server_url")?.unwrap_or_default();
         let whisper_server_token = self
             .get_setting("whisper_server_token")?
             .unwrap_or_default();
@@ -235,9 +553,24 @@ impl Database {
         let voice_shortcut = self
             .get_setting("voice_shortcut")?
             .unwrap_or_else(|| "option+space".to_string());
-        let selected_microphone = self
-            .get_setting("selected_microphone")?
-            .unwrap_or_default();
+        let selected_microphone = self.get_setting("selected_microphone")?.unwrap_or_default();
+        let voice_transcription_enabled = self
+            .get_setting("voice_transcription_enabled")?
+            .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(false);
+        let ai_tagging_enabled = self
+            .get_setting("ai_tagging_enabled")?
+            .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(false);
+        let overlay_shortcut_hints_enabled = self
+            .get_setting("overlay_shortcut_hints_enabled")?
+            .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(true);
+
+        let hub_enabled = self
+            .get_setting("hub_enabled")?
+            .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(false);
 
         let hub_url = self
             .get_setting("hub_url")?
@@ -254,10 +587,6 @@ impl Database {
             .get_setting("hub_transcribe_enabled")?
             .map(|v| v == "true")
             .unwrap_or(false);
-        let hub_search_enabled = self
-            .get_setting("hub_search_enabled")?
-            .map(|v| v == "true")
-            .unwrap_or(false);
 
         let voice_polish_enabled = self
             .get_setting("voice_polish_enabled")?
@@ -270,15 +599,11 @@ impl Database {
             .get_setting("voice_polish_screenshot")?
             .map(|v| v == "true")
             .unwrap_or(true);
-        let voice_polish_prompt = self
-            .get_setting("voice_polish_prompt")?
-            .unwrap_or_default();
+        let voice_polish_prompt = self.get_setting("voice_polish_prompt")?.unwrap_or_default();
         let voice_translate_lang = self
             .get_setting("voice_translate_lang")?
             .unwrap_or_default();
-        let voice_dictionary = self
-            .get_setting("voice_dictionary")?
-            .unwrap_or_default();
+        let voice_dictionary = self.get_setting("voice_dictionary")?.unwrap_or_default();
         let voice_selected_text = self
             .get_setting("voice_selected_text")?
             .map(|v| v == "true")
@@ -296,12 +621,15 @@ impl Database {
             whisper_server_model,
             voice_shortcut,
             selected_microphone,
+            voice_transcription_enabled,
+            ai_tagging_enabled,
+            overlay_shortcut_hints_enabled,
+            hub_enabled,
             hub_url,
             hub_token,
             hub_chat_model,
             hub_tagging_enabled,
             hub_transcribe_enabled,
-            hub_search_enabled,
             voice_polish_enabled,
             voice_polish_model,
             voice_polish_screenshot,
@@ -313,6 +641,7 @@ impl Database {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_app_settings(
         &self,
         ollama_model: Option<&str>,
@@ -322,12 +651,15 @@ impl Database {
         whisper_server_model: Option<&str>,
         voice_shortcut: Option<&str>,
         selected_microphone: Option<&str>,
+        voice_transcription_enabled: Option<bool>,
+        ai_tagging_enabled: Option<bool>,
+        overlay_shortcut_hints_enabled: Option<bool>,
+        hub_enabled: Option<bool>,
         hub_url: Option<&str>,
         hub_token: Option<&str>,
         hub_chat_model: Option<&str>,
         hub_tagging_enabled: Option<bool>,
         hub_transcribe_enabled: Option<bool>,
-        hub_search_enabled: Option<bool>,
         voice_polish_enabled: Option<bool>,
         voice_polish_model: Option<&str>,
         voice_polish_screenshot: Option<bool>,
@@ -358,6 +690,24 @@ impl Database {
         if let Some(mic) = selected_microphone {
             self.set_setting("selected_microphone", mic.trim())?;
         }
+        if let Some(enabled) = voice_transcription_enabled {
+            self.set_setting(
+                "voice_transcription_enabled",
+                if enabled { "true" } else { "false" },
+            )?;
+        }
+        if let Some(enabled) = ai_tagging_enabled {
+            self.set_setting("ai_tagging_enabled", if enabled { "true" } else { "false" })?;
+        }
+        if let Some(enabled) = overlay_shortcut_hints_enabled {
+            self.set_setting(
+                "overlay_shortcut_hints_enabled",
+                if enabled { "true" } else { "false" },
+            )?;
+        }
+        if let Some(enabled) = hub_enabled {
+            self.set_setting("hub_enabled", if enabled { "true" } else { "false" })?;
+        }
         if let Some(url) = hub_url {
             self.set_setting("hub_url", url.trim())?;
         }
@@ -368,22 +718,31 @@ impl Database {
             self.set_setting("hub_chat_model", model.trim())?;
         }
         if let Some(enabled) = hub_tagging_enabled {
-            self.set_setting("hub_tagging_enabled", if enabled { "true" } else { "false" })?;
+            self.set_setting(
+                "hub_tagging_enabled",
+                if enabled { "true" } else { "false" },
+            )?;
         }
         if let Some(enabled) = hub_transcribe_enabled {
-            self.set_setting("hub_transcribe_enabled", if enabled { "true" } else { "false" })?;
-        }
-        if let Some(enabled) = hub_search_enabled {
-            self.set_setting("hub_search_enabled", if enabled { "true" } else { "false" })?;
+            self.set_setting(
+                "hub_transcribe_enabled",
+                if enabled { "true" } else { "false" },
+            )?;
         }
         if let Some(enabled) = voice_polish_enabled {
-            self.set_setting("voice_polish_enabled", if enabled { "true" } else { "false" })?;
+            self.set_setting(
+                "voice_polish_enabled",
+                if enabled { "true" } else { "false" },
+            )?;
         }
         if let Some(model) = voice_polish_model {
             self.set_setting("voice_polish_model", model.trim())?;
         }
         if let Some(enabled) = voice_polish_screenshot {
-            self.set_setting("voice_polish_screenshot", if enabled { "true" } else { "false" })?;
+            self.set_setting(
+                "voice_polish_screenshot",
+                if enabled { "true" } else { "false" },
+            )?;
         }
         if let Some(p) = voice_polish_prompt {
             self.set_setting("voice_polish_prompt", p.trim())?;
@@ -395,7 +754,10 @@ impl Database {
             self.set_setting("voice_dictionary", dict.trim())?;
         }
         if let Some(enabled) = voice_selected_text {
-            self.set_setting("voice_selected_text", if enabled { "true" } else { "false" })?;
+            self.set_setting(
+                "voice_selected_text",
+                if enabled { "true" } else { "false" },
+            )?;
         }
         if let Some(enabled) = board_vertical {
             self.set_setting("board_vertical", if enabled { "true" } else { "false" })?;
@@ -430,15 +792,49 @@ impl Database {
                     params![entry.image_data, id],
                 )?;
             }
+            if entry.content_type == "image" {
+                if let Some(ref fmt) = entry.image_format {
+                    let normalized = crate::image_format::normalize(fmt).to_owned();
+                    conn.execute(
+                        "UPDATE clipboard_entries SET image_format = ?1 WHERE id = ?2 AND image_format IS NULL",
+                        params![normalized, id],
+                    )?;
+                    conn.execute(
+                        "UPDATE clipboard_entries SET image_format = 'JPG' WHERE id = ?1 AND image_format = 'JPEG'",
+                        params![id],
+                    )?;
+                }
+                if entry.image_width.is_some() {
+                    conn.execute(
+                        "UPDATE clipboard_entries SET image_width = ?1 WHERE id = ?2 AND image_width IS NULL",
+                        params![entry.image_width, id],
+                    )?;
+                }
+                if entry.image_height.is_some() {
+                    conn.execute(
+                        "UPDATE clipboard_entries SET image_height = ?1 WHERE id = ?2 AND image_height IS NULL",
+                        params![entry.image_height, id],
+                    )?;
+                }
+                if entry.image_byte_size.is_some() {
+                    conn.execute(
+                        "UPDATE clipboard_entries SET image_byte_size = ?1 WHERE id = ?2 AND image_byte_size IS NULL",
+                        params![entry.image_byte_size, id],
+                    )?;
+                }
+            }
             return Ok((id, false));
         }
 
+        let text_content_search = entry.text_content.as_deref().map(lowercase_search_text);
+
         conn.execute(
-            "INSERT INTO clipboard_entries (content_type, text_content, image_data, image_thumb, source_app, source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO clipboard_entries (content_type, text_content, text_content_search, image_data, image_thumb, source_app, source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id, image_format, image_width, image_height, image_byte_size)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 entry.content_type,
                 entry.text_content,
+                text_content_search,
                 entry.image_data,
                 entry.image_thumb,
                 entry.source_app,
@@ -448,79 +844,259 @@ impl Database {
                 entry.created_at,
                 entry.is_pinned as i32,
                 entry.collection_id,
+                entry.image_format,
+                entry.image_width,
+                entry.image_height,
+                entry.image_byte_size,
             ],
         )?;
 
         Ok((conn.last_insert_rowid(), true))
     }
 
-    pub fn get_entries(&self, limit: i64, offset: i64, collection_id: Option<i64>, pinned_only: bool, search: Option<&str>) -> Result<Vec<ClipboardEntry>, rusqlite::Error> {
+    pub fn get_entries(
+        &self,
+        limit: i64,
+        offset: i64,
+        collection_id: Option<i64>,
+        pinned_only: bool,
+        search: Option<&str>,
+        tag: Option<&str>,
+        tag_variants: Option<&[String]>,
+        content_kind: Option<&str>,
+    ) -> Result<Vec<ClipboardEntry>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
 
         let mut sql = String::from(
             "SELECT id, content_type, text_content, NULL as image_data, COALESCE(image_thumb, image_data) as image_thumb, source_app, NULL as source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id,
              COALESCE((SELECT GROUP_CONCAT(tag, '|') FROM clipboard_tags WHERE entry_id = clipboard_entries.id), '') as tags,
-             ocr_text
+             ocr_text, image_format, image_width, image_height, image_byte_size
              FROM clipboard_entries WHERE 1=1"
         );
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
-        if let Some(cid) = collection_id {
-            sql.push_str(" AND collection_id = ?");
-            param_values.push(Box::new(cid));
+        push_entry_list_filters(
+            &mut sql,
+            &mut param_values,
+            "",
+            collection_id,
+            pinned_only,
+            search,
+        );
+
+        if let Some(kind) = content_kind {
+            push_content_kind_filter(&mut sql, "", kind);
+        }
+        if let Some(tag) = tag {
+            push_entry_tag_filter(&mut sql, &mut param_values, "", tag, tag_variants);
         }
 
-        if pinned_only {
-            sql.push_str(" AND is_pinned = 1");
-        }
-
-        if let Some(q) = search {
-            sql.push_str(" AND (text_content LIKE ? OR ocr_text LIKE ?)");
-            let pattern = format!("%{}%", q);
-            param_values.push(Box::new(pattern.clone()));
-            param_values.push(Box::new(pattern));
-        }
-
-        // id DESC as a stable tie-breaker so LIMIT/OFFSET pages don't
-        // duplicate or skip rows when created_at collides.
         sql.push_str(" ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?");
         param_values.push(Box::new(limit));
         param_values.push(Box::new(offset));
 
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
 
         let mut stmt = conn.prepare(&sql)?;
-        let entries = stmt.query_map(params_ref.as_slice(), |row| {
-            Ok(ClipboardEntry {
-                id: row.get(0)?,
-                content_type: row.get(1)?,
-                text_content: row.get(2)?,
-                image_data: row.get(3)?,
-                image_thumb: row.get(4)?,
-                source_app: row.get(5)?,
-                source_app_icon: row.get(6)?,
-                content_hash: row.get(7)?,
-                char_count: row.get(8)?,
-                created_at: row.get(9)?,
-                is_pinned: row.get::<_, i32>(10)? != 0,
-                collection_id: row.get(11)?,
-                tags: row
-                    .get::<_, String>(12)?
-                    .split('|')
-                    .filter(|tag| !tag.is_empty())
-                    .map(|tag| tag.to_string())
-                    .collect(),
-                ocr_text: row.get(13)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let mut entries = stmt
+            .query_map(params_ref.as_slice(), |row| {
+                Ok(ClipboardEntry {
+                    id: row.get(0)?,
+                    content_type: row.get(1)?,
+                    text_content: row.get(2)?,
+                    image_data: row.get(3)?,
+                    image_thumb: row.get(4)?,
+                    source_app: row.get(5)?,
+                    source_app_icon: row.get(6)?,
+                    content_hash: row.get(7)?,
+                    char_count: row.get(8)?,
+                    created_at: row.get(9)?,
+                    is_pinned: row.get::<_, i32>(10)? != 0,
+                    collection_id: row.get(11)?,
+                    tags: row
+                        .get::<_, String>(12)?
+                        .split('|')
+                        .filter(|tag| !tag.is_empty())
+                        .map(|tag| tag.to_string())
+                        .collect(),
+                    ocr_text: row.get(13)?,
+                    image_format: row.get(14)?,
+                    image_width: row.get(15)?,
+                    image_height: row.get(16)?,
+                    image_byte_size: row.get(17)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for entry in &mut entries {
+            hydrate_image_entry(entry);
+        }
 
         Ok(entries)
     }
 
-    pub fn delete_entry(&self, id: i64) -> Result<(), rusqlite::Error> {
+    pub fn get_overlay_tag_counts(
+        &self,
+        collection_id: Option<i64>,
+        pinned_only: bool,
+        search: Option<&str>,
+    ) -> Result<OverlayTagCounts, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut semantic_sql = String::from(
+            "SELECT ct.tag, COUNT(DISTINCT ce.id) AS cnt
+             FROM clipboard_tags ct
+             INNER JOIN clipboard_entries ce ON ce.id = ct.entry_id
+             WHERE ce.content_type = 'text'
+               AND ct.tag NOT IN ('code', 'otp', 'token', 'log', 'gif', 'jpg', 'png', 'jpeg')",
+        );
+        let mut semantic_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        push_entry_list_filters(
+            &mut semantic_sql,
+            &mut semantic_params,
+            "ce.",
+            collection_id,
+            pinned_only,
+            search,
+        );
+        semantic_sql.push_str(" GROUP BY ct.tag ORDER BY cnt DESC, ct.tag ASC LIMIT ?");
+        semantic_params.push(Box::new(SEMANTIC_TAG_LIMIT));
+
+        let semantic_params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            semantic_params.iter().map(|p| p.as_ref()).collect();
+        let semantic = conn
+            .prepare(&semantic_sql)?
+            .query_map(semantic_params_ref.as_slice(), |row| {
+                Ok(TagCount {
+                    tag: row.get(0)?,
+                    count: row.get(1)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut format_sql = String::from(
+            "SELECT fmt, COUNT(DISTINCT id) AS cnt FROM (
+                SELECT ce.id,
+                  CASE
+                    WHEN UPPER(ce.image_format) IN ('JPG', 'JPEG') THEN 'jpg'
+                    WHEN UPPER(ce.image_format) = 'GIF' THEN 'gif'
+                    WHEN UPPER(ce.image_format) = 'PNG' THEN 'png'
+                    ELSE NULL
+                  END AS fmt
+                FROM clipboard_entries ce
+                WHERE ce.content_type = 'image' AND ce.image_format IS NOT NULL",
+        );
+        let mut format_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        push_entry_list_filters(
+            &mut format_sql,
+            &mut format_params,
+            "ce.",
+            collection_id,
+            pinned_only,
+            search,
+        );
+        format_sql.push_str(
+            "
+                UNION
+                SELECT ce.id, ct.tag AS fmt
+                FROM clipboard_entries ce
+                INNER JOIN clipboard_tags ct ON ct.entry_id = ce.id
+                WHERE ce.content_type = 'image'
+                  AND ct.tag IN ('gif', 'jpg', 'png')",
+        );
+        push_entry_list_filters(
+            &mut format_sql,
+            &mut format_params,
+            "ce.",
+            collection_id,
+            pinned_only,
+            search,
+        );
+        format_sql.push_str(") WHERE fmt IS NOT NULL GROUP BY fmt ORDER BY cnt DESC, fmt ASC");
+
+        let format_params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            format_params.iter().map(|p| p.as_ref()).collect();
+        let format_rows = conn
+            .prepare(&format_sql)?
+            .query_map(format_params_ref.as_slice(), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let format_map: std::collections::HashMap<String, i64> = format_rows.into_iter().collect();
+        let mut format: Vec<TagCount> = FORMAT_TAG_ORDER
+            .iter()
+            .filter_map(|tag| {
+                format_map.get(*tag).map(|count| TagCount {
+                    tag: (*tag).to_owned(),
+                    count: *count,
+                })
+            })
+            .collect();
+        format.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.tag.cmp(&b.tag)));
+
+        let mut kind_sql = String::from(
+            "SELECT
+                EXISTS(SELECT 1 FROM clipboard_entries WHERE content_type = 'text'",
+        );
+        let mut kind_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        push_entry_list_filters(
+            &mut kind_sql,
+            &mut kind_params,
+            "",
+            collection_id,
+            pinned_only,
+            search,
+        );
+        kind_sql.push_str(
+            "),
+                EXISTS(SELECT 1 FROM clipboard_entries WHERE content_type = 'image'",
+        );
+        push_entry_list_filters(
+            &mut kind_sql,
+            &mut kind_params,
+            "",
+            collection_id,
+            pinned_only,
+            search,
+        );
+        kind_sql.push(')');
+
+        let kind_params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            kind_params.iter().map(|p| p.as_ref()).collect();
+        let (has_text, has_images): (i32, i32) =
+            conn.query_row(&kind_sql, kind_params_ref.as_slice(), |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?;
+
+        Ok(OverlayTagCounts {
+            semantic,
+            format,
+            has_text: has_text != 0,
+            has_images: has_images != 0,
+        })
+    }
+
+    pub fn has_entry_with_content_hash(&self, hash: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(1) FROM clipboard_entries WHERE content_hash = ?1",
+            params![hash],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    pub fn delete_entry(&self, id: i64) -> Result<bool, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM clipboard_entries WHERE id = ?1", params![id])?;
-        Ok(())
+        let unpinned_remaining: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM clipboard_entries WHERE is_pinned = 0",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(unpinned_remaining == 0)
     }
 
     pub fn pin_entry(&self, id: i64, pinned: bool) -> Result<(), rusqlite::Error> {
@@ -532,7 +1108,11 @@ impl Database {
         Ok(())
     }
 
-    pub fn set_collection(&self, entry_id: i64, collection_id: Option<i64>) -> Result<(), rusqlite::Error> {
+    pub fn set_collection(
+        &self,
+        entry_id: i64,
+        collection_id: Option<i64>,
+    ) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE clipboard_entries SET collection_id = ?1 WHERE id = ?2",
@@ -544,19 +1124,26 @@ impl Database {
     // Collections CRUD
     pub fn get_collections(&self) -> Result<Vec<Collection>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id, name, color, sort_order FROM collections ORDER BY sort_order")?;
-        let cols = stmt.query_map([], |row| {
-            Ok(Collection {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                color: row.get(2)?,
-                sort_order: row.get(3)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let mut stmt = conn
+            .prepare("SELECT id, name, color, sort_order FROM collections ORDER BY sort_order")?;
+        let cols = stmt
+            .query_map([], |row| {
+                Ok(Collection {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                    sort_order: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(cols)
     }
 
-    pub fn create_collection(&self, name: &str, color: Option<&str>) -> Result<i64, rusqlite::Error> {
+    pub fn create_collection(
+        &self,
+        name: &str,
+        color: Option<&str>,
+    ) -> Result<i64, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO collections (name, color) VALUES (?1, ?2)",
@@ -577,32 +1164,67 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_excluded_apps(&self) -> Result<Vec<ExcludedApp>, rusqlite::Error> {
+    pub fn clear_all_history(&self) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt =
-            conn.prepare("SELECT id, bundle_id FROM excluded_apps ORDER BY bundle_id COLLATE NOCASE")?;
-        let apps = stmt
-            .query_map([], |row| {
-                Ok(ExcludedApp {
-                    id: row.get(0)?,
-                    bundle_id: row.get(1)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(apps)
+        conn.execute("DELETE FROM clipboard_entries", [])?;
+        Ok(())
     }
 
-    pub fn add_excluded_app(&self, bundle_id: &str) -> Result<(), rusqlite::Error> {
+    pub fn get_history_counts(&self) -> Result<HistoryCounts, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let total: i64 = conn.query_row("SELECT COUNT(*) FROM clipboard_entries", [], |row| {
+            row.get(0)
+        })?;
+        let pinned: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM clipboard_entries WHERE is_pinned = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(HistoryCounts {
+            total,
+            pinned,
+            unpinned: total - pinned,
+        })
+    }
+
+    pub fn get_excluded_apps(&self) -> Result<Vec<ExcludedApp>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT id, bundle_id FROM excluded_apps ORDER BY bundle_id COLLATE NOCASE")?;
+        let rows: Vec<(i64, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        drop(conn);
+
+        let bundle_ids: Vec<&str> = rows
+            .iter()
+            .map(|(_, bundle_id)| bundle_id.as_str())
+            .collect();
+        let display_names = crate::macos_app::display_names_for_bundle_ids(&bundle_ids);
+
+        Ok(rows
+            .into_iter()
+            .zip(display_names)
+            .map(|((id, bundle_id), display_name)| ExcludedApp {
+                id,
+                bundle_id,
+                display_name,
+            })
+            .collect())
+    }
+
+    pub fn add_excluded_app(&self, bundle_id: &str) -> Result<bool, rusqlite::Error> {
         let normalized = bundle_id.trim();
         if normalized.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
         let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let changes = conn.execute(
             "INSERT OR IGNORE INTO excluded_apps (bundle_id) VALUES (?1)",
             params![normalized],
         )?;
-        Ok(())
+        Ok(changes > 0)
     }
 
     pub fn remove_excluded_app(&self, id: i64) -> Result<(), rusqlite::Error> {
@@ -631,7 +1253,10 @@ impl Database {
     pub fn set_entry_tags(&self, entry_id: i64, tags: &[String]) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let tx = conn.unchecked_transaction()?;
-        tx.execute("DELETE FROM clipboard_tags WHERE entry_id = ?1", params![entry_id])?;
+        tx.execute(
+            "DELETE FROM clipboard_tags WHERE entry_id = ?1",
+            params![entry_id],
+        )?;
 
         for tag in tags {
             tx.execute(
@@ -723,31 +1348,16 @@ impl Database {
         Ok(entries)
     }
 
-    pub fn get_entry_text(&self, entry_id: i64) -> Result<Option<String>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT text_content
-             FROM clipboard_entries
-             WHERE id = ?1
-               AND content_type = 'text'
-               AND text_content IS NOT NULL",
-            params![entry_id],
-            |row| row.get(0),
-        )
-        .map(Some)
-        .or_else(|err| match err {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            _ => Err(err),
-        })
-    }
-
-    pub fn get_entry_by_id(&self, entry_id: i64) -> Result<Option<ClipboardEntry>, rusqlite::Error> {
+    pub fn get_entry_by_id(
+        &self,
+        entry_id: i64,
+    ) -> Result<Option<ClipboardEntry>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT id, content_type, text_content, image_data, image_thumb, source_app, source_app_icon,
                     content_hash, char_count, created_at, is_pinned, collection_id,
                     COALESCE((SELECT GROUP_CONCAT(tag, '|') FROM clipboard_tags WHERE entry_id = clipboard_entries.id), '') as tags,
-                    ocr_text
+                    ocr_text, image_format, image_width, image_height, image_byte_size
              FROM clipboard_entries
              WHERE id = ?1",
             params![entry_id],
@@ -772,6 +1382,10 @@ impl Database {
                         .map(|tag| tag.to_string())
                         .collect(),
                     ocr_text: row.get(13)?,
+                    image_format: row.get(14)?,
+                    image_width: row.get(15)?,
+                    image_height: row.get(16)?,
+                    image_byte_size: row.get(17)?,
                 })
             },
         )
@@ -779,6 +1393,12 @@ impl Database {
         .or_else(|err| match err {
             rusqlite::Error::QueryReturnedNoRows => Ok(None),
             _ => Err(err),
+        })
+        .map(|opt| {
+            opt.map(|mut entry| {
+                hydrate_image_entry(&mut entry);
+                entry
+            })
         })
     }
 
@@ -792,8 +1412,127 @@ impl Database {
         Ok(())
     }
 
+    /// Persist image meta for legacy image rows missing width/height/size. Returns rows updated.
+    pub fn backfill_missing_image_meta(&self, batch_size: i64) -> Result<i64, rusqlite::Error> {
+        let rows: Vec<(i64, Option<String>, Option<String>)> = {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id, image_data, image_thumb FROM clipboard_entries
+                 WHERE content_type = 'image'
+                   AND (image_width IS NULL OR image_height IS NULL OR image_byte_size IS NULL)
+                 LIMIT ?1",
+            )?;
+            let mapped = stmt.query_map(params![batch_size], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?;
+            mapped.collect::<Result<Vec<_>, _>>()?
+        };
+
+        let mut updates: Vec<(Option<i64>, Option<i64>, Option<i64>, i64)> = Vec::new();
+        for (id, image_data, image_thumb) in rows {
+            if image_data.as_deref().or(image_thumb.as_deref()).is_none() {
+                continue;
+            }
+            let mut entry = ClipboardEntry {
+                id,
+                content_type: "image".to_owned(),
+                text_content: None,
+                image_data,
+                image_thumb,
+                source_app: None,
+                source_app_icon: None,
+                content_hash: String::new(),
+                char_count: None,
+                created_at: String::new(),
+                is_pinned: false,
+                collection_id: None,
+                tags: Vec::new(),
+                ocr_text: None,
+                image_format: None,
+                image_width: None,
+                image_height: None,
+                image_byte_size: None,
+            };
+            resolve_image_meta(&mut entry);
+            updates.push((
+                entry.image_width,
+                entry.image_height,
+                entry.image_byte_size,
+                id,
+            ));
+        }
+
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        let conn = self.conn.lock().unwrap();
+        let mut updated = 0i64;
+        for (width, height, byte_size, id) in updates {
+            let changed = conn.execute(
+                "UPDATE clipboard_entries
+                 SET image_width = COALESCE(image_width, ?1),
+                     image_height = COALESCE(image_height, ?2),
+                     image_byte_size = COALESCE(image_byte_size, ?3)
+                 WHERE id = ?4",
+                params![width, height, byte_size, id],
+            )?;
+            updated += changed as i64;
+        }
+        Ok(updated)
+    }
+
+    /// Persist image_format for legacy image rows missing the column. Returns rows updated.
+    pub fn backfill_missing_image_formats(&self, batch_size: i64) -> Result<i64, rusqlite::Error> {
+        let rows: Vec<(i64, Option<String>, Option<String>, String)> = {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT ce.id, ce.image_data, ce.image_thumb,
+                        COALESCE((SELECT GROUP_CONCAT(ct.tag, '|') FROM clipboard_tags ct WHERE ct.entry_id = ce.id), '')
+                 FROM clipboard_entries ce
+                 WHERE ce.content_type = 'image' AND ce.image_format IS NULL
+                 LIMIT ?1",
+            )?;
+            let mapped = stmt.query_map(params![batch_size], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?;
+            mapped.collect::<Result<Vec<_>, _>>()?
+        };
+
+        let mut updates: Vec<(String, i64)> = Vec::new();
+        for (id, image_data, image_thumb, tags_joined) in rows {
+            let format = if let Some(b64) = image_data.as_deref().or(image_thumb.as_deref()) {
+                Some(crate::image_format::detect_from_b64(b64).to_owned())
+            } else {
+                tags_joined
+                    .split('|')
+                    .find_map(crate::image_format::detect_from_format_tag)
+                    .map(str::to_owned)
+            };
+            let Some(format) = format else {
+                continue;
+            };
+            updates.push((format, id));
+        }
+
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        let conn = self.conn.lock().unwrap();
+        let mut updated = 0i64;
+        for (format, id) in updates {
+            let changed = conn.execute(
+                "UPDATE clipboard_entries SET image_format = ?1 WHERE id = ?2 AND image_format IS NULL",
+                params![format, id],
+            )?;
+            updated += changed as i64;
+        }
+        Ok(updated)
+    }
+
     #[allow(dead_code)]
-    pub fn cleanup_old_entries(&self, max_age_days: i64) -> Result<(), rusqlite::Error> {
+    pub fn cleanup_old_entries(&self, max_age_days: i64) -> Result<u64, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             // datetime(created_at) normalizes the stored RFC3339 ('T' + tz) so
@@ -803,7 +1542,7 @@ impl Database {
             "DELETE FROM clipboard_entries WHERE is_pinned = 0 AND datetime(created_at) < datetime('now', ?1)",
             params![format!("-{} days", max_age_days)],
         )?;
-        Ok(())
+        Ok(conn.changes())
     }
 }
 
@@ -812,11 +1551,9 @@ mod tests {
     use super::*;
 
     fn test_db() -> Database {
-        // In-memory database for tests
-        let db = Database {
-            conn: Mutex::new(Connection::open_in_memory().unwrap()),
-        };
-        db.conn.lock().unwrap().execute_batch("
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "
             PRAGMA journal_mode=WAL;
             PRAGMA foreign_keys=ON;
             CREATE TABLE IF NOT EXISTS collections (
@@ -837,7 +1574,13 @@ mod tests {
                 char_count INTEGER,
                 created_at TEXT NOT NULL,
                 is_pinned INTEGER DEFAULT 0,
-                collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL
+                collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,
+                text_content_search TEXT,
+                ocr_text TEXT,
+                image_format TEXT,
+                image_width INTEGER,
+                image_height INTEGER,
+                image_byte_size INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_entries_content_hash ON clipboard_entries(content_hash);
             CREATE TABLE IF NOT EXISTS settings (
@@ -857,8 +1600,13 @@ mod tests {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bundle_id TEXT NOT NULL UNIQUE
             );
-        ").unwrap();
-        db
+        ",
+        )
+        .unwrap();
+        Database::run_migrations(&conn).unwrap();
+        Database {
+            conn: Mutex::new(conn),
+        }
     }
 
     fn make_entry(text: &str, hash: &str) -> ClipboardEntry {
@@ -877,6 +1625,10 @@ mod tests {
             collection_id: None,
             tags: Vec::new(),
             ocr_text: None,
+            image_format: None,
+            image_width: None,
+            image_height: None,
+            image_byte_size: None,
         }
     }
 
@@ -905,6 +1657,29 @@ mod tests {
     }
 
     #[test]
+    fn insert_duplicate_bumps_created_at_to_top() {
+        let db = test_db();
+        let old_time = "2020-01-01T00:00:00Z".to_string();
+        let mut first = make_entry("hello", "hash_resurface");
+        first.created_at = old_time.clone();
+        let (id, _) = db.insert_entry(&first).unwrap();
+
+        db.insert_entry(&make_entry("other", "hash_other")).unwrap();
+
+        let mut resurface = make_entry("hello", "hash_resurface");
+        resurface.created_at = chrono::Utc::now().to_rfc3339();
+        let (same_id, is_new) = db.insert_entry(&resurface).unwrap();
+        assert!(!is_new);
+        assert_eq!(id, same_id);
+
+        let entries = db
+            .get_entries(10, 0, None, false, None, None, None, None)
+            .unwrap();
+        assert_eq!(entries[0].id, id);
+        assert!(entries[0].created_at > old_time);
+    }
+
+    #[test]
     fn insert_different_hashes_creates_separate() {
         let db = test_db();
         let (id1, _) = db.insert_entry(&make_entry("a", "h1")).unwrap();
@@ -918,20 +1693,26 @@ mod tests {
     fn get_entries_respects_limit() {
         let db = test_db();
         for i in 0..10 {
-            db.insert_entry(&make_entry(&format!("text {}", i), &format!("h{}", i))).unwrap();
+            db.insert_entry(&make_entry(&format!("text {}", i), &format!("h{}", i)))
+                .unwrap();
         }
-        let entries = db.get_entries(3, 0, None, false, None).unwrap();
+        let entries = db
+            .get_entries(3, 0, None, false, None, None, None, None)
+            .unwrap();
         assert_eq!(entries.len(), 3);
     }
 
     #[test]
     fn get_entries_with_search() {
         let db = test_db();
-        db.insert_entry(&make_entry("rust programming", "h1")).unwrap();
+        db.insert_entry(&make_entry("rust programming", "h1"))
+            .unwrap();
         db.insert_entry(&make_entry("python script", "h2")).unwrap();
         db.insert_entry(&make_entry("rust cargo", "h3")).unwrap();
 
-        let results = db.get_entries(50, 0, None, false, Some("rust")).unwrap();
+        let results = db
+            .get_entries(50, 0, None, false, Some("rust"), None, None, None)
+            .unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -942,7 +1723,9 @@ mod tests {
         db.insert_entry(&make_entry("not pinned", "h2")).unwrap();
         db.pin_entry(id1, true).unwrap();
 
-        let pinned = db.get_entries(50, 0, None, true, None).unwrap();
+        let pinned = db
+            .get_entries(50, 0, None, true, None, None, None, None)
+            .unwrap();
         assert_eq!(pinned.len(), 1);
         assert_eq!(pinned[0].text_content.as_deref(), Some("pinned"));
     }
@@ -979,7 +1762,9 @@ mod tests {
         db.pin_entry(id1, true).unwrap();
 
         db.clear_history().unwrap();
-        let all = db.get_entries(50, 0, None, false, None).unwrap();
+        let all = db
+            .get_entries(50, 0, None, false, None, None, None, None)
+            .unwrap();
         assert_eq!(all.len(), 1);
         assert!(all[0].is_pinned);
     }
@@ -990,7 +1775,8 @@ mod tests {
     fn set_and_get_tags() {
         let db = test_db();
         let (id, _) = db.insert_entry(&make_entry("tagged text", "h1")).unwrap();
-        db.set_entry_tags(id, &["rust".to_string(), "code".to_string()]).unwrap();
+        db.set_entry_tags(id, &["rust".to_string(), "code".to_string()])
+            .unwrap();
 
         let entry = db.get_entry_by_id(id).unwrap().unwrap();
         assert!(entry.tags.contains(&"rust".to_string()));
@@ -1028,6 +1814,7 @@ mod tests {
         let s = db.get_app_settings().unwrap();
         assert_eq!(s.ollama_model, "qwen3:4b-instruct-2507-q4_K_M");
         assert_eq!(s.retention_days, 30);
+        assert!(!s.hub_enabled);
     }
 
     #[test]
@@ -1036,10 +1823,28 @@ mod tests {
         db.update_app_settings(
             Some("custom-model"),
             Some(7),
-            None, None, None, None, None,
-            None, None, None, None, None, None,
-            None, None, None, None, None, None,
-            None, None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )
         .unwrap();
         let s = db.get_app_settings().unwrap();
@@ -1053,6 +1858,34 @@ mod tests {
         db.set_setting("retention_days", "999").unwrap();
         let s = db.get_app_settings().unwrap();
         assert_eq!(s.retention_days, 30); // fallback
+    }
+
+    #[test]
+    fn hub_tagging_config_enables_retag_without_ollama() {
+        let db = test_db();
+        db.set_setting("hub_enabled", "true").unwrap();
+        db.set_setting("hub_tagging_enabled", "true").unwrap();
+        db.set_setting("hub_token", "secret").unwrap();
+        assert!(crate::tagging::is_retag_ready(&db));
+    }
+
+    #[test]
+    fn hub_text_auto_tag_requires_chat_model() {
+        let db = test_db();
+        db.set_setting("ai_tagging_enabled", "false").unwrap();
+        db.set_setting("hub_enabled", "true").unwrap();
+        db.set_setting("hub_tagging_enabled", "true").unwrap();
+        db.set_setting("hub_token", "secret").unwrap();
+        db.set_setting("hub_chat_model", "").unwrap();
+        assert!(!crate::tagging::should_auto_tag_text_on_capture(&db));
+        db.set_setting("hub_chat_model", "gpt-oss-120b").unwrap();
+        assert!(crate::tagging::should_auto_tag_text_on_capture(&db));
+    }
+
+    #[test]
+    fn retag_not_ready_when_tagging_disabled_everywhere() {
+        let db = test_db();
+        assert!(!crate::tagging::is_retag_ready(&db));
     }
 
     // --- Collections ---
@@ -1086,7 +1919,7 @@ mod tests {
         let db = test_db();
         assert!(!db.is_app_excluded("Telegram").unwrap());
 
-        db.add_excluded_app("Telegram").unwrap();
+        assert!(db.add_excluded_app("Telegram").unwrap());
         assert!(db.is_app_excluded("Telegram").unwrap());
 
         let apps = db.get_excluded_apps().unwrap();
@@ -1109,5 +1942,408 @@ mod tests {
         db.add_excluded_app("Safari").unwrap();
         db.add_excluded_app("Safari").unwrap();
         assert_eq!(db.get_excluded_apps().unwrap().len(), 1);
+    }
+
+    // --- Image meta ---
+
+    fn make_image_entry(hash: &str, format: &str) -> ClipboardEntry {
+        ClipboardEntry {
+            id: 0,
+            content_type: "image".to_string(),
+            text_content: None,
+            image_data: Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==".to_string()),
+            image_thumb: None,
+            source_app: None,
+            source_app_icon: None,
+            content_hash: hash.to_string(),
+            char_count: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            is_pinned: false,
+            collection_id: None,
+            tags: vec![format.to_string()],
+            ocr_text: None,
+            image_format: Some(format.to_string()),
+            image_width: Some(1),
+            image_height: Some(1),
+            image_byte_size: Some(68),
+        }
+    }
+
+    #[test]
+    fn image_format_round_trips_on_insert_and_fetch() {
+        let db = test_db();
+        let entry = make_image_entry("img_hash_1", "PNG");
+        let (id, is_new) = db.insert_entry(&entry).unwrap();
+        assert!(is_new);
+
+        let fetched = db.get_entry_by_id(id).unwrap().unwrap();
+        assert_eq!(fetched.image_format.as_deref(), Some("PNG"));
+        assert_eq!(fetched.image_width, Some(1));
+        assert_eq!(fetched.image_height, Some(1));
+        assert_eq!(fetched.image_byte_size, Some(68));
+    }
+
+    #[test]
+    fn get_entries_resolves_image_format_from_thumb() {
+        let db = test_db();
+        let mut entry = make_image_entry("img_hash_2", "PNG");
+        entry.image_format = None;
+        let (id, _) = db.insert_entry(&entry).unwrap();
+
+        let entries = db
+            .get_entries(10, 0, None, false, None, None, None, None)
+            .unwrap();
+        let found = entries.iter().find(|e| e.id == id).unwrap();
+        assert_eq!(found.image_format.as_deref(), Some("PNG"));
+    }
+
+    #[test]
+    fn backfill_missing_image_formats_persists_rows() {
+        let db = test_db();
+        let mut entry = make_image_entry("img_hash_3", "PNG");
+        entry.image_format = None;
+        db.insert_entry(&entry).unwrap();
+
+        let updated = db.backfill_missing_image_formats(10).unwrap();
+        assert!(updated >= 1);
+
+        let entries = db
+            .get_entries(10, 0, None, false, None, None, None, None)
+            .unwrap();
+        let found = entries
+            .iter()
+            .find(|e| e.content_hash == "img_hash_3")
+            .expect("backfilled row");
+        assert_eq!(found.image_format.as_deref(), Some("PNG"));
+    }
+
+    #[test]
+    fn get_entries_format_tag_matches_image_format_column() {
+        let db = test_db();
+        let mut entry = make_image_entry("img_hash_4", "JPG");
+        entry.tags = vec!["jpg".to_string()];
+        let (id, _) = db.insert_entry(&entry).unwrap();
+        db.set_entry_tags(id, &["jpg".to_string()]).unwrap();
+
+        let filtered = db
+            .get_entries(10, 0, None, false, None, Some("jpg"), None, None)
+            .unwrap();
+        assert!(filtered.iter().any(|e| e.id == id));
+    }
+
+    #[test]
+    fn get_entries_format_tag_matches_column_without_format_tag() {
+        let db = test_db();
+        let mut entry = make_image_entry("img_hash_5", "PNG");
+        entry.tags = vec!["screenshot".to_string()];
+        let (id, _) = db.insert_entry(&entry).unwrap();
+
+        let filtered = db
+            .get_entries(10, 0, None, false, None, Some("png"), None, None)
+            .unwrap();
+        assert!(filtered.iter().any(|e| e.id == id));
+    }
+
+    #[test]
+    fn backfill_missing_image_meta_persists_dimensions_and_byte_size() {
+        let db = test_db();
+        let mut entry = make_image_entry("img_hash_meta", "PNG");
+        entry.image_width = None;
+        entry.image_height = None;
+        entry.image_byte_size = None;
+        db.insert_entry(&entry).unwrap();
+
+        let updated = db.backfill_missing_image_meta(10).unwrap();
+        assert!(updated >= 1);
+
+        let entries = db
+            .get_entries(10, 0, None, false, None, None, None, None)
+            .unwrap();
+        let found = entries
+            .iter()
+            .find(|e| e.content_hash == "img_hash_meta")
+            .unwrap();
+        assert_eq!(found.image_width, Some(1));
+        assert_eq!(found.image_height, Some(1));
+        assert!(found.image_byte_size.unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn migration_v3_normalizes_legacy_jpeg() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "
+            PRAGMA foreign_keys=ON;
+            CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+            CREATE TABLE collections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                color TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE clipboard_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content_type TEXT NOT NULL,
+                text_content TEXT,
+                image_data TEXT,
+                image_thumb TEXT,
+                source_app TEXT,
+                source_app_icon TEXT,
+                content_hash TEXT NOT NULL UNIQUE,
+                char_count INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                is_pinned INTEGER NOT NULL DEFAULT 0,
+                collection_id INTEGER,
+                ocr_text TEXT,
+                image_format TEXT,
+                image_width INTEGER,
+                image_height INTEGER,
+                image_byte_size INTEGER
+            );
+            CREATE TABLE clipboard_tags (
+                entry_id INTEGER NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (entry_id, tag)
+            );
+            PRAGMA user_version = 2;
+            ",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO clipboard_entries (content_type, content_hash, image_format)
+             VALUES ('image', 'legacy_jpeg', 'JPEG')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO clipboard_tags (entry_id, tag) VALUES (1, 'jpeg')",
+            [],
+        )
+        .unwrap();
+
+        Database::run_migrations(&conn).unwrap();
+
+        let format: String = conn
+            .query_row(
+                "SELECT image_format FROM clipboard_entries WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(format, "JPG");
+        let tag: String = conn
+            .query_row(
+                "SELECT tag FROM clipboard_tags WHERE entry_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tag, "jpg");
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 3);
+    }
+
+    #[test]
+    fn migrate_hub_enabled_from_legacy_flags() {
+        let db = test_db();
+        db.set_setting("hub_search_enabled", "true").unwrap();
+        let settings = db.get_app_settings().unwrap();
+        assert!(settings.hub_enabled);
+    }
+
+    #[test]
+    fn migrate_hub_enabled_from_tagging_and_token() {
+        let db = test_db();
+        db.set_setting("hub_tagging_enabled", "true").unwrap();
+        db.set_setting("hub_token", "secret").unwrap();
+        let settings = db.get_app_settings().unwrap();
+        assert!(settings.hub_enabled);
+    }
+
+    #[test]
+    fn migrate_hub_enabled_from_voice_hub_and_token() {
+        let db = test_db();
+        db.set_setting("hub_token", "secret").unwrap();
+        db.set_setting("hub_transcribe_enabled", "true").unwrap();
+        let settings = db.get_app_settings().unwrap();
+        assert!(settings.hub_enabled);
+    }
+
+    #[test]
+    fn backfill_image_format_from_tag_when_bytes_missing() {
+        let db = test_db();
+        let mut entry = make_image_entry("img_tag_only", "PNG");
+        entry.image_data = None;
+        entry.image_thumb = None;
+        entry.image_format = None;
+        entry.tags = vec!["png".to_string()];
+        let (id, _) = db.insert_entry(&entry).unwrap();
+        db.set_entry_tags(id, &["png".to_string()]).unwrap();
+
+        let updated = db.backfill_missing_image_formats(10).unwrap();
+        assert_eq!(updated, 1);
+
+        let entries = db
+            .get_entries(10, 0, None, false, None, None, None, None)
+            .unwrap();
+        let found = entries.iter().find(|e| e.id == id).expect("row");
+        assert_eq!(found.image_format.as_deref(), Some("PNG"));
+    }
+
+    #[test]
+    fn migrate_hub_enabled_stays_false_without_token() {
+        let db = test_db();
+        db.set_setting("hub_tagging_enabled", "true").unwrap();
+        let settings = db.get_app_settings().unwrap();
+        assert!(!settings.hub_enabled);
+    }
+
+    #[test]
+    fn migrate_hub_enabled_skips_when_already_set() {
+        let db = test_db();
+        db.set_setting("hub_enabled", "false").unwrap();
+        db.set_setting("hub_search_enabled", "true").unwrap();
+        let settings = db.get_app_settings().unwrap();
+        assert!(!settings.hub_enabled);
+    }
+
+    #[test]
+    fn get_overlay_tag_counts_dedupes_format_column_and_tag() {
+        let db = test_db();
+        let mut dual = make_image_entry("img_counts_dual", "PNG");
+        dual.tags = vec!["png".to_string(), "screenshot".to_string()];
+        db.insert_entry(&dual).unwrap();
+
+        let counts = db.get_overlay_tag_counts(None, false, None).unwrap();
+        let png = counts
+            .format
+            .iter()
+            .find(|c| c.tag == "png")
+            .expect("png chip");
+        assert_eq!(png.count, 1, "one entry must not double-count column + tag");
+    }
+
+    #[test]
+    fn get_overlay_tag_counts_sorts_format_by_count_desc() {
+        let db = test_db();
+        for i in 0..5 {
+            db.insert_entry(&make_image_entry(&format!("jpg_{i}"), "jpg"))
+                .unwrap();
+        }
+        for i in 0..87 {
+            db.insert_entry(&make_image_entry(&format!("gif_{i}"), "gif"))
+                .unwrap();
+        }
+        for i in 0..256 {
+            db.insert_entry(&make_image_entry(&format!("png_{i}"), "png"))
+                .unwrap();
+        }
+
+        let counts = db.get_overlay_tag_counts(None, false, None).unwrap();
+        let format_tags: Vec<_> = counts.format.iter().map(|c| c.tag.as_str()).collect();
+        assert_eq!(format_tags, vec!["png", "gif", "jpg"]);
+        assert_eq!(counts.format[0].count, 256);
+        assert_eq!(counts.format[1].count, 87);
+        assert_eq!(counts.format[2].count, 5);
+    }
+
+    #[test]
+    fn update_settings_round_trips_hub_enabled() {
+        let db = test_db();
+        db.update_app_settings(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(db.get_app_settings().unwrap().hub_enabled);
+        db.update_app_settings(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(!db.get_app_settings().unwrap().hub_enabled);
+    }
+
+    #[test]
+    fn get_entries_tag_variants_match_synonym_tags() {
+        let db = test_db();
+        let (id, _) = db
+            .insert_entry(&make_entry("const x = 1", "hash_syn"))
+            .unwrap();
+        db.set_entry_tags(id, &["javascript".to_string()]).unwrap();
+
+        let filtered = db
+            .get_entries(
+                10,
+                0,
+                None,
+                false,
+                None,
+                Some("js"),
+                Some(&["javascript".to_string(), "js".to_string()]),
+                None,
+            )
+            .unwrap();
+        assert!(filtered.iter().any(|e| e.id == id));
+    }
+
+    #[test]
+    fn get_entries_search_matches_ocr_text() {
+        let db = test_db();
+        let (id, _) = db
+            .insert_entry(&make_image_entry("img_ocr", "PNG"))
+            .unwrap();
+        db.set_ocr_text(id, "Hello from OCR").unwrap();
+
+        let filtered = db
+            .get_entries(10, 0, None, false, Some("OCR"), None, None, None)
+            .unwrap();
+        assert!(filtered.iter().any(|e| e.id == id));
     }
 }

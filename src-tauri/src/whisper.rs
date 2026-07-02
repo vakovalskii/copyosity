@@ -22,7 +22,11 @@ pub fn list_input_devices() -> Vec<AudioInputDevice> {
         for dev in input_devices {
             if let Ok(name) = dev.name() {
                 // Skip devices that don't have any supported input configs
-                if dev.supported_input_configs().map(|mut c| c.next().is_some()).unwrap_or(false) {
+                if dev
+                    .supported_input_configs()
+                    .map(|mut c| c.next().is_some())
+                    .unwrap_or(false)
+                {
                     devices.push(AudioInputDevice {
                         is_default: name == default_name,
                         name,
@@ -58,7 +62,7 @@ impl RecordingSession {
                 .or_else(|e| {
                     eprintln!("{}", e);
                     host.default_input_device()
-                        .ok_or_else(|| "No default input device".to_string())
+                        .ok_or_else(|| "No default input device".to_owned())
                 })?
         } else {
             host.default_input_device()
@@ -94,7 +98,11 @@ impl RecordingSession {
                     if count > 0 {
                         let rms = (sum_sq / count as f32).sqrt();
                         // Logarithmic scale tuned for quiet laptop mics
-                        let db = if rms > 1e-7 { 20.0 * rms.log10() } else { -140.0 };
+                        let db = if rms > 1e-7 {
+                            20.0 * rms.log10()
+                        } else {
+                            -140.0
+                        };
                         // Map -80dB..-10dB → 0..100
                         let pct = ((db + 80.0) * (100.0 / 70.0)).clamp(0.0, 100.0) as u32;
                         level_clone.store(pct, Ordering::Relaxed);
@@ -211,9 +219,5 @@ pub fn transcribe_audio(
         .into_json()
         .map_err(|e| format!("Failed to parse Whisper response: {}", e))?;
 
-    Ok(json["text"]
-        .as_str()
-        .unwrap_or("")
-        .trim()
-        .to_string())
+    Ok(json["text"].as_str().unwrap_or("").trim().to_owned())
 }

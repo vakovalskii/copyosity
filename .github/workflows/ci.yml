@@ -2,9 +2,8 @@ name: CI
 
 # Continuous checks on pushes and PRs.
 #
-#  - check-macos:    the real gate. Type-checks the SvelteKit frontend
-#                    (`npm run check`) and the Rust backend (`cargo check`) on
-#                    Apple Silicon, where all native features compile.
+#  - check-macos:    the real gate. Runs `make check` (frontend typecheck/lint/tests
+#                    plus Rust compile, Clippy, fmt, and tests) on Apple Silicon.
 #  - build-windows:  EXPERIMENTAL. Copyosity is a macOS-native app (NSPanel,
 #                    CGEvent, Vision OCR, Apple Events). On Windows those modules
 #                    fall back to inert stubs, so this is at best a hollow,
@@ -28,7 +27,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -46,12 +45,10 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Frontend check (svelte-check)
-        run: npm run check
-
-      - name: Backend check (cargo)
-        working-directory: src-tauri
-        run: cargo check --all-targets
+      - name: Full project check
+        env:
+          HUSKY: "0"
+        run: make check
 
   build-windows:
     name: Build (Windows, experimental — hollow shell)

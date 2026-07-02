@@ -25,7 +25,10 @@ fn agent_http() -> ureq::Agent {
 
 /// Tool calls on an assistant turn (empty if none).
 fn tool_calls_of(message: &Value) -> Vec<Value> {
-    message["tool_calls"].as_array().cloned().unwrap_or_default()
+    message["tool_calls"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// Final text of an assistant turn. Reasoning models sometimes leave `content`
@@ -70,7 +73,12 @@ pub fn run(app: &tauri::AppHandle, base_url: &str, token: &str, query: &str) {
     }
 }
 
-fn run_inner(app: &tauri::AppHandle, base_url: &str, token: &str, query: &str) -> Result<(), String> {
+fn run_inner(
+    app: &tauri::AppHandle,
+    base_url: &str,
+    token: &str,
+    query: &str,
+) -> Result<(), String> {
     let base = normalize_base(base_url);
     if base.is_empty() || token.trim().is_empty() {
         return Err("Set the NeuralDeep hub URL and token in Settings".to_string());
@@ -183,7 +191,9 @@ fn run_inner(app: &tauri::AppHandle, base_url: &str, token: &str, query: &str) -
                 other => format!("Hub request failed: {}", other),
             })?;
 
-        let json: Value = resp.into_json().map_err(|e| format!("Bad hub response: {}", e))?;
+        let json: Value = resp
+            .into_json()
+            .map_err(|e| format!("Bad hub response: {}", e))?;
         let message = &json["choices"][0]["message"];
 
         let tool_calls = tool_calls_of(message);
@@ -293,10 +303,8 @@ mod tests {
         assert_eq!(tcs.len(), 1);
         assert_eq!(tcs[0]["function"]["name"], "web_search");
         // arguments arrive as a JSON string that we must parse.
-        let args: Value = serde_json::from_str(
-            tcs[0]["function"]["arguments"].as_str().unwrap(),
-        )
-        .unwrap();
+        let args: Value =
+            serde_json::from_str(tcs[0]["function"]["arguments"].as_str().unwrap()).unwrap();
         assert_eq!(args["query"], "rust");
     }
 

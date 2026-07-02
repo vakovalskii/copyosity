@@ -1,537 +1,1505 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
-  import type { ClipboardEntry, Collection } from "$lib/types";
+  import { parseEntryOcrEvent, parseEntryTaggedEvent, type Collection, type ExcludableAppCandidate } from "$lib/types";
   import {
-    getEntries,
     getCollections,
     getAppSettings,
     hideMainWindow,
     openSettingsWindow,
+    activateEntry,
+    getExcludableAppCandidate,
+    addExcludableAppCandidate,
+    openCommandPalette,
   } from "$lib/api";
+  import {
+    alreadyExcludedFromHistoryLabel,
+    excludeFromClipboardHistoryAriaLabel,
+    excludeFromHistoryLabel,
+    invokeErrorMessage,
+  } from "$lib/exclusion-label";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
+  import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
   import CollectionTabs from "$lib/components/CollectionTabs.svelte";
+  // TEMP: re-enable with Content Kind segment block below.
+  // import ContentKindSegment from "$lib/components/ContentKindSegment.svelte";
+  import TagFilterBar from "$lib/components/TagFilterBar.svelte";
+  import {
+    buildTagBarModel,
+    isFormatTag,
+    contentKindEmptyLabel,
+    formatTagEmptyLabel,
+    type TagChip,
+  } from "$lib/overlay-filters";
+  import { createOverlayEntriesStore } from "$lib/overlay-entries.svelte";
+  import { overlayEscapeAction } from "$lib/overlay-search";
+  import { setInputModality } from "$lib/input-modality";
+  import { overlayHeightForLayout } from "$lib/overlay-layout";
+  import {
+    animateOverlayResize,
+    resetOverlayResizeState,
+    resizeMainWindow,
+  } from "$lib/overlay-resize";
+  import { panelCloseFallbackMs, panelOpenMs, scrollBehavior, afterLayoutFlush } from "$lib/motion";
+  import {
+    createPanelTransitionEpoch,
+    planInstantNativeHide,
+    type PanelMotionMode,
+  } from "$lib/overlay-motion";
+  import { shouldLoadNextEntryPage } from "$lib/overlay-pagination";
+  import {
+    indexOfLeadingVisibleCard,
+    indexOfLeadingVisibleCardVertical,
+    isCardOffScreen,
+    isCardOffScreenVertical,
+    nextIndexAfterKeyboardArrow,
+  } from "$lib/overlay-grid-scroll";
+  import {
+    handleScrollEndBrowseSync,
+    shouldClearStuckSuppressOnUserScroll,
+    shouldIncrementSuppressOnProgrammaticScroll,
+    shouldRunScrollToSelectedGeneration,
+    shouldScheduleTrackpadLeadingSync,
+  } from "$lib/overlay-browse-sync";
+  import { initPlatform, platformIsMacOS } from "$lib/platform.svelte";
 
-  let entries: ClipboardEntry[] = $state([]);
-  let collections: Collection[] = $state([]);
-  let searchQuery = $state("");
-  let activeCollectionId: number | null = $state(null);
-  let pinnedOnly = $state(false);
-  let activeTag = $state<string | null>(null);
+  const overlayShortcutHints: KeyboardHint[] = [
+    { prefix: "Click", action: "copy" },
+    { keys: "↵", action: "paste" },
+    { prefix: "Double-click", action: "paste" },
+    { keys: ["←", "→"], action: "browse" },
+    { keys: "Esc", action: "clear search / dismiss" },
+  ];
+
+  const overlayVerticalShortcutHints: KeyboardHint[] = [
+    { prefix: "Click", action: "copy" },
+    { keys: "↵", action: "paste" },
+    { prefix: "2× click", action: "paste" },
+    { keys: ["↑", "↓"], action: "browse" },
+    { keys: "Esc", action: "dismiss" },
+  ];
+
+  let boardVertical = $state(false);
+  let hubEnabled = $state(false);
+
+  const activeOverlayShortcutHints = $derived(
+    boardVertical ? overlayVerticalShortcutHints : overlayShortcutHints,
+  );
   let selectedIndex = $state(-1);
   let gridEl: HTMLDivElement | undefined = $state();
+  let appEl: HTMLDivElement | undefined = $state();
   let visible = $state(false);
-  let revealCycle = $state(0);
-  let boardVertical = $state(false);
-  const hiddenTopTags = new Set(["code", "otp", "token", "log"]);
+  let isRevealing = $state(false);
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  let revealTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingReload = false;
+  let revealSeq = 0;
+  let hideGeneration = 0;
+  let nativeHidePending = false;
+  let hideTransitionHandler: ((e: TransitionEvent) => void) | undefined;
+  let excludeCandidate: ExcludableAppCandidate | null = $state(null);
+  let excludeNotice = $state("");
+  let excludeNoticeTone = $state<"neutral" | "warn">("neutral");
+  let excludeBusy = $state(false);
+  let searchBar: SearchBar | undefined = $state();
+  let lastLayoutHeight = $state<number | null>(null);
+  let collections: Collection[] = $state([]);
+  let activating = $state(false);
+  let suppressSelectionSyncCount = 0;
+  let scrollToSelectedGeneration = 0;
+  let scrollIdleSyncTimer: ReturnType<typeof setTimeout> | undefined;
+  let keyboardBrowseUntil = 0;
+  const SCROLL_IDLE_SYNC_MS = 120; // debounce fallback when scrollend is late (WKWebView)
+  const KEYBOARD_BROWSE_GUARD_MS = 350; // block trackpad leading-sync during rapid ←/→
+  /**
+   * Panel motion coordination (settings instant-hide vs animated hide vs in-flight reveal):
+   * - revealSeq: invalidates async showWindow pipeline; bumped on hide reset and new show.
+   * - panelMotionMode: `instant` snaps CSS pose; `animate` runs open/close transitions.
+   * - panelTransitionEpoch: stale-guard for deferred motion-mode release after instant hide.
+   */
+  let panelMotionMode = $state<PanelMotionMode>("animate");
+  const panelTransitionEpoch = createPanelTransitionEpoch();
 
-  let loadSeq = 0;
+  const SETTINGS_SYNC_USER_NOTICE =
+    "Couldn't load app settings. Tags and filters may not work properly. Restart Copyosity.";
 
   async function loadLayout() {
     try {
-      boardVertical = (await getAppSettings()).board_vertical;
+      const previous = boardVertical;
+      const settings = await getAppSettings();
+      boardVertical = settings.board_vertical;
+      hubEnabled = settings.hub_enabled;
+      if (!visible || previous === boardVertical) return;
+      const height = overlayHeightForLayout({
+        showShortcutHints: overlay.overlayShortcutHintsEnabled,
+      });
+      await applyOverlayHeight(height, false);
+      if (gridEl) {
+        gridEl.scrollLeft = 0;
+        gridEl.scrollTop = 0;
+      }
     } catch (e) {
       console.error("Failed to load layout:", e);
     }
   }
 
-  async function loadEntries() {
-    // Guard against out-of-order responses: a slow earlier request must not
-    // overwrite the results of a newer search/filter.
-    const seq = ++loadSeq;
-    try {
-      const result = await getEntries({
-        collection_id: activeCollectionId,
-        pinned_only: pinnedOnly,
-        search: searchQuery || null,
-      });
-      if (seq === loadSeq) {
-        entries = result;
+  const overlay = createOverlayEntriesStore({
+    getVisible: () => visible,
+    getIsRevealing: () => isRevealing,
+    onSelectionRequested: (_selectFirst, scrollToFirst) => {
+      selectedIndex = filteredEntries.length > 0 ? 0 : -1;
+      if (scrollToFirst) scrollToSelected();
+    },
+    onClampSelection: () => {
+      if (selectedIndex >= overlay.entries.length) {
+        selectedIndex = overlay.entries.length > 0 ? overlay.entries.length - 1 : -1;
       }
-    } catch (e) {
-      if (seq === loadSeq) {
-        console.error("Failed to load entries:", e);
+    },
+  });
+
+  const settingsSyncNotice = $derived(
+    overlay.settingsLoadError !== null ? SETTINGS_SYNC_USER_NOTICE : null,
+  );
+
+  const tagBarModel = $derived(
+    buildTagBarModel({
+      entries: overlay.entries,
+      layoutEntries: overlay.catalogEntries,
+      contentKind: overlay.contentKind,
+      aiTaggingEnabled: overlay.aiTaggingEnabled,
+      activeTag: overlay.activeTag,
+      displayTagCounts: overlay.searchQuery ? overlay.searchTagCounts : overlay.catalogTagCounts,
+      layoutTagCounts: overlay.catalogTagCounts,
+    }),
+  );
+
+  const verticalTagChips = $derived<TagChip[]>([
+    ...tagBarModel.formatChips,
+    ...tagBarModel.semanticChips,
+  ]);
+
+  const overlayLayoutHeight = $derived(
+    overlayHeightForLayout({
+      showShortcutHints: overlay.overlayShortcutHintsEnabled,
+    }),
+  );
+
+  const filteredEntries = $derived(overlay.entries);
+
+  $effect(() => {
+    if (selectedIndex < 0) return;
+    if (selectedIndex < filteredEntries.length) return;
+    selectedIndex = filteredEntries.length > 0 ? filteredEntries.length - 1 : -1;
+    if (filteredEntries.length > 0) scrollToSelected();
+  });
+
+  $effect(() => {
+    if (overlay.displayListPending) selectedIndex = -1;
+  });
+
+  $effect(() => {
+    const height = overlayLayoutHeight;
+    if (!visible) {
+      lastLayoutHeight = null;
+      return;
+    }
+    // Vertical panel height is fixed in Rust; the hints footer flexes inside it.
+    if (boardVertical) return;
+    if (lastLayoutHeight === height) return;
+    const previous = lastLayoutHeight;
+    lastLayoutHeight = height;
+    const animate = previous !== null && !isRevealing;
+    void applyOverlayHeight(height, animate);
+  });
+
+  async function activateSelectedEntry(entryId: number) {
+    if (activating) return;
+    activating = true;
+    try {
+      await activateEntry(entryId);
+    } finally {
+      activating = false;
+    }
+  }
+
+  function emptyStateCopy(): { title: string; hint?: string } {
+    if (overlay.displayFetchFailed) {
+      if (overlay.searchQuery) {
+        return {
+          title: `Couldn't search for “${overlay.searchQuery}”`,
+          hint: "Something went wrong — try again or clear the search",
+        };
+      }
+      if (overlay.activeTag) {
+        return {
+          title: `Couldn't load tag “${overlay.activeTag}”`,
+          hint: "Something went wrong — try again or clear the filter",
+        };
+      }
+      if (overlay.aiTaggingEnabled && overlay.contentKind !== "all") {
+        const kindLabel = contentKindEmptyLabel(overlay.contentKind);
+        return {
+          title: kindLabel ? `Couldn't load ${kindLabel.toLowerCase()}` : "Couldn't load filter",
+          hint: "Something went wrong — try again or clear filters",
+        };
+      }
+      return {
+        title: "Couldn't load clipboard entries",
+        hint: "Something went wrong — try again",
+      };
+    }
+    if (overlay.loadMoreFailed) {
+      return {
+        title: "Couldn't load more entries",
+        hint: "Something went wrong — try again",
+      };
+    }
+    if (overlay.searchQuery && overlay.activeTag) {
+      return {
+        title: `No results for “${overlay.searchQuery}” in tag “${overlay.activeTag}”`,
+        hint: "Try a different search or tag",
+      };
+    }
+    if (overlay.searchQuery) {
+      return {
+        title: `No results for “${overlay.searchQuery}”`,
+        hint: "Try a different search term",
+      };
+    }
+    if (overlay.activeTag) {
+      if (isFormatTag(overlay.activeTag)) {
+        return {
+          title: formatTagEmptyLabel(overlay.activeTag),
+          hint: "Try another format or clear the filter",
+        };
+      }
+      return {
+        title: `No results for tag “${overlay.activeTag}”`,
+        hint: "Try another tag or clear the filter",
+      };
+    }
+    if (overlay.aiTaggingEnabled) {
+      const kindLabel = contentKindEmptyLabel(overlay.contentKind);
+      if (kindLabel) {
+        return {
+          title: kindLabel,
+          hint: "Try another content type or clear filters",
+        };
       }
     }
+    return {
+      title: "Clipboard history is empty",
+      hint: "Copy something to get started",
+    };
+  }
+
+  function clearHideTimer() {
+    if (hideTimer !== undefined) {
+      clearTimeout(hideTimer);
+      hideTimer = undefined;
+    }
+  }
+
+  function clearRevealTimer() {
+    if (revealTimer !== undefined) {
+      clearTimeout(revealTimer);
+      revealTimer = undefined;
+    }
+  }
+
+  function clearHideTransitionHandler() {
+    if (hideTransitionHandler && appEl) {
+      appEl.removeEventListener("transitionend", hideTransitionHandler);
+      hideTransitionHandler = undefined;
+    }
+  }
+
+  function requestNativeHide() {
+    const gen = ++hideGeneration;
+    nativeHidePending = true;
+    clearHideTimer();
+    clearHideTransitionHandler();
+
+    let committed = false;
+    const commit = () => {
+      if (committed || gen !== hideGeneration) return;
+      committed = true;
+      nativeHidePending = false;
+      clearHideTimer();
+      clearHideTransitionHandler();
+      void hideMainWindow();
+    };
+
+    if (panelMotionMode === "instant") {
+      void afterLayoutFlush().then(commit);
+      return;
+    }
+
+    const onTransitionEnd = (e: TransitionEvent) => {
+      if (e.target !== appEl || e.propertyName !== "opacity") return;
+      commit();
+    };
+
+    hideTransitionHandler = onTransitionEnd;
+    appEl?.addEventListener("transitionend", onTransitionEnd);
+    hideTimer = setTimeout(() => {
+      hideTimer = undefined;
+      commit();
+    }, panelCloseFallbackMs());
+  }
+
+  async function finalizePendingNativeHide(): Promise<void> {
+    if (!nativeHidePending) return;
+    hideGeneration += 1;
+    nativeHidePending = false;
+    clearHideTimer();
+    clearHideTransitionHandler();
+    await hideMainWindow();
   }
 
   async function loadCollections() {
     collections = await getCollections();
   }
 
-  function showWindow() {
-    window.getSelection()?.removeAllRanges();
-    searchQuery = "";
-    activeTag = null;
+  function finishReveal() {
+    isRevealing = false;
+    revealTimer = undefined;
+    const reload = pendingReload;
+    pendingReload = false;
+    // Scroll/focus after open animation so horizontal scroll does not fight panel motion.
+    void (async () => {
+      if (reload) await overlay.loadEntries(true, false);
+      scrollToSelected();
+    })();
+  }
+
+  function schedulePanelMotionRelease(epoch: number) {
+    void (async () => {
+      await afterLayoutFlush();
+      if (!panelTransitionEpoch.isCurrent(epoch)) return;
+      panelMotionMode = "animate";
+    })();
+  }
+
+  function handleNativeWindowHide() {
+    hideGeneration += 1;
+    nativeHidePending = false;
+    clearHideTimer();
+    clearHideTransitionHandler();
+    const plan = planInstantNativeHide(visible, () => panelTransitionEpoch.bump());
+    panelMotionMode = plan.motionMode;
+    resetOverlayMotionState();
+    if (plan.releaseEpoch === null) {
+      panelMotionMode = "animate";
+      return;
+    }
+    schedulePanelMotionRelease(plan.releaseEpoch);
+  }
+
+  function resetOverlayMotionState() {
+    revealSeq += 1;
+    clearRevealTimer();
+    isRevealing = false;
+    visible = false;
+    overlay.resetDisplayStateOnHide();
+    overlay.clearSearch({ reload: false });
+    overlay.resetOverlayFilters();
     selectedIndex = -1;
-    loadEntries();
-    loadLayout();
-    revealCycle += 1;
-    // Reset scroll to start
+    suppressSelectionSyncCount = 0;
+    keyboardBrowseUntil = 0;
+    resetOverlayResizeState();
+  }
+
+  async function applyOverlayHeight(height: number, animated: boolean) {
+    if (animated && visible) {
+      await animateOverlayResize(height);
+    } else {
+      await resizeMainWindow(height);
+    }
+  }
+
+  async function prepareOverlayLayout(seq: number): Promise<boolean> {
+    const loaded = await overlay.prepareCatalogAndDisplay(() => seq === revealSeq);
+    if (!loaded || seq !== revealSeq) return false;
+    const height = overlayHeightForLayout({
+      showShortcutHints: overlay.overlayShortcutHintsEnabled,
+    });
+    await applyOverlayHeight(height, false);
+    lastLayoutHeight = height;
+    return true;
+  }
+
+  function showWindow() {
+    const seq = ++revealSeq;
+    panelTransitionEpoch.bump();
+    const pendingNativeHide = nativeHidePending;
+    window.getSelection()?.removeAllRanges();
+    clearRevealTimer();
+    overlay.clearSearch({ reload: false });
+    overlay.resetOverlayFilters();
+    resetOverlayResizeState();
+
+    isRevealing = true;
+    const hadPendingReload = pendingReload;
+    pendingReload = false;
     if (gridEl) {
       gridEl.scrollLeft = 0;
       gridEl.scrollTop = 0;
     }
-    // Start hidden, then animate in next frame
+    suppressSelectionSyncCount = 0;
+    keyboardBrowseUntil = 0;
+
+    panelMotionMode = "instant";
     visible = false;
-    requestAnimationFrame(() => {
-      visible = true;
-    });
+    void (async () => {
+      let revealed = false;
+      try {
+        if (pendingNativeHide) {
+          await finalizePendingNativeHide();
+          if (seq !== revealSeq) return;
+        }
+        await loadLayout();
+        if (seq !== revealSeq) return;
+        const ready = await prepareOverlayLayout(seq);
+        if (!ready || seq !== revealSeq) return;
+        await afterLayoutFlush();
+        if (seq !== revealSeq) return;
+        panelMotionMode = "animate";
+        await afterLayoutFlush();
+        if (seq !== revealSeq) return;
+        visible = true;
+        searchBar?.blur();
+        await afterLayoutFlush();
+        if (seq !== revealSeq) return;
+        if (hadPendingReload) {
+          void overlay.loadEntries(true, false);
+        }
+        revealTimer = setTimeout(finishReveal, panelOpenMs());
+        void loadExcludeCandidate();
+        revealed = true;
+      } finally {
+        if (!revealed) {
+          panelMotionMode = "animate";
+          if (seq === revealSeq) isRevealing = false;
+        }
+      }
+    })();
+  }
+
+  function startVisualHide() {
+    revealSeq += 1;
+    clearRevealTimer();
+    isRevealing = false;
+    panelMotionMode = "animate";
+    visible = false;
+    overlay.resetDisplayStateOnHide();
   }
 
   function animateOut() {
-    visible = false;
-    searchQuery = "";
-    activeTag = null;
-    selectedIndex = -1;
-    hideMainWindow();
+    startVisualHide();
+    requestNativeHide();
   }
 
   function forceHideWindow() {
-    visible = false;
-    searchQuery = "";
-    activeTag = null;
-    selectedIndex = -1;
-    hideMainWindow();
+    animateOut();
   }
 
-  onMount(() => {
-    loadEntries();
-    loadCollections();
-    loadLayout();
+  async function loadExcludeCandidate() {
+    if (!platformIsMacOS()) return;
+    try {
+      const candidate = await getExcludableAppCandidate();
+      excludeCandidate = candidate;
+      if (candidate?.alreadyExcluded) {
+        excludeNotice = alreadyExcludedFromHistoryLabel(candidate.displayName);
+        excludeNoticeTone = "neutral";
+        return;
+      }
+      excludeNotice = "";
+    } catch (err) {
+      excludeCandidate = null;
+      excludeNotice = invokeErrorMessage(err) || "Could not detect active app";
+      excludeNoticeTone = "warn";
+    }
+  }
 
-    // Tell Rust we're loaded — it will hide the off-screen warmup window
+  async function handleExcludeFromPanel() {
+    if (excludeBusy) return;
+    excludeBusy = true;
+    try {
+      const added = await addExcludableAppCandidate();
+      if (added) {
+        await loadExcludeCandidate();
+        return;
+      }
+      excludeNotice = "No active app";
+      excludeNoticeTone = "warn";
+    } catch (err) {
+      excludeNotice = invokeErrorMessage(err) || "Could not exclude this app";
+      excludeNoticeTone = "warn";
+    } finally {
+      excludeBusy = false;
+    }
+  }
+
+  // TEST-NOTE (+page integration): reveal/hide, keyboard, scroll prefetch, and Tauri
+  // events are not automated. Playwright + running app would be needed (not installed).
+  // panelMotionMode / settings instant-hide: manual QA — overlay → settings → reopen.
+  // Manual QA: docs/plans/feature-overlay-content-tag-filters.md §7.
+  onMount(() => {
+    void initPlatform();
+    void overlay.syncOverlaySettings();
+    void overlay.warmCatalog();
+    void loadLayout();
+    loadCollections();
+
     invoke("frontend_ready");
 
-    // Debounce entry reloads — clipboard-changed and entry-tagged can fire together
     let reloadTimer: ReturnType<typeof setTimeout>;
     function scheduleReload() {
+      if (isRevealing || !visible) {
+        pendingReload = true;
+        return;
+      }
       clearTimeout(reloadTimer);
-      reloadTimer = setTimeout(() => loadEntries(), 100);
+      reloadTimer = setTimeout(() => {
+        if (isRevealing || !visible) {
+          pendingReload = true;
+          return;
+        }
+        overlay.loadEntries();
+      }, 100);
+    }
+
+    function handleEntryOcr(event: { payload: unknown }) {
+      const parsed = parseEntryOcrEvent(event.payload);
+      if (!parsed) return;
+      if (parsed.kind === "legacy-id") {
+        void overlay.reloadDisplayList(false, false);
+        return;
+      }
+      overlay.applyEntryOcr(parsed.payload.entryId, parsed.payload.ocrText);
+    }
+
+    function handleEntryTagged(event: { payload: unknown }) {
+      const parsed = parseEntryTaggedEvent(event.payload);
+      if (!parsed) return;
+      if (parsed.kind === "legacy-id") {
+        // Pre-EntryTaggedPayload emitters only sent the entry id; reload matches old behavior.
+        void overlay.reloadDisplayList(false, false);
+        return;
+      }
+      overlay.applyEntryTags(parsed.payload.entryId, parsed.payload.tags);
     }
 
     const unlistenClipboard = listen("clipboard-changed", scheduleReload);
-    const unlistenTagged = listen("entry-tagged", scheduleReload);
+    const unlistenHistory = listen("history-changed", () => {
+      void overlay.syncOverlaySettings();
+      void loadLayout();
+    });
+    const unlistenOcr = listen("entry-ocr", handleEntryOcr);
+    const unlistenTagged = listen("entry-tagged", handleEntryTagged);
 
     const unlistenShow = listen("window-show", () => {
       showWindow();
     });
+
+    const unlistenHideRequest = listen("window-hide-request", () => {
+      startVisualHide();
+      requestNativeHide();
+    });
+
+    const unlistenHide = listen("window-hide", handleNativeWindowHide);
 
     const unlistenOpenSettings = listen("open-settings", () => {
       openSettingsWindow();
     });
 
     const handleKeydown = (e: KeyboardEvent) => {
+      if (!visible) return;
+
+      const searchFocused = searchBar?.isFocused() ?? false;
+      const target = e.target;
+      const typingInField =
+        target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
+        if (overlayEscapeAction(overlay.searchQuery.length > 0) === "clear-search") {
+          overlay.clearSearch({ immediate: true });
+          searchBar?.blur();
+          return;
+        }
         forceHideWindow();
         return;
       }
-      // Down/Up mirror Right/Left so navigation feels natural in vertical mode.
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        selectedIndex = Math.min(selectedIndex + 1, filteredEntries.length - 1);
-        scrollToSelected();
+        e.stopPropagation();
+        searchBar?.focus();
+        return;
       }
-      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+
+      if (
+        e.key === "/" &&
+        !searchFocused &&
+        !typingInField &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
         e.preventDefault();
-        selectedIndex = Math.max(selectedIndex - 1, 0);
-        scrollToSelected();
+        searchBar?.focus();
+        return;
       }
-      if (e.key === "Enter" && selectedIndex >= 0 && selectedIndex < filteredEntries.length) {
+
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (typingInField && !searchFocused) return;
+        if (overlay.displayListPending || overlay.displayFetchFailed) return;
         e.preventDefault();
-        const entry = filteredEntries[selectedIndex];
-        if (entry.text_content) {
-          import("$lib/api").then(({ pasteEntry }) => {
-            pasteEntry(entry.text_content!);
-            animateOut();
-          });
+        setInputModality("keyboard");
+        touchKeyboardBrowseScroll();
+        const scrollCtx = keyboardArrowScrollContext();
+        const direction =
+          e.key === "ArrowRight" || e.key === "ArrowDown"
+            ? "right"
+            : "left";
+        selectedIndex = nextIndexAfterKeyboardArrow({
+          direction,
+          selectedIndex,
+          leadingIndex: scrollCtx.leadingIndex,
+          selectedOffScreen: scrollCtx.selectedOffScreen,
+          wrapperMissing: scrollCtx.wrapperMissing,
+          entryCount: filteredEntries.length,
+        });
+        if (direction === "right" && selectedIndex === filteredEntries.length - 1) {
+          void overlay.loadNextEntryPage();
         }
+        scrollToSelected({ behavior: "auto", keyboardScroll: true });
+        return;
+      }
+
+      if (e.key === "Enter") {
+        if (overlay.displayListPending || overlay.displayFetchFailed) return;
+        if (selectedIndex < 0 || selectedIndex >= filteredEntries.length) return;
+        if (typingInField && !searchFocused) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const entry = filteredEntries[selectedIndex];
+        if (entry.content_type === "text" || entry.content_type === "image") {
+          void activateSelectedEntry(entry.id);
+        }
+        return;
       }
     };
 
-    window.addEventListener("keydown", handleKeydown);
+    window.addEventListener("keydown", handleKeydown, true);
 
     return () => {
+      clearHideTimer();
+      clearHideTransitionHandler();
+      clearRevealTimer();
       clearTimeout(reloadTimer);
-      clearTimeout(debounceTimer);
+      clearTimeout(scrollIdleSyncTimer);
+      overlay.dispose();
       unlistenClipboard.then((fn) => fn());
+      unlistenHistory.then((fn) => fn());
+      unlistenOcr.then((fn) => fn());
       unlistenTagged.then((fn) => fn());
       unlistenShow.then((fn) => fn());
+      unlistenHideRequest.then((fn) => fn());
+      unlistenHide.then((fn) => fn());
       unlistenOpenSettings.then((fn) => fn());
-      window.removeEventListener("keydown", handleKeydown);
+      window.removeEventListener("keydown", handleKeydown, true);
     };
   });
 
-  function scrollToSelected() {
-    if (!gridEl) return;
-    const cards = gridEl.querySelectorAll(".card");
-    if (cards[selectedIndex]) {
-      cards[selectedIndex].scrollIntoView({
-        behavior: "smooth",
-        block: boardVertical ? "center" : "nearest",
-        inline: boardVertical ? "nearest" : "center",
+  function handleCardSelect(index: number) {
+    selectedIndex = index;
+  }
+
+  function getGridVerticalScrollInsets(container: HTMLElement) {
+    const style = getComputedStyle(container);
+    return {
+      top: parseFloat(style.paddingTop) || 0,
+      bottom: parseFloat(style.paddingBottom) || 0,
+    };
+  }
+
+  function leadingVisibleCardIndex(): number {
+    if (!gridEl || filteredEntries.length === 0) return -1;
+
+    const wrappers = gridEl.querySelectorAll(".card-wrapper");
+    const viewport = gridEl.getBoundingClientRect();
+
+    if (boardVertical) {
+      const cardRects: { top: number; bottom: number }[] = [];
+      wrappers.forEach((wrapper) => {
+        if (wrapper instanceof HTMLElement) {
+          const rect = wrapper.getBoundingClientRect();
+          cardRects.push({ top: rect.top, bottom: rect.bottom });
+        }
       });
+      const { top: padTop, bottom: padBottom } = getGridVerticalScrollInsets(gridEl);
+      return indexOfLeadingVisibleCardVertical(viewport, padTop, padBottom, cardRects);
+    }
+
+    const cardRects: { left: number; right: number }[] = [];
+    wrappers.forEach((wrapper) => {
+      if (wrapper instanceof HTMLElement) {
+        const rect = wrapper.getBoundingClientRect();
+        cardRects.push({ left: rect.left, right: rect.right });
+      }
+    });
+
+    const { left: padLeft, right: padRight } = getGridScrollInsets(gridEl);
+    return indexOfLeadingVisibleCard(viewport, padLeft, padRight, cardRects);
+  }
+
+  /** Select leading visible card and scroll/focus like overlay open. */
+  function selectLeadingVisibleCard() {
+    const index = leadingVisibleCardIndex();
+    if (index < 0) return;
+    selectedIndex = index;
+    if (boardVertical) return;
+    scrollToSelected({ keyboardScroll: false, suppressLeadingSync: false });
+  }
+
+  function handleGridScroll(event: Event) {
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLElement)) return;
+
+    const now = performance.now();
+    suppressSelectionSyncCount = shouldClearStuckSuppressOnUserScroll({
+      suppressSelectionSyncCount,
+      keyboardBrowseUntil,
+      now,
+      isTrusted: event.isTrusted,
+    });
+
+    if (boardVertical) {
+      if (
+        shouldLoadNextEntryPage({
+          scrollLeft: target.scrollTop,
+          clientWidth: target.clientHeight,
+          scrollWidth: target.scrollHeight,
+          hasMore: overlay.entriesHasMore && !overlay.displayFetchFailed,
+          loading: overlay.loadingMoreEntries || overlay.displayListPending,
+        })
+      ) {
+        void overlay.loadNextEntryPage();
+      }
+    } else if (
+      shouldLoadNextEntryPage({
+        scrollLeft: target.scrollLeft,
+        clientWidth: target.clientWidth,
+        scrollWidth: target.scrollWidth,
+        hasMore: overlay.entriesHasMore && !overlay.displayFetchFailed,
+        loading: overlay.loadingMoreEntries || overlay.displayListPending,
+      })
+    ) {
+      void overlay.loadNextEntryPage();
+    }
+
+    if (!boardVertical && shouldScheduleTrackpadLeadingSync({ keyboardBrowseUntil, now })) {
+      scheduleTrackpadScrollSync();
     }
   }
 
-  function handleSearch(q: string) {
-    searchQuery = q;
-    selectedIndex = -1;
-    loadEntries();
+  function scheduleTrackpadScrollSync() {
+    clearTimeout(scrollIdleSyncTimer);
+    scrollIdleSyncTimer = setTimeout(() => {
+      scrollIdleSyncTimer = undefined;
+      finishIdleScrollSync();
+    }, SCROLL_IDLE_SYNC_MS);
   }
 
-  function handleCollectionSelect(id: number | null) {
-    pinnedOnly = id === -1;
-    activeCollectionId = id === -1 ? null : id;
-    activeTag = null;
-    selectedIndex = -1;
-    loadEntries();
+  /** Shared by scrollend (primary) and idle debounce when scrollend is late — one leading-sync path. */
+  function finishIdleScrollSync() {
+    const result = handleScrollEndBrowseSync({
+      suppressSelectionSyncCount,
+      keyboardBrowseUntil,
+      now: performance.now(),
+    });
+    suppressSelectionSyncCount = result.nextSuppressCount;
+    if (result.shouldSyncLeading) selectLeadingVisibleCard();
   }
 
-  function handleEntryAction() {
-    loadEntries();
-  }
+  function keyboardArrowScrollContext(): {
+    leadingIndex: number;
+    selectedOffScreen: boolean;
+    wrapperMissing: boolean;
+  } {
+    const leadingIndex = leadingVisibleCardIndex();
+    if (!gridEl || filteredEntries.length === 0) {
+      return { leadingIndex, selectedOffScreen: false, wrapperMissing: false };
+    }
 
-  function handlePasted() {
-    animateOut();
-  }
+    const wrappers = gridEl.querySelectorAll(".card-wrapper");
+    const wrapper = wrappers[selectedIndex];
+    const wrapperMissing = selectedIndex >= 0 && !(wrapper instanceof HTMLElement);
 
-  let debounceTimer: ReturnType<typeof setTimeout>;
-  function debouncedSearch(q: string) {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => handleSearch(q), 150);
-  }
-
-  let topTags = $derived.by(() => {
-    const counts = new Map<string, number>();
-
-    for (const entry of entries) {
-      for (const tag of entry.tags ?? []) {
-        if (hiddenTopTags.has(tag)) continue;
-        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    let selectedOffScreen = false;
+    if (wrapper instanceof HTMLElement) {
+      const viewport = gridEl.getBoundingClientRect();
+      const rect = wrapper.getBoundingClientRect();
+      if (boardVertical) {
+        const { top: padTop, bottom: padBottom } = getGridVerticalScrollInsets(gridEl);
+        selectedOffScreen = isCardOffScreenVertical(viewport, padTop, padBottom, rect);
+      } else {
+        const { left: padLeft, right: padRight } = getGridScrollInsets(gridEl);
+        selectedOffScreen = isCardOffScreen(viewport, padLeft, padRight, rect);
       }
     }
 
-    return [...counts.entries()]
-      .sort((a, b) => {
-        if (b[1] !== a[1]) return b[1] - a[1];
-        return a[0].localeCompare(b[0]);
-      })
-      .slice(0, 8);
-  });
+    return { leadingIndex, selectedOffScreen, wrapperMissing };
+  }
 
-  let filteredEntries = $derived.by(() => {
-    if (!activeTag) return entries;
-    const tag = activeTag;
-    return entries.filter((entry) => (entry.tags ?? []).includes(tag));
-  });
+  function touchKeyboardBrowseScroll() {
+    keyboardBrowseUntil = performance.now() + KEYBOARD_BROWSE_GUARD_MS;
+    clearTimeout(scrollIdleSyncTimer);
+    scrollIdleSyncTimer = undefined;
+  }
+
+  function handleGridScrollEnd() {
+    if (boardVertical) return;
+    clearTimeout(scrollIdleSyncTimer);
+    scrollIdleSyncTimer = undefined;
+    finishIdleScrollSync();
+  }
+
+  function getGridScrollInsets(container: HTMLElement) {
+    const style = getComputedStyle(container);
+    return {
+      left: parseFloat(style.paddingLeft) || 0,
+      right: parseFloat(style.paddingRight) || 0,
+    };
+  }
+
+  function scrollMeasureEl(card: HTMLElement): HTMLElement {
+    const wrapper = card.parentElement;
+    return wrapper instanceof HTMLElement ? wrapper : card;
+  }
+
+  function snapCardIntoPaddedViewport(
+    card: HTMLElement,
+    container: HTMLElement,
+    behavior: ScrollBehavior,
+  ): boolean {
+    const measureEl = scrollMeasureEl(card);
+    const { left: padLeft, right: padRight } = getGridScrollInsets(container);
+    const containerRect = container.getBoundingClientRect();
+    const cardRect = measureEl.getBoundingClientRect();
+    const slack = 2;
+    const visibleLeft = containerRect.left + padLeft;
+    const visibleRight = containerRect.right - padRight;
+
+    if (cardRect.left >= visibleLeft - slack && cardRect.right <= visibleRight + slack) {
+      return false;
+    }
+
+    let delta = 0;
+    if (cardRect.right > visibleRight + slack) {
+      delta = cardRect.right - visibleRight;
+    } else if (cardRect.left < visibleLeft - slack) {
+      delta = cardRect.left - visibleLeft;
+    }
+    if (delta === 0) return false;
+
+    container.scrollTo({ left: container.scrollLeft + delta, behavior });
+    return true;
+  }
+
+  function blurDeselectedCards(cards: NodeListOf<Element>, keepIndex: number) {
+    cards.forEach((c, i) => {
+      if (i === keepIndex || !(c instanceof HTMLElement)) return;
+      if (c === document.activeElement || c.contains(document.activeElement)) {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement) active.blur();
+        c.blur();
+      }
+    });
+  }
+
+  type ScrollToSelectedOptions = {
+    behavior?: ScrollBehavior;
+    keyboardScroll?: boolean;
+    /** Blocks one leading-card sync on scrollend when the scroll moves the viewport. Default true. */
+    suppressLeadingSync?: boolean;
+  };
+
+  function scrollToSelected(options?: ScrollBehavior | ScrollToSelectedOptions) {
+    const resolved: ScrollToSelectedOptions =
+      typeof options === "string" ? { behavior: options } : (options ?? {});
+    const behaviorOverride = resolved.behavior;
+    const keyboardScroll = resolved.keyboardScroll ?? false;
+    const suppressLeadingSync = resolved.suppressLeadingSync ?? true;
+    const generation = ++scrollToSelectedGeneration;
+    const targetIndex = selectedIndex;
+
+    void (async () => {
+      if (!gridEl || targetIndex < 0) return;
+      await tick();
+      if (!shouldRunScrollToSelectedGeneration(generation, scrollToSelectedGeneration)) return;
+
+      const cards = gridEl.querySelectorAll(".card");
+      const card = cards[targetIndex];
+      if (!(card instanceof HTMLElement)) return;
+
+      blurDeselectedCards(cards, targetIndex);
+
+      const behavior = behaviorOverride ?? scrollBehavior();
+      if (boardVertical) {
+        const measureEl = scrollMeasureEl(card);
+        measureEl.scrollIntoView({
+          behavior,
+          block: "nearest",
+          inline: "nearest",
+        });
+      } else {
+        const didScroll = snapCardIntoPaddedViewport(card, gridEl, behavior);
+        if (shouldIncrementSuppressOnProgrammaticScroll({ didScroll, suppressLeadingSync })) {
+          suppressSelectionSyncCount += 1;
+        }
+      }
+
+      const keepSearchFocus = searchBar?.isFocused() ?? false;
+      if (!keepSearchFocus) {
+        if (keyboardScroll) setInputModality("keyboard");
+        card.focus({ preventScroll: true });
+      }
+    })();
+  }
 </script>
 
-<div class="app" class:visible class:vertical={boardVertical}>
-  <header class="header">
-    <SearchBar value={searchQuery} onchange={debouncedSearch} />
-    <CollectionTabs
-      {collections}
-      activeId={activeCollectionId}
-      activePinned={pinnedOnly}
-      onselect={handleCollectionSelect}
-      onupdate={loadCollections}
-    />
-    <div class="header-actions">
-      <button
-        class="settings-btn"
-        type="button"
-        aria-label="Web search (Cmd+Shift+Space)"
-        title="Web search · ⌘⇧Space"
-        onclick={() => invoke("open_command_palette")}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"
-          />
-        </svg>
-      </button>
-      <button
-        class="settings-btn"
-        type="button"
-        aria-label="Open settings"
-        onclick={() => openSettingsWindow()}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.13.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.13-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"
-          />
-        </svg>
-      </button>
-    </div>
+<div
+  class="app"
+  class:visible
+  class:vertical={boardVertical}
+  data-panel-motion={panelMotionMode}
+  bind:this={appEl}
+>
+  <header class="header overlay-header">
+    <SearchBar bind:this={searchBar} value={overlay.searchQuery} onchange={overlay.debouncedSearch} />
+    {#if boardVertical}
+      <div class="header-actions">
+        {#if platformIsMacOS() && hubEnabled}
+          <button
+            class="overlay-icon-btn overlay-icon-btn--agent app-btn"
+            type="button"
+            aria-label="Open command palette (Cmd+Shift+Space)"
+            title="Open command palette · ⌘⇧Space"
+            onclick={() => void openCommandPalette()}
+          >
+            <svg class="overlay-icon-btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"
+              />
+              <path d="M5 3v4M3 5h4" />
+              <path d="M19 17v4M17 19h4" />
+            </svg>
+          </button>
+        {/if}
+        <button
+          class="overlay-icon-btn overlay-icon-btn--settings app-btn"
+          type="button"
+          aria-label="Open settings"
+          onclick={() => openSettingsWindow()}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.13.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.13-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"
+            />
+          </svg>
+        </button>
+      </div>
+    {:else}
+      <CollectionTabs
+        {collections}
+        activeId={overlay.activeCollectionId}
+        activePinned={overlay.pinnedOnly}
+        onselect={overlay.handleCollectionSelect}
+        onupdate={loadCollections}
+      />
+      <div class="header-actions">
+        {#if platformIsMacOS() && excludeCandidate && !excludeCandidate.alreadyExcluded}
+          {@const excludeLabel = excludeFromClipboardHistoryAriaLabel(
+            excludeCandidate.displayName,
+          )}
+          <button
+            class="exclude-app-btn app-btn"
+            type="button"
+            aria-label={excludeLabel}
+            aria-busy={excludeBusy}
+            disabled={excludeBusy}
+            onclick={() => void handleExcludeFromPanel()}
+          >
+            <span class="exclude-app-btn-text"
+              >{excludeFromHistoryLabel(excludeCandidate.displayName)}</span
+            >
+          </button>
+        {/if}
+        {#if platformIsMacOS() && excludeNotice}
+          <span
+            class="status-hint exclude-notice"
+            class:neutral={excludeNoticeTone === "neutral"}
+            class:warn={excludeNoticeTone === "warn"}
+            aria-live="polite"
+          >
+            {excludeNotice}
+          </span>
+        {/if}
+        {#if platformIsMacOS() && hubEnabled}
+          <button
+            class="overlay-icon-btn overlay-icon-btn--agent app-btn"
+            type="button"
+            aria-label="Open command palette (Cmd+Shift+Space)"
+            title="Open command palette · ⌘⇧Space"
+            onclick={() => void openCommandPalette()}
+          >
+            <svg class="overlay-icon-btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"
+              />
+              <path d="M5 3v4M3 5h4" />
+              <path d="M19 17v4M17 19h4" />
+            </svg>
+          </button>
+        {/if}
+        <button
+          class="overlay-icon-btn overlay-icon-btn--settings app-btn"
+          type="button"
+          aria-label="Open settings"
+          onclick={() => openSettingsWindow()}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.13.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.13-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"
+            />
+          </svg>
+        </button>
+        <button
+          class="close-btn overlay-icon-btn overlay-icon-btn--close app-btn"
+          type="button"
+          aria-label="Close overlay"
+          onclick={() => forceHideWindow()}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6" />
+          </svg>
+        </button>
+      </div>
+    {/if}
   </header>
 
-  {#if topTags.length > 0}
-    <div class="tag-groups">
+  {#if boardVertical && tagBarModel.showRowB}
+    <div class="vertical-tag-groups">
       <button
-        class="tag-group-chip"
-        class:active={!activeTag}
+        class="filter-chip filter-chip--compact filter-chip-reset app-btn"
+        class:active={!overlay.activeTag}
         type="button"
-        onclick={() => {
-          activeTag = null;
-          selectedIndex = -1;
-        }}
+        onclick={() => overlay.handleTagReset()}
       >
         All tags
       </button>
-
-      {#each topTags as [tag, count]}
+      {#each verticalTagChips as [tag, count] (tag)}
         <button
-          class="tag-group-chip"
-          class:active={activeTag === tag}
+          class="filter-chip filter-chip--compact filter-chip--muted app-btn"
+          class:active={overlay.activeTag === tag}
           type="button"
-          onclick={() => {
-            activeTag = tag;
-            selectedIndex = -1;
-          }}
+          onclick={() => overlay.handleTagSelect(tag)}
         >
           <span>{tag}</span>
-          <span class="tag-group-count">{count}</span>
+          <span class="tag-count">{count}</span>
         </button>
       {/each}
     </div>
+  {:else if settingsSyncNotice || tagBarModel.showRowB}
+    <div class="filter-zone">
+      {#if settingsSyncNotice}
+        <p
+          class="status-hint settings-sync-notice warn"
+          role="status"
+          aria-live="polite"
+        >
+          {settingsSyncNotice}
+        </p>
+      {/if}
+      <!-- TEMP: Content Kind segment (All / Text / Images) hidden pending user feedback
+           on whether to keep, evolve, or remove. Re-enable filter-row-a block when decided.
+        <div class="filter-row-a">
+          <ContentKindSegment
+            value={overlay.contentKind}
+            onchange={overlay.handleContentKindChange}
+          />
+        </div>
+      -->
+      {#if tagBarModel.showRowB}
+        <TagFilterBar
+          resetLabel={tagBarModel.resetLabel}
+          activeTag={overlay.activeTag}
+          formatChips={tagBarModel.formatChips}
+          semanticChips={tagBarModel.semanticChips}
+          showDivider={tagBarModel.showDivider}
+          onreset={overlay.handleTagReset}
+          onselect={overlay.handleTagSelect}
+        />
+      {/if}
+    </div>
   {/if}
 
-  <div class="grid-container" class:vertical={boardVertical} bind:this={gridEl}>
+  <div
+    class="grid-container"
+    class:vertical={boardVertical}
+    bind:this={gridEl}
+    onscroll={handleGridScroll}
+    onscrollend={handleGridScrollEnd}
+  >
     {#if filteredEntries.length === 0}
-      <div class="empty-state">
-        {#if searchQuery || activeTag}
-          <p>No results for "{searchQuery}"</p>
-        {:else}
-          <p>Clipboard history is empty</p>
-          <p class="hint">Copy something to get started</p>
+      {@const empty = emptyStateCopy()}
+      {@const listPending = overlay.displayListPending}
+      {@const searchingMore = overlay.loadingMoreEntries}
+      <div class="empty-state" role="status" aria-live="polite">
+        <p class="empty-title">
+          {#if listPending && overlay.searchQuery}
+            Searching for “{overlay.searchQuery}”…
+          {:else if listPending}
+            Loading entries…
+          {:else if searchingMore}
+            Loading more entries…
+          {:else}
+            {empty.title}
+          {/if}
+        </p>
+        {#if listPending && overlay.searchQuery}
+          <p class="hint">Matching entries will appear here</p>
+        {:else if listPending}
+          <p class="hint">Updating the list</p>
+        {:else if searchingMore}
+          <p class="hint">Fetching the next page of matching entries</p>
+        {:else if empty.hint}
+          <p class="hint">{empty.hint}</p>
+        {/if}
+        {#if overlay.displayFetchFailed}
+          <button
+            class="empty-retry-btn"
+            type="button"
+            onclick={() => overlay.retryDisplayFetch()}
+          >
+            Try again
+          </button>
+        {:else if overlay.loadMoreFailed}
+          <button
+            class="empty-retry-btn"
+            type="button"
+            onclick={() => overlay.retryLoadMore()}
+          >
+            Try again
+          </button>
         {/if}
       </div>
     {:else}
-      {#each filteredEntries as entry, i (`${revealCycle}-${activeTag ?? 'all'}-${entry.id}`)}
-        <div class="card-wrapper" style="animation-delay: {Math.min(i * 30, 300)}ms">
+      {#each filteredEntries as entry, i (entry.id)}
+        <div class="card-wrapper">
           <ClipboardCard
             {entry}
+            compactVertical={boardVertical}
+            retagAvailable={overlay.retagAvailable}
+            aiTaggingEnabled={overlay.aiTaggingEnabled}
             selected={i === selectedIndex}
-            onpasted={handlePasted}
-            ondeleted={handleEntryAction}
-            onpinned={handleEntryAction}
+            onselect={() => handleCardSelect(i)}
+            ondeleted={() => overlay.removeEntry(entry.id)}
+            onpinned={() => overlay.handlePinned(entry.id, !entry.is_pinned)}
+            onretagged={(tags) => overlay.applyEntryTags(entry.id, tags)}
           />
         </div>
       {/each}
     {/if}
   </div>
+  {#if filteredEntries.length > 0 && overlay.loadMoreFailed}
+    <div class="load-more-banner overlay-footer-strip" role="status" aria-live="polite">
+      <p class="hint">Couldn't load more entries</p>
+      <button class="empty-retry-btn" type="button" onclick={() => overlay.retryLoadMore()}>
+        Try again
+      </button>
+    </div>
+  {/if}
+  {#if overlay.overlayShortcutHintsEnabled}
+    <footer class="overlay-shortcuts overlay-footer-strip" class:vertical={boardVertical}>
+      <KeyboardHints hints={activeOverlayShortcutHints} />
+    </footer>
+  {/if}
 </div>
 
 <style>
   :global(body) {
-    margin: 0;
-    padding: 0;
     background: transparent;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    color: #e0e0e0;
+    font-family: var(--font-family-system);
+    color: var(--color-text-body);
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
   }
 
-  :global(*) {
-    box-sizing: border-box;
-    outline: none;
-  }
-
-  :global(::selection) {
-    background: transparent;
-  }
-
   .app {
-    width: 100vw;
-    height: 100vh;
-    background:
-      linear-gradient(180deg, rgba(44, 44, 50, 0.68), rgba(24, 24, 30, 0.58));
-    backdrop-filter: blur(34px) saturate(1.15);
-    -webkit-backdrop-filter: blur(34px) saturate(1.15);
-    border-radius: 18px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    background: var(--surface-app);
+    backdrop-filter: blur(var(--panel-blur-visible)) saturate(1.15);
+    -webkit-backdrop-filter: blur(var(--panel-blur-visible)) saturate(1.15);
+    border-radius: var(--radius-panel);
+    border: 1px solid var(--border-strong);
     box-shadow:
-      0 18px 50px rgba(0, 0, 0, 0.28),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      var(--shadow-elevated),
+      var(--shadow-inset-highlight);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transform: translateY(26px) scale(0.985);
+    backface-visibility: hidden;
+    transform: translate3d(0, var(--panel-open-travel), 0);
     opacity: 0;
+    will-change: transform, opacity;
+    transition: none;
+  }
+
+  .app[data-panel-motion="animate"] {
+    /* Open transition runs when `.visible` is added. */
     transition:
-      transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-      opacity 0.22s ease,
-      box-shadow 0.24s ease;
+      transform var(--duration-panel-open) var(--ease-apple-panel),
+      opacity var(--duration-panel-opacity-open) var(--ease-apple-panel);
   }
 
   .app.visible {
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0);
     opacity: 1;
+    will-change: auto;
+  }
+
+  .app[data-panel-motion="animate"].visible {
+    /* Close transition runs when `.visible` is removed. */
+    transition:
+      transform var(--duration-panel-close) var(--ease-panel-dismiss),
+      opacity var(--duration-panel-opacity-close) var(--ease-panel-dismiss);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app,
+    .app.visible,
+    .app[data-panel-motion="animate"],
+    .app[data-panel-motion="animate"].visible {
+      transition-duration: 0.01ms;
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .app {
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
   }
 
   .header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    background: rgba(255, 255, 255, 0.015);
-    flex-shrink: 0;
+    overflow: hidden;
   }
 
-  .tag-groups {
+  .app.vertical .header {
+    flex: 0 0 auto;
+    gap: var(--space-stack);
+    height: auto;
+    max-height: none;
+    min-height: calc(var(--overlay-header-control-height) + var(--overlay-header-pad-block));
+    overflow: visible;
+  }
+
+  .app.vertical .header :global(.search-bar) {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .vertical-tag-groups {
     display: flex;
-    gap: 8px;
-    padding: 10px 16px 0;
+    gap: var(--space-stack);
+    padding:
+      var(--overlay-filter-pad-top)
+      calc(var(--overlay-grid-pad-x) + var(--overlay-scrollbar-gutter))
+      var(--space-stack)
+      var(--overlay-grid-pad-x);
     overflow-x: auto;
+    flex-shrink: 0;
     scrollbar-width: none;
+    scroll-padding-inline: var(--overlay-grid-pad-x);
   }
 
-  .tag-groups::-webkit-scrollbar {
+  .vertical-tag-groups::-webkit-scrollbar {
     display: none;
   }
 
-  .tag-group-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 7px 11px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.035);
-    color: #c9ccd8;
-    cursor: pointer;
-    white-space: nowrap;
-    font: inherit;
-    font-size: 11px;
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  .filter-zone {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: var(--overlay-filter-pad-top);
+    transition:
+      opacity var(--duration-fast) var(--ease-interactive),
+      transform var(--duration-fast) var(--ease-interactive);
   }
 
-  .tag-group-chip:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.12);
+  @media (prefers-reduced-motion: reduce) {
+    .filter-zone {
+      transition: none;
+    }
   }
 
-  .tag-group-chip.active {
-    background: rgba(16, 185, 129, 0.2);
-    border-color: rgba(52, 211, 153, 0.32);
-    color: #eef3ff;
+  /* TEMP: re-enable with Content Kind segment block above. */
+  /*
+  .filter-row-a {
+    padding: 0 16px;
   }
+  */
 
-  .tag-group-count {
-    display: inline-flex;
-    min-width: 18px;
-    justify-content: center;
-    padding: 2px 5px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
-    font-size: 10px;
-    line-height: 1;
+  .settings-sync-notice {
+    margin: 0 var(--overlay-grid-pad-x);
   }
 
   .header-actions {
     position: relative;
-    margin-left: auto;
-    flex-shrink: 0;
-  }
-
-  .settings-btn {
-    width: 36px;
-    height: 36px;
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    justify-content: center;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    color: #d8d8d8;
+    gap: var(--space-stack);
+    margin-left: auto;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .exclude-app-btn {
+    box-sizing: border-box;
+    height: var(--overlay-header-control-height);
+    flex-shrink: 0;
+    padding: 0 10px;
+    border-radius: var(--radius-control);
+    border: 1px solid var(--border-soft);
+    background: var(--surface-3);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    opacity: var(--opacity-muted-control);
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    white-space: nowrap;
   }
 
-  .settings-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.16);
-    transform: translateY(-1px);
+  .exclude-app-btn:hover:not(:disabled, [aria-busy="true"]) {
+    opacity: var(--opacity-muted-control-hover);
+    background: var(--surface-warning-subtle);
+    border-color: var(--border-warning);
+    color: var(--color-text-body);
   }
 
-  .settings-btn svg {
-    width: 18px;
-    height: 18px;
-    fill: currentColor;
+  .exclude-app-btn:focus-visible {
+    outline: none;
+    opacity: 1;
+    background: var(--surface-warning-subtle);
+    border-color: var(--border-warning-hover);
+    color: var(--color-text-body);
+    box-shadow: var(--ring-accent-input);
+  }
+
+  .exclude-app-btn-text {
+    display: block;
+  }
+
+  .exclude-notice {
+    margin: 0;
+    white-space: nowrap;
   }
 
   .grid-container {
     flex: 1;
     display: flex;
     gap: 12px;
-    padding: 14px 16px 16px;
-    overflow-x: auto;
-    overflow-y: hidden;
+    padding: var(--overlay-grid-pad-y) var(--overlay-grid-pad-x);
+    scroll-padding-inline: var(--overlay-grid-pad-x);
+    overflow: auto hidden;
+    scroll-snap-type: x mandatory;
     align-items: flex-start;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+    min-height: 0;
+    min-width: 0;
   }
 
-  /* Vertical mini-clipboard: stack cards in a scrolling column, full width. */
   .grid-container.vertical {
     flex-direction: column;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden auto;
+    scroll-snap-type: y proximity;
     align-items: stretch;
+    padding-inline: var(--overlay-grid-pad-x);
+    scroll-padding-inline: 0;
+    min-height: 0;
+    scrollbar-gutter: stable;
   }
 
   .grid-container.vertical .card-wrapper {
     width: 100%;
+    scroll-snap-align: center;
   }
 
+  /* Compact vertical rows (upstream max-height); preview area shrinks so footer fits. */
   .grid-container.vertical :global(.card) {
     width: 100%;
     min-width: 0;
     height: auto;
     min-height: 60px;
-    max-height: 190px;
+    max-height: var(--card-max-height-vertical);
   }
 
-  .grid-container::-webkit-scrollbar {
-    height: 6px;
+  .grid-container.vertical :global(.card-header) {
+    margin-bottom: 6px;
   }
 
-  .grid-container.vertical::-webkit-scrollbar {
-    width: 6px;
-    height: auto;
+  .grid-container.vertical :global(.card-body) {
+    flex: 0 0 var(--card-body-height-vertical);
+    height: var(--card-body-height-vertical);
+    min-height: 0;
   }
 
-  .grid-container::-webkit-scrollbar-track {
-    background: transparent;
+  .grid-container.vertical :global(.text-preview) {
+    padding: 8px 10px;
   }
 
-  .grid-container::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
+  .grid-container.vertical :global(.text-content) {
+    font-size: var(--card-preview-font-size-vertical);
+    line-height: var(--card-preview-line-height-vertical);
+    max-height: calc(
+      var(--card-preview-line-height-vertical) * var(--card-preview-line-count-vertical)
+    );
+    -webkit-line-clamp: var(--card-preview-line-count-vertical);
+    line-clamp: var(--card-preview-line-count-vertical);
+  }
+
+  .grid-container.vertical :global(.image-preview) {
+    gap: 0;
+  }
+
+  .grid-container.vertical :global(.image-preview img),
+  .grid-container.vertical :global(.image-placeholder) {
+    height: var(--card-image-height-vertical);
+  }
+
+  .grid-container.vertical :global(.card-footer) {
+    padding-top: 6px;
+    gap: 6px;
   }
 
   .card-wrapper {
-    animation: card-enter 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards;
-  }
-
-  @keyframes card-enter {
-    from {
-      opacity: 0;
-      transform: translateY(20px) scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
+    flex-shrink: 0;
+    scroll-snap-align: start;
   }
 
   .empty-state {
@@ -541,15 +1509,76 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: #666;
+    padding: 0 24px;
+    text-align: center;
+    color: var(--color-text-tertiary);
   }
 
-  .empty-state p {
-    margin: 4px 0;
+  .empty-title {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: 500;
+    color: var(--color-text-secondary);
   }
 
   .hint {
-    font-size: 13px;
-    color: #555;
+    margin: 8px 0 0;
+    font-size: var(--font-size-md);
+    color: var(--color-text-label);
+  }
+
+  .empty-retry-btn {
+    margin-top: 12px;
+    padding: 6px 14px;
+    font-size: var(--font-size-md);
+    font-weight: 500;
+    color: var(--color-text-body);
+    background: var(--surface-2);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-control);
+    cursor: pointer;
+  }
+
+  .empty-retry-btn:hover {
+    background: var(--surface-3);
+  }
+
+  .empty-retry-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--ring-accent);
+  }
+
+  .load-more-banner {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 8px var(--overlay-grid-pad-x);
+    border-top: 1px solid var(--border-default);
+    background: var(--surface-1);
+  }
+
+  .load-more-banner .hint {
+    margin: 0;
+  }
+
+  .overlay-shortcuts {
+    flex-shrink: 0;
+    padding: 6px var(--overlay-grid-pad-x) 8px;
+    border-top: 1px solid var(--border-default);
+    background: var(--surface-1);
+  }
+
+  .overlay-shortcuts.vertical {
+    padding:
+      var(--space-chip-gap)
+      calc(var(--overlay-grid-pad-x) + var(--overlay-scrollbar-gutter))
+      var(--space-stack)
+      var(--overlay-grid-pad-x);
+  }
+
+  .overlay-shortcuts.vertical :global(.keyboard-hints) {
+    row-gap: 4px;
   }
 </style>

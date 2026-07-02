@@ -2,41 +2,19 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="Copyosity"
-APP_BUNDLE="$ROOT_DIR/src-tauri/target/release/bundle/macos/$APP_NAME.app"
-DMG_PATH="$ROOT_DIR/src-tauri/target/release/bundle/dmg/${APP_NAME}_0.3.0_aarch64.dmg"
+# shellcheck source=env-rust.sh
+source "$ROOT_DIR/scripts/env-rust.sh"
+# shellcheck source=macos-target.sh
+source "$ROOT_DIR/scripts/macos-target.sh"
+
 IDENTITY="Developer ID Application: Valeriy Kovalsky (A933C2TJXU)"
 KEYCHAIN_PROFILE="${KEYCHAIN_PROFILE:-AC_PASSWORD}"
 WAIT_FOR_NOTARIZATION="${WAIT_FOR_NOTARIZATION:-0}"
+export RELEASE_CONFIG=1
 
-build_app() {
-  echo "[release] building app"
-  (cd "$ROOT_DIR" && cargo tauri build) || true
-
-  if [[ ! -d "$APP_BUNDLE" ]]; then
-    echo "[release] app bundle not found: $APP_BUNDLE" >&2
-    exit 1
-  fi
-}
-
-package_dmg() {
-  echo "[release] packaging dmg"
-  local tmpdir
-  tmpdir="$(mktemp -d /tmp/copyosity-dmg.XXXXXX)"
-  mkdir -p "$tmpdir/$APP_NAME"
-  cp -R "$APP_BUNDLE" "$tmpdir/$APP_NAME/"
-  ln -s /Applications "$tmpdir/$APP_NAME/Applications"
-
-  rm -f "$DMG_PATH"
-  hdiutil create \
-    -volname "$APP_NAME" \
-    -srcfolder "$tmpdir/$APP_NAME" \
-    -ov \
-    -format UDZO \
-    "$DMG_PATH"
-
-  rm -rf "$tmpdir"
-}
+macos_resolve_target "$ROOT_DIR"
+DMG_PATH="$DIST_DMG"
+APP_BUNDLE="$DIST_APP"
 
 sign_artifacts() {
   echo "[release] signing app"
@@ -83,8 +61,8 @@ staple_and_verify() {
 }
 
 main() {
-  build_app
-  package_dmg
+  echo "[release] arch=${MACOS_ARCH_LABEL}"
+  "$ROOT_DIR/scripts/build-macos.sh"
   sign_artifacts
   verify_artifacts
   submit_notarization
@@ -92,6 +70,8 @@ main() {
   if [[ "$WAIT_FOR_NOTARIZATION" == "1" ]]; then
     staple_and_verify
   fi
+
+  echo "[release] done: $DMG_PATH"
 }
 
 main "$@"

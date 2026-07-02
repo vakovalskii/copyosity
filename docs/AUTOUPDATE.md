@@ -11,6 +11,7 @@ version exists it downloads and installs it, then relaunches.
   This is **separate** from Apple Developer ID / notarization.
 
 ## Keys (one-time, already done)
+
 - Private key: `.tauri/copyosity-updater.key` — **git-ignored, back it up somewhere safe.**
   If lost, you can never ship another auto-update (users must reinstall manually).
 - Public key: `.tauri/copyosity-updater.key.pub` — embedded in `tauri.conf.json`.
@@ -22,6 +23,7 @@ version exists it downloads and installs it, then relaunches.
 > (0.5.2+). Older installs (0.5.1 and earlier) must be updated manually once.
 
 ## Releasing an update (macOS, local)
+
 ```bash
 # 1. bump version in package.json + src-tauri/tauri.conf.json, commit
 # 2. build WITH the signing key so .app.tar.gz(.sig) are produced
@@ -40,5 +42,6 @@ gh release create vX.Y.Z \
   latest.json \
   --title "Copyosity X.Y.Z" --notes "..."
 ```
+
 `latest.json` must be a release asset so the `latest/download/latest.json` URL
 resolves. Adding a `windows-x86_64` entry (from the CI `.sig`) is optional.

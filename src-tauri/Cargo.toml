@@ -1,16 +1,27 @@
 [package]
 name = "copyosity"
-version = "0.4.4"
+version = "0.6.0"
 description = "Clipboard history manager"
 authors = ["v.kovalskii"]
 edition = "2021"
+
+[lints.rust]
+unused_must_use = "warn"
+
+[lints.clippy]
+enum_glob_use = "deny"
+todo = "warn"
+unimplemented = "warn"
+redundant_clone = "warn"
 
 [lib]
 name = "copyosity_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [profile.dev]
-opt-level = 1
+# Fastest local compile (Cargo default). Dependencies stay at opt-level 2 below.
+# Trade-off: local crate code runs unoptimized in dev — use [profile.release] for perf work.
+opt-level = 0
 
 [profile.dev.package."*"]
 opt-level = 2
@@ -34,15 +45,42 @@ base64 = "0.22"
 tokio = { version = "1", features = ["time", "sync"] }
 sha2 = "0.10"
 hex = "0.4"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
 ureq = { version = "2.10", features = ["json"] }
 cpal = "0.16"
 hound = "3.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-cocoa = "0.26"
+block2 = "0.6"
 objc = "0.2"
-tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e89" }
+cocoa = "0.26"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSData", "NSDictionary", "NSError", "NSObjCRuntime"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "NSApplication",
+  "NSOpenPanel",
+  "NSResponder",
+  "NSPasteboard",
+  "NSPasteboardItem",
+  "NSWorkspace",
+  "NSRunningApplication",
+  "NSEvent",
+  "NSWindow",
+  "block2",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "NSArray",
+  "NSString",
+  "NSDictionary",
+  "NSValue",
+  "NSObject",
+  "NSData",
+  "NSBundle",
+  "NSURL",
+  "NSNotification",
+  "NSOperation",
+  "NSError",
+  "NSObjCRuntime",
+  "block2",
+] }
 objc2-vision = { version = "0.3", features = ["VNRequest", "VNRecognizeTextRequest", "VNRequestHandler", "VNObservation", "VNTypes"] }
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e89" }

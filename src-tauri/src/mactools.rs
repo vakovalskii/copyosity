@@ -13,7 +13,9 @@ fn run_osascript(script: &str, args: &[&str]) -> Result<String, String> {
     for a in args {
         cmd.arg(a);
     }
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|e| format!("spawn osascript: {e}"))?;
     child
@@ -38,7 +40,9 @@ fn run_osascript(script: &str, args: &[&str]) -> Result<String, String> {
 
 #[cfg(target_os = "macos")]
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Create a Note. Notes uses the first line of the HTML body as the title.
@@ -62,10 +66,7 @@ end run"#;
 #[cfg(target_os = "macos")]
 pub fn create_reminder(name: &str, due_offset_secs: Option<i64>) -> Result<String, String> {
     let due_clause = match due_offset_secs {
-        Some(secs) if secs > 0 => format!(
-            "set due date of newR to (current date) + {}",
-            secs
-        ),
+        Some(secs) if secs > 0 => format!("set due date of newR to (current date) + {}", secs),
         _ => String::new(),
     };
     let script = format!(

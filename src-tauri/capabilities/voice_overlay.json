@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "voice_overlay",
+  "description": "Voice recording overlay — events only",
+  "windows": ["voice_overlay"],
+  "permissions": [
+    "core:event:default",
+    "voice-overlay-events"
+  ]
+}

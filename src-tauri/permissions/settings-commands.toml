@@ -1,0 +1,33 @@
+"$schema" = "../gen/schemas/desktop-schema.json"
+
+[[permission]]
+identifier = "settings-window-commands"
+description = "Settings: app config, excluded apps, Ollama, accessibility, history"
+commands.allow = [
+  "get_app_settings",
+  "get_platform",
+  "update_app_settings",
+  "hub_test_connection",
+  "hub_list_models",
+  "get_model_catalog",
+  "get_excluded_apps",
+  "add_excluded_app",
+  "remove_excluded_app",
+  "get_excludable_app_candidate",
+  "add_excludable_app_candidate",
+  "pick_app_to_exclude",
+  "clear_history",
+  "clear_all_history",
+  "get_history_counts",
+  "check_accessibility",
+  "open_accessibility_settings",
+  "check_ollama_status",
+  "start_ollama_server",
+  "pull_ollama_model",
+  "unload_ollama_model",
+  "test_ollama_tagging",
+  "rebind_voice_shortcut",
+  "rebind_palette_shortcut",
+  "list_microphones",
+  "quit_app",
+]

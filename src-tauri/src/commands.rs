@@ -1,55 +1,25 @@
-use crate::db::{AppSettings, ClipboardEntry, Collection, Database, ExcludedApp, ModelCatalog};
+use crate::app_exclusion::{self, ExcludableAppSource};
+use crate::db::{
+    AppSettings, ClipboardEntry, Collection, Database, EntryTaggedPayload, ExcludedApp,
+    HistoryCounts, ModelCatalog, OverlayTagCounts,
+};
+use crate::macos_app;
+use serde::Serialize;
 
-#[cfg(target_os = "macos")]
-fn simulate_paste() {
-    std::thread::sleep(std::time::Duration::from_millis(150));
-
-    unsafe {
-        // CoreGraphics FFI — CGEvent for Cmd+V
-        type CGEventSourceRef = *mut std::ffi::c_void;
-        type CGEventRef = *mut std::ffi::c_void;
-
-        #[link(name = "CoreGraphics", kind = "framework")]
-        extern "C" {
-            fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, keycode: u16, key_down: bool) -> CGEventRef;
-            fn CGEventSetFlags(event: CGEventRef, flags: u64);
-            fn CGEventPost(tap: u32, event: CGEventRef);
-            fn CFRelease(cf: *mut std::ffi::c_void);
-        }
-
-        const K_CG_EVENT_FLAG_COMMAND: u64 = 0x00100000;
-        const K_CG_HID_EVENT_TAP: u32 = 0;
-        const K_V_KEYCODE: u16 = 9;
-
-        let event_down = CGEventCreateKeyboardEvent(std::ptr::null_mut(), K_V_KEYCODE, true);
-        let event_up = CGEventCreateKeyboardEvent(std::ptr::null_mut(), K_V_KEYCODE, false);
-
-        if !event_down.is_null() && !event_up.is_null() {
-            CGEventSetFlags(event_down, K_CG_EVENT_FLAG_COMMAND);
-            CGEventSetFlags(event_up, K_CG_EVENT_FLAG_COMMAND);
-            CGEventPost(K_CG_HID_EVENT_TAP, event_down);
-            CGEventPost(K_CG_HID_EVENT_TAP, event_up);
-        }
-        // Release each event independently so a partial-allocation failure
-        // (one null, one non-null) doesn't leak the allocated event.
-        if !event_down.is_null() {
-            CFRelease(event_down);
-        }
-        if !event_up.is_null() {
-            CFRelease(event_up);
-        }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn simulate_paste() {}
 use crate::ollama;
 use arboard::{Clipboard, ImageData};
 use base64::Engine;
 use image::GenericImageView;
 use std::borrow::Cow;
+
+use crate::clipboard_write::{self, ClipboardWriteMode};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tauri::{Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+fn emit_history_changed(app: &AppHandle) {
+    let _ = app.emit("history-changed", ());
+}
 
 #[tauri::command]
 pub fn get_entries(
@@ -59,9 +29,10 @@ pub fn get_entries(
     collection_id: Option<i64>,
     pinned_only: Option<bool>,
     search: Option<String>,
+    tag: Option<String>,
+    tag_variants: Option<Vec<String>>,
+    content_kind: Option<String>,
 ) -> Result<Vec<ClipboardEntry>, String> {
-    // Clamp paging params coming over IPC: limit -1 in SQLite means "no limit",
-    // which could dump the whole history (with thumbnails) over the bridge.
     let limit = limit.unwrap_or(50).clamp(1, 200);
     let offset = offset.unwrap_or(0).max(0);
 
@@ -71,18 +42,48 @@ pub fn get_entries(
         collection_id,
         pinned_only.unwrap_or(false),
         search.as_deref(),
+        tag.as_deref(),
+        tag_variants.as_deref(),
+        content_kind.as_deref(),
     )
     .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn delete_entry(db: State<'_, Arc<Database>>, id: i64) -> Result<(), String> {
-    db.delete_entry(id).map_err(|e| e.to_string())
+pub fn get_overlay_tag_counts(
+    db: State<'_, Arc<Database>>,
+    collection_id: Option<i64>,
+    pinned_only: Option<bool>,
+    search: Option<String>,
+) -> Result<OverlayTagCounts, String> {
+    db.get_overlay_tag_counts(
+        collection_id,
+        pinned_only.unwrap_or(false),
+        search.as_deref(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn pin_entry(db: State<'_, Arc<Database>>, id: i64, pinned: bool) -> Result<(), String> {
-    db.pin_entry(id, pinned).map_err(|e| e.to_string())
+pub fn delete_entry(app: AppHandle, db: State<'_, Arc<Database>>, id: i64) -> Result<(), String> {
+    let emptied = db.delete_entry(id).map_err(|e| e.to_string())?;
+    if emptied {
+        crate::clipboard_monitor::notify_history_cleared();
+    }
+    emit_history_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn pin_entry(
+    app: AppHandle,
+    db: State<'_, Arc<Database>>,
+    id: i64,
+    pinned: bool,
+) -> Result<(), String> {
+    db.pin_entry(id, pinned).map_err(|e| e.to_string())?;
+    emit_history_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -116,22 +117,101 @@ pub fn delete_collection(db: State<'_, Arc<Database>>, id: i64) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn clear_history(db: State<'_, Arc<Database>>) -> Result<(), String> {
-    db.clear_history().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
-    crate::hide_panel(&app);
+pub fn clear_history(app: AppHandle, db: State<'_, Arc<Database>>) -> Result<(), String> {
+    db.clear_history().map_err(|e| e.to_string())?;
+    crate::clipboard_monitor::notify_history_cleared();
+    emit_history_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
+pub fn clear_all_history(app: AppHandle, db: State<'_, Arc<Database>>) -> Result<(), String> {
+    db.clear_all_history().map_err(|e| e.to_string())?;
+    crate::clipboard_monitor::notify_history_cleared();
+    emit_history_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_history_counts(db: State<'_, Arc<Database>>) -> Result<HistoryCounts, String> {
+    db.get_history_counts().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn resize_main_window(
+    window: tauri::WebviewWindow,
+    height: f64,
+    remember_height: Option<bool>,
+) -> Result<(), String> {
+    let clamped = height.clamp(crate::OVERLAY_HEIGHT_MIN, crate::OVERLAY_HEIGHT_MAX);
+    if remember_height.unwrap_or(true) {
+        crate::remember_overlay_height(clamped);
+    }
+    crate::position_window_bottom(&window, clamped);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    // Frontend played close motion; hide native panel on the main thread.
+    crate::finalize_panel_hide(&app);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn activate_for_settings_window() {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+
+    if let Some(mtm) = MainThreadMarker::new() {
+        let app = NSApplication::sharedApplication(mtm);
+        app.activate();
+    }
+}
+
+/// Sidebar (184px) + content max-width (540px) + horizontal padding.
+const SETTINGS_WINDOW_WIDTH: f64 = 760.0;
+const SETTINGS_WINDOW_HEIGHT: f64 = 720.0;
+const SETTINGS_WINDOW_MIN_WIDTH: f64 = 680.0;
+const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 560.0;
+
+fn ensure_settings_window_size(window: &tauri::WebviewWindow) {
+    use tauri::LogicalSize;
+
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let Ok(size) = window.inner_size() else {
+        return;
+    };
+    let width = size.width as f64 / scale;
+    let height = size.height as f64 / scale;
+    if width >= SETTINGS_WINDOW_MIN_WIDTH && height >= SETTINGS_WINDOW_MIN_HEIGHT {
+        return;
+    }
+    let _ = window.set_size(LogicalSize::new(
+        SETTINGS_WINDOW_WIDTH,
+        SETTINGS_WINDOW_HEIGHT,
+    ));
+}
+
+#[tauri::command]
 pub fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    crate::clipboard_macos::remember_paste_target();
+
+    // The clipboard panel is always-on-top; if it stays visible, macOS delivers mouse
+    // events to the panel instead of settings — no hover, pointer cursor, or focus rings.
+    if crate::main_panel_visible(&app) {
+        crate::PANEL_HIDE_SCHEDULED.store(false, Ordering::Release);
+        crate::finalize_panel_hide(&app);
+    }
+
     // If settings window already exists, just focus it
     if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.show();
-        let _ = window.set_focus();
+        ensure_settings_window_size(&window);
+        crate::present_settings_window(&window);
+        #[cfg(target_os = "macos")]
+        activate_for_settings_window();
+        let _ = window.emit("settings-shown", ());
         return Ok(());
     }
 
@@ -142,14 +222,16 @@ pub fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::App("/settings".into()),
     )
     .title("Copyosity Settings")
-    .inner_size(580.0, 680.0)
+    .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
+    .min_inner_size(SETTINGS_WINDOW_MIN_WIDTH, SETTINGS_WINDOW_MIN_HEIGHT)
     .resizable(true)
     .center();
 
+    let window = builder.build().map_err(|e| e.to_string())?;
+    crate::present_settings_window(&window);
     #[cfg(target_os = "macos")]
-    let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay);
-
-    let _window = builder.build().map_err(|e| e.to_string())?;
+    activate_for_settings_window();
+    let _ = window.emit("settings-shown", ());
 
     Ok(())
 }
@@ -165,7 +247,9 @@ pub fn get_app_settings(db: State<'_, Arc<Database>>) -> Result<AppSettings, Str
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn update_app_settings(
+    app: tauri::AppHandle,
     db: State<'_, Arc<Database>>,
     ollama_model: Option<String>,
     retention_days: Option<i64>,
@@ -174,12 +258,15 @@ pub fn update_app_settings(
     whisper_server_model: Option<String>,
     voice_shortcut: Option<String>,
     selected_microphone: Option<String>,
+    voice_transcription_enabled: Option<bool>,
+    ai_tagging_enabled: Option<bool>,
+    overlay_shortcut_hints_enabled: Option<bool>,
+    hub_enabled: Option<bool>,
     hub_url: Option<String>,
     hub_token: Option<String>,
     hub_chat_model: Option<String>,
     hub_tagging_enabled: Option<bool>,
     hub_transcribe_enabled: Option<bool>,
-    hub_search_enabled: Option<bool>,
     voice_polish_enabled: Option<bool>,
     voice_polish_model: Option<String>,
     voice_polish_screenshot: Option<bool>,
@@ -189,6 +276,21 @@ pub fn update_app_settings(
     voice_selected_text: Option<bool>,
     board_vertical: Option<bool>,
 ) -> Result<AppSettings, String> {
+    if let Some(model) = ollama_model.as_deref() {
+        ollama::validate_model_name(model)?;
+    }
+
+    let was_tagging_enabled = db.is_ai_tagging_enabled();
+    let prior_hub_enabled = db
+        .get_app_settings()
+        .map_err(|e| e.to_string())?
+        .hub_enabled;
+    let next_hub_enabled = hub_enabled.unwrap_or(prior_hub_enabled);
+
+    if hub_enabled.is_some() {
+        crate::sync_palette_shortcut_for_hub(&app, next_hub_enabled)?;
+    }
+
     let settings = db
         .update_app_settings(
             ollama_model.as_deref(),
@@ -198,12 +300,15 @@ pub fn update_app_settings(
             whisper_server_model.as_deref(),
             voice_shortcut.as_deref(),
             selected_microphone.as_deref(),
+            voice_transcription_enabled,
+            ai_tagging_enabled,
+            overlay_shortcut_hints_enabled,
+            hub_enabled,
             hub_url.as_deref(),
             hub_token.as_deref(),
             hub_chat_model.as_deref(),
             hub_tagging_enabled,
             hub_transcribe_enabled,
-            hub_search_enabled,
             voice_polish_enabled,
             voice_polish_model.as_deref(),
             voice_polish_screenshot,
@@ -213,13 +318,31 @@ pub fn update_app_settings(
             voice_selected_text,
             board_vertical,
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            if hub_enabled.is_some() {
+                let _ = crate::sync_palette_shortcut_for_hub(&app, prior_hub_enabled);
+            }
+            e.to_string()
+        })?;
 
     ollama::set_active_model(&settings.ollama_model);
-    ollama::ensure_runtime();
+
+    if settings.ai_tagging_enabled {
+        ollama::ensure_runtime();
+        if !was_tagging_enabled {
+            ollama::backfill_existing_tags(app.clone(), db.inner().clone());
+        }
+    }
 
     db.cleanup_old_entries(settings.retention_days)
         .map_err(|e| e.to_string())?;
+    emit_history_changed(&app);
+
+    if hub_enabled.is_some() {
+        if let Err(e) = crate::refresh_tray_menu(&app) {
+            eprintln!("Tray menu refresh failed: {e}");
+        }
+    }
 
     Ok(settings)
 }
@@ -234,9 +357,35 @@ pub fn get_excluded_apps(db: State<'_, Arc<Database>>) -> Result<Vec<ExcludedApp
     db.get_excluded_apps().map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExcludeAppResult {
+    pub display_name: String,
+    pub already_excluded: bool,
+}
+
+fn exclude_app_result(
+    db: &Database,
+    identity: &macos_app::AppIdentity,
+) -> Result<ExcludeAppResult, String> {
+    let is_new = db
+        .add_excluded_app(&identity.bundle_id)
+        .map_err(|e| e.to_string())?;
+    Ok(ExcludeAppResult {
+        display_name: identity.display_name.clone(),
+        already_excluded: !is_new,
+    })
+}
+
 #[tauri::command]
-pub fn add_excluded_app(db: State<'_, Arc<Database>>, bundle_id: String) -> Result<(), String> {
-    db.add_excluded_app(&bundle_id).map_err(|e| e.to_string())
+pub fn add_excluded_app(
+    db: State<'_, Arc<Database>>,
+    app_name_or_bundle_id: String,
+) -> Result<ExcludeAppResult, String> {
+    let input = app_name_or_bundle_id;
+    let identity = macos_app::resolve_app_identity_from_input(&input)
+        .ok_or_else(|| format!("app_not_found:{}", input.trim()))?;
+    exclude_app_result(db.inner(), &identity)
 }
 
 #[tauri::command]
@@ -244,15 +393,61 @@ pub fn remove_excluded_app(db: State<'_, Arc<Database>>, id: i64) -> Result<(), 
     db.remove_excluded_app(id).map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExcludableAppCandidate {
+    pub bundle_id: String,
+    pub display_name: String,
+    pub already_excluded: bool,
+    pub source: ExcludableAppSource,
+}
+
 #[tauri::command]
-pub fn add_frontmost_app_to_excluded(
+pub fn get_excludable_app_candidate(
     db: State<'_, Arc<Database>>,
-) -> Result<Option<String>, String> {
-    let app_name = crate::clipboard_monitor::get_frontmost_app();
-    if let Some(app_name) = &app_name {
-        db.add_excluded_app(app_name).map_err(|e| e.to_string())?;
-    }
-    Ok(app_name)
+) -> Result<Option<ExcludableAppCandidate>, String> {
+    let Some((identity, source)) = app_exclusion::resolve_excludable_app_identity() else {
+        return Ok(None);
+    };
+    let already_excluded = db
+        .is_app_excluded(&identity.bundle_id)
+        .map_err(|e| e.to_string())?;
+    Ok(Some(ExcludableAppCandidate {
+        bundle_id: identity.bundle_id,
+        display_name: identity.display_name,
+        already_excluded,
+        source,
+    }))
+}
+
+#[tauri::command]
+pub fn add_excludable_app_candidate(
+    db: State<'_, Arc<Database>>,
+) -> Result<Option<ExcludeAppResult>, String> {
+    let Some((identity, _)) = app_exclusion::resolve_excludable_app_identity() else {
+        return Ok(None);
+    };
+    Ok(Some(exclude_app_result(db.inner(), &identity)?))
+}
+
+#[tauri::command]
+pub fn pick_app_to_exclude(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<Database>>,
+) -> Result<Option<ExcludeAppResult>, String> {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = tx.send(app_exclusion::pick_application_identity_on_main_thread());
+    })
+    .map_err(|e| format!("main_thread_required:{}", e))?;
+    let identity = rx
+        .recv()
+        .map_err(|_| "main_thread_required:channel".to_owned())?
+        .map_err(|e| e.to_owned())?;
+    let Some(identity) = identity else {
+        return Ok(None);
+    };
+    Ok(Some(exclude_app_result(db.inner(), &identity)?))
 }
 
 #[tauri::command]
@@ -260,20 +455,47 @@ pub fn retag_entry(
     app: tauri::AppHandle,
     db: State<'_, Arc<Database>>,
     entry_id: i64,
-) -> Result<(), String> {
-    let Some(text) = db.get_entry_text(entry_id).map_err(|e| e.to_string())? else {
-        return Ok(());
-    };
-
-    match crate::tagging::tag(&db, &text) {
-        Some(tags) => db.set_entry_tags(entry_id, &tags).map_err(|e| e.to_string())?,
-        None => db
-            .set_entry_tag_state(entry_id, "skipped")
-            .map_err(|e| e.to_string())?,
+) -> Result<Vec<String>, String> {
+    if !crate::tagging::is_retag_ready(db.inner()) {
+        return Ok(Vec::new());
     }
 
-    let _ = app.emit("entry-tagged", entry_id);
-    Ok(())
+    let Some(entry) = db.get_entry_by_id(entry_id).map_err(|e| e.to_string())? else {
+        return Ok(Vec::new());
+    };
+
+    let tagged = match entry.content_type.as_str() {
+        "text" => entry
+            .text_content
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .and_then(|text| crate::tagging::tag(db.inner(), text)),
+        "image" => crate::tagging::tag_image_entry(db.inner(), &entry),
+        _ => None,
+    };
+
+    let tags = match tagged {
+        Some(tags) => {
+            db.set_entry_tags(entry_id, &tags)
+                .map_err(|e| e.to_string())?;
+            tags
+        }
+        None => {
+            db.set_entry_tag_state(entry_id, "skipped")
+                .map_err(|e| e.to_string())?;
+            Vec::new()
+        }
+    };
+
+    let _ = app.emit(
+        "entry-tagged",
+        EntryTaggedPayload {
+            entry_id,
+            tags: tags.clone(),
+        },
+    );
+    Ok(tags)
 }
 
 #[tauri::command]
@@ -287,27 +509,11 @@ pub fn copy_entry(db: State<'_, Arc<Database>>, entry_id: i64) -> Result<(), Str
     match entry.content_type.as_str() {
         "text" => {
             if let Some(text) = entry.text_content {
-                clipboard.set_text(text).map_err(|e| e.to_string())?;
+                clipboard_write::set_text(&mut clipboard, text)?;
             }
         }
         "image" => {
-            let encoded = entry
-                .image_data
-                .or(entry.image_thumb)
-                .ok_or_else(|| "Image data is missing".to_string())?;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(encoded)
-                .map_err(|e| e.to_string())?;
-            let image = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
-            let rgba = image.to_rgba8();
-            let (width, height) = image.dimensions();
-            clipboard
-                .set_image(ImageData {
-                    width: width as usize,
-                    height: height as usize,
-                    bytes: Cow::Owned(rgba.into_raw()),
-                })
-                .map_err(|e| e.to_string())?;
+            write_image_entry(&mut clipboard, &entry, ClipboardWriteMode::Copy)?;
         }
         _ => {}
     }
@@ -315,105 +521,123 @@ pub fn copy_entry(db: State<'_, Arc<Database>>, entry_id: i64) -> Result<(), Str
     Ok(())
 }
 
+fn write_entry_for_paste(clipboard: &mut Clipboard, entry: &ClipboardEntry) -> Result<(), String> {
+    match entry.content_type.as_str() {
+        "text" => {
+            if let Some(text) = &entry.text_content {
+                clipboard_write::write_text(clipboard, text.clone(), ClipboardWriteMode::Paste)?;
+            }
+        }
+        "image" => {
+            write_image_entry(clipboard, entry, ClipboardWriteMode::Paste)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn finish_paste(app: &tauri::AppHandle) {
+    crate::PENDING_PASTE_AFTER_HIDE.store(true, Ordering::Release);
+    if crate::PANEL_HIDE_SCHEDULED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let _ = app.emit("window-hide-request", ());
+}
+
+fn image_bytes_from_entry(entry: &ClipboardEntry) -> Result<Vec<u8>, String> {
+    let encoded = entry
+        .image_data
+        .as_ref()
+        .or(entry.image_thumb.as_ref())
+        .ok_or_else(|| "Image data is missing".to_owned())?;
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|e| e.to_string())
+}
+
+fn raster_image_from_bytes(bytes: &[u8]) -> Result<ImageData<'static>, String> {
+    let image = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
+    let rgba = image.to_rgba8();
+    let (width, height) = image.dimensions();
+    Ok(ImageData {
+        width: width as usize,
+        height: height as usize,
+        bytes: Cow::Owned(rgba.into_raw()),
+    })
+}
+
+fn write_image_entry(
+    clipboard: &mut Clipboard,
+    entry: &ClipboardEntry,
+    mode: ClipboardWriteMode,
+) -> Result<(), String> {
+    let bytes = image_bytes_from_entry(entry)?;
+    if crate::clipboard_monitor::is_gif_bytes(&bytes) {
+        return clipboard_write::write_gif(clipboard, &bytes, mode);
+    }
+
+    let image = raster_image_from_bytes(&bytes)?;
+    match mode {
+        ClipboardWriteMode::Copy => clipboard_write::set_image(clipboard, image),
+        ClipboardWriteMode::Paste => clipboard_write::write_image(clipboard, image, mode),
+    }
+}
+
+fn paste_text_into_target(app: &tauri::AppHandle, text: String) -> Result<(), String> {
+    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard_write::write_text(&mut clipboard, text, ClipboardWriteMode::Paste)?;
+    finish_paste(app);
+    Ok(())
+}
+
 #[tauri::command]
-pub fn activate_entry(app: tauri::AppHandle, db: State<'_, Arc<Database>>, entry_id: i64) -> Result<(), String> {
+pub fn activate_entry(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<Database>>,
+    entry_id: i64,
+) -> Result<(), String> {
     let Some(entry) = db.get_entry_by_id(entry_id).map_err(|e| e.to_string())? else {
         return Ok(());
     };
 
-    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
-
-    match entry.content_type.as_str() {
-        "text" => {
-            if let Some(text) = entry.text_content {
-                clipboard.set_text(text).map_err(|e| e.to_string())?;
-            }
-        }
-        "image" => {
-            let encoded = entry
-                .image_data
-                .or(entry.image_thumb)
-                .ok_or_else(|| "Image data is missing".to_string())?;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(encoded)
-                .map_err(|e| e.to_string())?;
-            let image = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
-            let rgba = image.to_rgba8();
-            let (width, height) = image.dimensions();
-            clipboard
-                .set_image(ImageData {
-                    width: width as usize,
-                    height: height as usize,
-                    bytes: Cow::Owned(rgba.into_raw()),
-                })
-                .map_err(|e| e.to_string())?;
-        }
-        _ => return Ok(()),
+    if entry.content_type == "text" {
+        let Some(text) = entry.text_content else {
+            return Ok(());
+        };
+        return paste_text_into_target(&app, text);
     }
 
-    crate::hide_panel(&app);
-    simulate_paste();
+    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+    write_entry_for_paste(&mut clipboard, &entry)?;
+    finish_paste(&app);
 
     Ok(())
 }
 
 #[tauri::command]
 pub fn paste_entry(app: tauri::AppHandle, text: String) -> Result<(), String> {
-    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
-    clipboard.set_text(&text).map_err(|e| e.to_string())?;
-
-    crate::hide_panel(&app);
-    simulate_paste();
-
-    Ok(())
+    paste_text_into_target(&app, text)
 }
 
 #[tauri::command]
-pub fn check_accessibility() -> Result<bool, String> {
-    #[cfg(target_os = "macos")]
-    {
-        // AXIsProcessTrustedWithOptions with prompt: true shows the system dialog
-        unsafe {
-            #[link(name = "ApplicationServices", kind = "framework")]
-            extern "C" {
-                fn AXIsProcessTrustedWithOptions(options: *const std::ffi::c_void) -> bool;
-            }
+pub fn check_accessibility(prompt: bool) -> Result<bool, String> {
+    Ok(crate::clipboard_macos::accessibility_trusted(prompt))
+}
 
-            use objc::{msg_send, sel, sel_impl};
-            use objc::runtime::Object;
-
-            let nsstring = objc::runtime::Class::get("NSString")
-                .ok_or_else(|| "NSString class unavailable".to_string())?;
-            let nsnumber = objc::runtime::Class::get("NSNumber")
-                .ok_or_else(|| "NSNumber class unavailable".to_string())?;
-            let nsdictionary = objc::runtime::Class::get("NSDictionary")
-                .ok_or_else(|| "NSDictionary class unavailable".to_string())?;
-
-            let key: *mut Object = msg_send![
-                nsstring,
-                stringWithUTF8String: b"AXTrustedCheckOptionPrompt\0".as_ptr()
-            ];
-            let yes: *mut Object = msg_send![
-                nsnumber,
-                numberWithBool: true
-            ];
-            let dict: *mut Object = msg_send![
-                nsdictionary,
-                dictionaryWithObject: yes forKey: key
-            ];
-
-            let trusted = AXIsProcessTrustedWithOptions(dict as *const _);
-            return Ok(trusted);
-        }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    Ok(true)
+#[tauri::command]
+pub fn open_accessibility_settings() -> Result<(), String> {
+    crate::clipboard_macos::open_accessibility_settings();
+    Ok(())
 }
 
 #[tauri::command]
 pub fn check_ollama_status() -> Result<ollama::OllamaStatus, String> {
     Ok(ollama::check_status())
+}
+
+#[tauri::command]
+pub fn is_tagging_ready(db: State<'_, Arc<Database>>) -> Result<bool, String> {
+    Ok(crate::tagging::is_retag_ready(db.inner()))
 }
 
 #[tauri::command]
@@ -431,18 +655,27 @@ pub fn pull_ollama_model(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn unload_ollama_model() -> Result<bool, String> {
-    Ok(ollama::unload_model())
+pub async fn unload_ollama_model() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(ollama::unload_model)
+        .await
+        .map_err(|err| format!("Unload failed: {err}"))
 }
 
 #[tauri::command]
-pub fn test_ollama_tagging() -> Result<Option<Vec<String>>, String> {
-    Ok(ollama::test_tagging())
+pub async fn test_ollama_tagging() -> Result<Option<Vec<String>>, String> {
+    tauri::async_runtime::spawn_blocking(ollama::test_tagging)
+        .await
+        .map_err(|err| format!("Tagging test failed: {err}"))
 }
 
 #[tauri::command]
 pub fn rebind_voice_shortcut(app: tauri::AppHandle) -> Result<String, String> {
     crate::register_voice_shortcut(&app)
+}
+
+#[tauri::command]
+pub fn rebind_palette_shortcut(app: tauri::AppHandle) -> Result<(), String> {
+    crate::register_palette_shortcut(&app)
 }
 
 #[tauri::command]
@@ -459,7 +692,9 @@ pub fn hub_test_connection(
     token: Option<String>,
 ) -> Result<usize, String> {
     let settings = db.get_app_settings().map_err(|e| e.to_string())?;
-    let url = url.filter(|s| !s.trim().is_empty()).unwrap_or(settings.hub_url);
+    let url = url
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(settings.hub_url);
     let token = token
         .filter(|s| !s.trim().is_empty())
         .unwrap_or(settings.hub_token);
@@ -474,9 +709,32 @@ pub fn hub_list_models(
     token: Option<String>,
 ) -> Result<Vec<String>, String> {
     let settings = db.get_app_settings().map_err(|e| e.to_string())?;
-    let url = url.filter(|s| !s.trim().is_empty()).unwrap_or(settings.hub_url);
+    let url = url
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(settings.hub_url);
     let token = token
         .filter(|s| !s.trim().is_empty())
         .unwrap_or(settings.hub_token);
     crate::hub::list_models(&url, &token)
+}
+
+#[tauri::command]
+pub fn get_platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_accessibility_settings_command_returns_ok() {
+        assert!(open_accessibility_settings().is_ok());
+    }
 }

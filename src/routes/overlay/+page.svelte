@@ -59,8 +59,6 @@
 
 <style>
   :global(body) {
-    margin: 0;
-    padding: 0;
     background: transparent;
     overflow: hidden;
     user-select: none;
@@ -74,13 +72,13 @@
     gap: 9px;
     width: 100vw;
     height: 100vh;
-    padding: 0 14px;
-    background: rgba(18, 18, 24, 0.9);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+    padding: 0 var(--space-panel-inline);
+    background: var(--surface-voice);
+    backdrop-filter: blur(var(--blur-voice-capsule));
+    -webkit-backdrop-filter: blur(var(--blur-voice-capsule));
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--border-soft);
+    box-shadow: var(--shadow-voice-capsule);
   }
 
   .dot {
@@ -88,26 +86,34 @@
     height: 9px;
     border-radius: 50%;
     flex-shrink: 0;
-    background: #6b7280;
-    transition: background 0.2s ease;
+    background: var(--color-text-disabled);
+    transition: background var(--duration-standard) ease;
   }
 
   .dot.live {
-    background: #f8534b;
-    box-shadow: 0 0 0 0 rgba(248, 83, 75, 0.6);
-    animation: pulse-dot 1.3s ease-out infinite;
+    background: var(--color-recording);
+    box-shadow: 0 0 0 0 var(--color-recording-pulse);
+    animation: pulse-dot var(--duration-pulse-mic) ease-out infinite;
   }
 
   @keyframes pulse-dot {
-    0% { box-shadow: 0 0 0 0 rgba(248, 83, 75, 0.55); }
-    70% { box-shadow: 0 0 0 7px rgba(248, 83, 75, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(248, 83, 75, 0); }
+    0% {
+      box-shadow: 0 0 0 0 rgb(var(--rgb-recording) / 55%);
+    }
+
+    70% {
+      box-shadow: var(--shadow-recording-pulse);
+    }
+
+    100% {
+      box-shadow: 0 0 0 0 rgb(var(--rgb-recording) / 0%);
+    }
   }
 
   .wave {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: var(--space-segment-inset);
     flex: 1;
     height: 26px;
     min-width: 0;
@@ -116,20 +122,20 @@
 
   .bar {
     flex: 1;
-    min-width: 2px;
+    min-width: var(--space-segment-inset);
     min-height: 8%;
-    border-radius: 999px;
-    background: linear-gradient(180deg, #ff7a6b, #f8534b 55%, #e0463f);
+    border-radius: var(--radius-pill);
+    background: var(--gradient-voice-bar);
     transition: height 90ms cubic-bezier(0.3, 0.8, 0.3, 1);
   }
 
   .time {
     flex-shrink: 0;
     font-variant-numeric: tabular-nums;
-    font-family: "SF Mono", ui-monospace, Menlo, monospace;
-    font-size: 12px;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-sm);
     font-weight: 600;
-    color: #e8eaf0;
+    color: var(--color-text-primary);
     letter-spacing: 0.02em;
   }
 </style>

@@ -12,6 +12,10 @@ const config = {
     adapter: adapter({
       fallback: "index.html",
     }),
+    output: {
+      // Tauri SPA: one JS/CSS bundle — faster Rolldown pass, no lazy route chunks
+      bundleStrategy: "single",
+    },
   },
 };
 

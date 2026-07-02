@@ -4,19 +4,24 @@ These rules are mandatory for all future work in this repository.
 
 1. After each release, create a new development branch before continuing feature work.
 2. Push all new features and fixes to the active development branch, not directly to the release branch.
-3. After every code generation or code change, verify that the application still compiles.
+3. After code changes, run the narrowest fix/check cycle below before claiming done.
 4. Record completed work in git with clear commits and keep project process notes updated in this file and in `CLAUDE.md`.
 
 ## Required Validation
 
-After each meaningful code change, run:
+Command contract: `make fix` auto-fixes, `make lint` checks lint/format only, and `make check` is the final gate (types, compile, lint, format, tests).
 
-```bash
-npm run check
-cd src-tauri && cargo check
-```
+| Changed                      | Run                                        |
+| ---------------------------- | ------------------------------------------ |
+| Frontend only                | `make fix-frontend && make check-frontend` |
+| Rust/backend only            | `make fix-backend && make check-backend`   |
+| Full stack / shared workflow | `make fix && make check`                   |
 
-Do not treat the task as complete until both checks pass, unless a blocker is explicitly documented.
+## Linting stack
+
+- Frontend: `svelte-check`, Oxlint, Oxfmt, Stylelint.
+- Backend: `cargo check`, Clippy (`-D warnings --all-targets`), rustfmt, `cargo test`.
+- Pre-commit: Lefthook (`lefthook.yml`) auto-fixes staged files in parallel with Oxfmt, Oxlint, Stylelint, `cargo fmt` (staged paths only), and `cargo clippy --fix --lib` (faster than `--all-targets`; full Clippy gate is `make check` / CI). Install hooks via `npm install` / `lefthook install`; local overrides in gitignored `lefthook-local.yml`.
 
 ## Branching
 
@@ -29,16 +34,11 @@ Do not treat the task as complete until both checks pass, unless a blocker is ex
 - Commit completed fixes and features with descriptive messages.
 - If process or workflow changes, update both `AGENTS.md` and `CLAUDE.md`.
 
-## TODO — Next Iteration
+## Load by task
 
-Security hardening (from audit 2026-03-17):
-
-- [ ] Add explicit Tauri capabilities for the `settings` window
-- [ ] Validate ollama model names against a whitelist/regex before passing to `ollama pull`
-- [ ] Add `cargo audit` step to GitHub Actions release workflow
-- [ ] Consider per-window IPC command scoping for sensitive commands (`paste_entry`, `clear_history`, `start_ollama_server`)
-
-Features:
-
-- [ ] Infinite scroll — lazy loading entries on horizontal scroll (backend already supports limit+offset)
-- [ ] Production build transparency fix — test on macOS 15+ (known Tauri issue #13415)
+| Topic                                             | File                                                                                                   |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| macOS paste automation (AXPaste, Cmd+V, Messages) | [docs/architecture/macos-paste-pipeline.md](docs/architecture/macos-paste-pipeline.md)                 |
+| Features backlog                                  | [docs/plans/features-backlog.md](docs/plans/features-backlog.md)                                       |
+| Overlay content & tag filters                     | [docs/plans/feature-overlay-content-tag-filters.md](docs/plans/feature-overlay-content-tag-filters.md) |
+| Appearance / light mode (theme switching)         | [docs/plans/feature-appearance-theme.md](docs/plans/feature-appearance-theme.md)                       |

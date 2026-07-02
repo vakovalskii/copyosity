@@ -1,32 +1,57 @@
 {
   "name": "copyosity",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "tauri": "tauri"
+    "check": "npm run typecheck && npm run test && npm run lint",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "check:watch": "npm run typecheck:watch",
+    "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "typecheck:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "lint": "npm run lint:js && npm run format && npm run lint:css",
+    "fix": "npm run format:fix && npm run lint:js:fix && npm run lint:css:fix",
+    "lint:js": "oxlint .",
+    "lint:js:fix": "oxlint --fix .",
+    "lint:css": "stylelint \"src/**/*.{css,svelte}\"",
+    "lint:css:fix": "stylelint --fix \"src/**/*.{css,svelte}\"",
+    "format": "oxfmt --check .",
+    "format:fix": "oxfmt .",
+    "tauri": "bash scripts/with-tauri.sh",
+    "prepare": "lefthook install"
   },
-  "license": "MIT",
   "dependencies": {
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "marked": "^18.0.5"
   },
   "devDependencies": {
-    "@sveltejs/adapter-static": "^3.0.6",
-    "@sveltejs/kit": "^2.9.0",
-    "@sveltejs/vite-plugin-svelte": "^5.0.0",
-    "@tauri-apps/cli": "^2",
-    "svelte": "^5.0.0",
-    "svelte-check": "^4.0.0",
-    "typescript": "~5.6.2",
-    "vite": "^6.0.3"
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.68.0",
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^25.9.4",
+    "lefthook": "^2.1.9",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.72.0",
+    "postcss-html": "^1.8.1",
+    "stylelint": "^17.14.0",
+    "stylelint-config-html": "^1.1.0",
+    "stylelint-config-standard": "^40.0.0",
+    "stylelint-declaration-strict-value": "^1.11.1",
+    "stylelint-order": "^8.1.1",
+    "svelte": "^5.56.4",
+    "svelte-check": "^4.7.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.2"
+  },
+  "overrides": {
+    "cookie": "^0.7.2"
   }
 }

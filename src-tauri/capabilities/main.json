@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Main clipboard panel window",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:default",
+    "main-window-commands"
+  ]
+}

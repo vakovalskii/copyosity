@@ -1,0 +1,53 @@
+# Git hooks — fast auto-fix on staged files only.
+# Full validation gate: `make check` and CI.
+min_version: 2.0.0
+skip_in_ci: true
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: js-ts
+      glob:
+        - "**/*.js"
+        - "**/*.ts"
+      group:
+        piped: true
+        jobs:
+          - run: oxlint --fix {staged_files}
+            stage_fixed: true
+          - run: oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+            stage_fixed: true
+
+    - name: svelte
+      glob: "**/*.svelte"
+      group:
+        piped: true
+        jobs:
+          - run: oxlint --fix {staged_files}
+            stage_fixed: true
+          - run: stylelint --fix {staged_files}
+            stage_fixed: true
+          - run: oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+            stage_fixed: true
+
+    - name: css
+      glob: "**/*.css"
+      group:
+        piped: true
+        jobs:
+          - run: stylelint --fix {staged_files}
+            stage_fixed: true
+          - run: oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+            stage_fixed: true
+
+    - name: docs
+      glob:
+        - "**/*.json"
+        - "**/*.md"
+      run: oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+
+    - name: rust
+      glob: "src-tauri/**/*.rs"
+      run: bash scripts/pre-commit-rust.sh {staged_files}
+      stage_fixed: true
