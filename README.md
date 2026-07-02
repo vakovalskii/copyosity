@@ -4,7 +4,7 @@ A fast, native macOS clipboard manager with on-device intelligence.
 
 Copyosity keeps a searchable history of everything you copy, reads text out of
 copied images on-device, turns your voice into clean ready-to-paste text, and
-exposes a small command palette for web search and quick actions — all from a
+exposes a command palette for web search and a research agent — all from a
 floating panel you summon with a hotkey. It runs as a menu-bar app and stays out
 of your way until you need it.
 
@@ -14,40 +14,77 @@ Built with Tauri 2, Svelte 5, Rust, and SQLite.
 
 ## Screenshots
 
-![Copyosity settings](docs/screenshot.png)
+Clipboard history with search, History / Starred tabs, tag and format filters,
+and image cards with OCR previews:
 
-Context-aware voice polishing — speak, and the hub LLM cleans the transcription
-(punctuation, filler, lists) and adapts it to the app you're pasting into:
+![Clipboard overlay](docs/screenshots/overlay-horizontal.png)
 
-![Voice polishing](docs/screenshot-voice.png)
+Command / agent palette — web search and a streaming research agent when
+NeuralDeep Hub is enabled (`⌘⇧Space`, tray menu, or the sparkles button in the
+overlay):
+
+![Command palette](docs/screenshots/agent-search.png)
+
+Context-aware voice polishing — hold a shortcut to dictate; the hub LLM cleans
+the transcription (punctuation, filler, lists) and adapts it to the app
+you're pasting into:
+
+![Voice settings](docs/screenshots/settings-voice.png)
+
+NeuralDeep Hub settings — one master switch for tagging, transcription, web
+search, and voice polishing; optional fallback to local Ollama for tagging:
+
+![NeuralDeep Hub settings](docs/screenshots/settings-neuraldeep.png)
 
 ## Features
 
 - **Clipboard history** — every copy is captured and stored in a local SQLite
-  database, with pinning, collections, and full‑text search.
-- **App exclusions** — exclude specific apps (e.g. password managers) so their
-  clipboard contents are never recorded.
+  database, with pinning, custom collections, and full‑text search (including
+  OCR text on images).
+- **Overlay search & filters** — `⌘F` or `/` to search; tag bar with format
+  chips (PNG / GIF / JPG) and semantic AI tags; infinite scroll; contextual
+  empty states per filter.
+- **History / Starred tabs** — macOS segmented control for pinned vs unpinned
+  entries; custom collection pills with color dots.
+- **Image clipboard** — PNG, JPG, and GIF from the pasteboard or Finder (~20 MB);
+  animated GIFs; format badges; dimensions and file size on cards; OCR preview
+  under thumbnails.
+- **App exclusions** — native app picker for excluded apps (e.g. password
+  managers); **Exclude [App]** from the overlay when a sensitive app is
+  frontmost.
 - **On-device image OCR** — copied images are run through Apple's Vision
   framework (`VNRecognizeTextRequest`) so the text inside screenshots and photos
   becomes searchable. No image ever leaves your Mac for OCR.
 - **Voice to text** — hold a global hotkey to record from any microphone; the
   audio is transcribed and the result is pasted into whatever app is frontmost.
+  Voice transcription is off by default until you enable it in Settings.
 - **Context-aware polishing** — raw transcription is cleaned into natural,
-  typed‑style text, taking the target app into account so the output fits where
-  it lands.
+  typed‑style text, taking the target app (and optionally a screenshot of the
+  target window) into account so the output fits where it lands.
 - **Automatic tagging** — clipboard entries (and images) are tagged with short,
-  practical labels to make history easier to scan and filter.
-- **Command / agent palette** — a separate palette for web search and a small
-  personal assistant that can act on your Mac.
+  practical labels via NeuralDeep Hub or local Ollama; manual **Retag** when
+  tagging is ready.
+- **Command / agent palette** — Agent and Web modes, session history, streaming
+  agent progress, markdown answers, voice input, and Insert / Copy / Close
+  actions; draggable, resizable window with minimize-to-dot.
 - **Native macOS actions** — the assistant can create Notes, create and list
   Reminders, and read upcoming Calendar events via AppleScript / Apple Events.
 - **Local AI option** — optional Ollama integration for fully local tagging,
-  with in‑app onboarding (install / start server / download‑model states).
+  with in‑app onboarding (install / start server / download‑model / test
+  states).
 - **Menu-bar native UI** — a transparent, non‑activating floating panel
   (`NSPanel`) that appears over your current app without stealing focus, plus a
   tray icon and global shortcuts.
-- **Smart paste actions** — single click copies, double click or the paste
-  button pastes into the active cursor; keyboard navigation with Enter and Escape.
+- **Smart paste actions** — accent **Paste** button on cards; single click
+  copies; Enter, Space, double click, or the paste button pastes into the app
+  that was frontmost when the overlay opened; improved paste into Messages,
+  Electron, and other native targets.
+- **Privacy** — clear unpinned or all history with confirmation; concealed
+  clipboard content is ignored; Copyosity's own copy/paste does not pollute
+  history.
+- **Accessibility** — focus-visible rings, roving keyboard navigation, voice HUD
+  `aria-live` baseline, and support for reduced motion, transparency, and
+  contrast preferences.
 
 ## Install
 
@@ -69,7 +106,7 @@ Apple, so Gatekeeper opens it without warnings (and offline).
 
 macOS will also ask for:
 
-- **Accessibility** — needed for paste automation (Cmd+V simulation) and global shortcut. After rebuilding or reinstalling the app, remove Copyosity from the list and add it again if double-click paste stops working.
+- **Accessibility** — needed for paste automation (Cmd+V simulation) and global shortcuts. After rebuilding or reinstalling the app, remove Copyosity from the list and add it again if double-click paste stops working.
 - **Input Monitoring** — may be required for reliable hotkey detection
 
 ## Platform support
@@ -80,31 +117,38 @@ app built on `NSPanel`, `CGEvent`, the Vision framework, and Apple Events.
 
 ### Local AI (Ollama)
 
-For automatic clipboard tagging:
+For automatic clipboard tagging when the hub is off or unavailable:
 
 1. Install [Ollama](https://ollama.com/download)
-2. Open Copyosity Settings — follow the step-by-step status panel
-3. The app will start the server and download the model for you
+2. Open Copyosity Settings → **Local AI** — follow the step-by-step status panel
+3. Enable **AI tagging**; the app can start the server and download the model for you
+
+Expected onboarding states: `Ollama not installed` → `Ollama installed, server not running` → `Model not installed` → `Local AI ready`.
 
 ## Keyboard shortcuts
 
-| Action               | What it does                   |
-| -------------------- | ------------------------------ |
-| `Cmd + Shift + V`    | Open / close clipboard history |
-| Single click on card | Copy to clipboard              |
-| Double click on card | Paste into active cursor       |
-| `Escape`             | Hide window                    |
-| Arrow keys + Enter   | Navigate and paste             |
-| Click paste button   | Paste into active cursor       |
-| Click ★ button       | Star / unstar                  |
-| Click gear icon      | Open Settings                  |
+| Action                     | What it does                                  |
+| -------------------------- | --------------------------------------------- |
+| `Cmd + Shift + V`          | Open / close clipboard history                |
+| `Cmd + Shift + Space`      | Open command / agent palette (when hub is on) |
+| `Cmd + F` or `/`           | Focus search in the overlay                   |
+| Hold voice shortcut        | Record voice (default `Option + Space`)       |
+| Single click on card       | Copy to clipboard                             |
+| Double click on card       | Paste into active cursor                      |
+| `Enter` or `Space` on card | Paste selected entry                          |
+| `Escape`                   | Clear search, then hide overlay               |
+| Arrow keys                 | Navigate cards                                |
+| Click paste button         | Paste into active cursor                      |
+| Click ★ button             | Star / unstar                                 |
+| Click sparkles button      | Open command / agent palette                  |
+| Click gear icon            | Open Settings                                 |
 
 ## Privacy
 
 - All data stored locally in `~/Library/Application Support/com.vkovalskii.copyosity/`
-- AI tagging runs on `127.0.0.1` via Ollama — nothing leaves your machine
-- Exclude sensitive apps in Settings → Privacy
-- Clear history anytime from Settings
+- AI tagging runs on `127.0.0.1` via Ollama — nothing leaves your machine when the hub is off
+- Exclude sensitive apps in Settings → Privacy, or from the overlay when that app is frontmost
+- Clear unpinned or all history anytime from Settings → History
 
 ## Build from source
 
@@ -131,14 +175,17 @@ is SvelteKit (static adapter); the backend is Rust via Tauri 2.
 
 ## NeuralDeep hub (optional)
 
-Several cloud‑assisted features — model‑based tagging, web search, the assistant
+Several cloud‑assisted features — model‑based tagging, web search, the research
 agent, and transcription / polishing — can be powered by a **NeuralDeep hub**
 endpoint. This is **entirely optional** and disabled until you configure it.
 
-To enable it, open **Settings** in the app and provide:
+To enable it, open **Settings → NeuralDeep** and provide:
 
 - your **own** hub **base URL**, and
 - your **own** API token (an `sk-...` style key).
+
+Turn on the **NeuralDeep Hub** master switch to enable hub tagging,
+transcription, web search, voice polishing, and the `⌘⇧Space` agent shortcut.
 
 These credentials are yours: you supply them, and they are stored locally in the
 app's settings. **No tokens, keys, or endpoints are bundled with Copyosity.** If
@@ -152,10 +199,10 @@ tagging via Ollama and on‑device OCR) where available.
 After any code change, run the project checks before committing:
 
 ```bash
-make check                    # frontend + backend (recommended)
-# or:
-npm run check                 # SvelteKit sync + svelte-check + lint + tests
-cd src-tauri && cargo check   # Rust backend only
+make fix && make check          # auto-fix, then full gate (recommended)
+# or narrower scopes:
+make fix-frontend && make check-frontend
+make fix-backend && make check-backend
 ```
 
 See `CLAUDE.md` and `AGENTS.md` for the full contributor workflow (branching,
