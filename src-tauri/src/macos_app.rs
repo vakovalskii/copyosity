@@ -54,11 +54,6 @@ pub fn app_identity_for_pid(pid: i32) -> Option<AppIdentity> {
     identity_from_running_app(&app)
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn app_identity_for_pid(_pid: i32) -> Option<AppIdentity> {
-    None
-}
-
 #[cfg(target_os = "macos")]
 pub fn app_identity_from_app_bundle_path(path: &Path) -> Option<AppIdentity> {
     use objc2_foundation::{NSBundle, NSString};
@@ -79,11 +74,6 @@ pub fn app_identity_from_app_bundle_path(path: &Path) -> Option<AppIdentity> {
         bundle_id,
         display_name,
     })
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn app_identity_from_app_bundle_path(_path: &Path) -> Option<AppIdentity> {
-    None
 }
 
 pub fn display_name_for_bundle_id(bundle_id: &str) -> String {
@@ -192,6 +182,7 @@ pub fn resolve_app_identity_from_input(input: &str) -> Option<AppIdentity> {
     None
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn is_unique_constraint_violation(err: &rusqlite::Error) -> bool {
     matches!(
         err,
@@ -201,6 +192,7 @@ fn is_unique_constraint_violation(err: &rusqlite::Error) -> bool {
 }
 
 /// Update a legacy row to `bundle_id`, or delete it when that bundle ID is already excluded.
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn migrate_legacy_excluded_row(
     conn: &rusqlite::Connection,
     row_id: i64,
@@ -224,6 +216,7 @@ pub(crate) fn migrate_legacy_excluded_row(
 }
 
 /// Rows in `excluded_apps` that still store a display name instead of a bundle ID.
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn legacy_excluded_app_rows(
     conn: &rusqlite::Connection,
 ) -> Result<Vec<(i64, String)>, rusqlite::Error> {
@@ -239,6 +232,7 @@ pub(crate) fn legacy_excluded_app_rows(
         .collect())
 }
 
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn migrate_legacy_excluded_app_rows(
     conn: &rusqlite::Connection,
     legacy_rows: &[(i64, String)],
@@ -267,18 +261,12 @@ pub fn migrate_legacy_excluded_app_names(
     })
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn migrate_legacy_excluded_app_names(
-    _conn: &rusqlite::Connection,
-) -> Result<(), rusqlite::Error> {
-    Ok(())
-}
-
 fn looks_like_bundle_id(value: &str) -> bool {
     value.contains('.') && !value.contains('/')
 }
 
 /// Resolve a display-name lookup: one match succeeds, zero or many return `None`.
+#[cfg(any(target_os = "macos", test))]
 fn pick_unique_app_identity(mut matches: Vec<AppIdentity>) -> Option<AppIdentity> {
     match matches.len() {
         0 => None,
@@ -371,6 +359,7 @@ fn display_name_from_bundle_plist(bundle: &objc2_foundation::NSBundle) -> Option
 /// plist has a short one-word name, while the app bundle folder has a fuller label
 /// ending with that word (for example "Code" -> "Visual Studio Code").
 /// If a user manually renames an app bundle, we do not try to correct for that.
+#[cfg(target_os = "macos")]
 fn choose_user_visible_app_name(plist: Option<String>, stem: Option<String>) -> Option<String> {
     let plist = plist.filter(|name| !name.is_empty());
     let stem = stem.filter(|name| !name.is_empty());
@@ -388,6 +377,7 @@ fn choose_user_visible_app_name(plist: Option<String>, stem: Option<String>) -> 
     }
 }
 
+#[cfg(target_os = "macos")]
 fn prefer_folder_name_over_humanized_plist(bundle_id: &str, path: &Path, chosen: String) -> String {
     let Some(stem) = path
         .file_stem()
@@ -405,6 +395,7 @@ fn prefer_folder_name_over_humanized_plist(bundle_id: &str, path: &Path, chosen:
     chosen
 }
 
+#[cfg(target_os = "macos")]
 fn should_prefer_bundle_folder_name(plist: &str, stem: &str) -> bool {
     let plist_lower = plist.to_ascii_lowercase();
     let stem_lower = stem.to_ascii_lowercase();
@@ -810,6 +801,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn collect_app_bundle_paths_finds_nested_apps() {
         let root =
             std::env::temp_dir().join(format!("copyosity-nested-apps-{}", std::process::id()));

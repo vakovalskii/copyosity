@@ -48,12 +48,6 @@ pub fn capture_context_png() -> Option<Vec<u8>> {
     out
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn capture_context_png() -> Option<Vec<u8>> {
-    None
-}
-
-/// Decode, downscale to at most 1280px on the long edge, and re-encode as PNG.
 #[cfg(target_os = "macos")]
 fn downscale_png(bytes: &[u8]) -> Option<Vec<u8>> {
     use image::{GenericImageView, ImageFormat};

@@ -7,9 +7,11 @@
 //!   move to another Space or app and keep the overlay open to paste into a different target.
 
 /// Grace after panel show during which outside-click dismiss is ignored.
+#[cfg(any(target_os = "macos", test))]
 pub(crate) const SHOW_DISMISS_GRACE_MS: u64 = 500;
 
 /// Pure geometry helper (Cocoa screen coordinates, bottom-left origin).
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn point_in_screen_rect(
     point_x: f64,
     point_y: f64,
@@ -25,11 +27,13 @@ pub(crate) fn point_in_screen_rect(
 }
 
 /// Returns true while outside-click dismiss should be suppressed (e.g. after a Space change).
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn dismiss_suppressed(now_ms: u64, suppress_until_ms: u64) -> bool {
     now_ms < suppress_until_ms
 }
 
 /// Returns true during the short grace window right after the panel is shown.
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn within_show_grace(now_ms: u64, last_show_ms: u64, grace_ms: u64) -> bool {
     last_show_ms == 0 || now_ms.saturating_sub(last_show_ms) <= grace_ms
 }
@@ -205,16 +209,7 @@ mod imp {
 pub use imp::*;
 
 #[cfg(not(target_os = "macos"))]
-use tauri::AppHandle;
-
-#[cfg(not(target_os = "macos"))]
-pub fn install_overlay_dismiss_guards() {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn set_outside_click_dismiss(_app: &AppHandle, _enabled: bool) {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn handle_focus_lost(_app: &AppHandle) {}
+pub fn handle_focus_lost(_app: &tauri::AppHandle) {}
 
 #[cfg(test)]
 mod tests {

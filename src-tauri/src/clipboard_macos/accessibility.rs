@@ -10,8 +10,10 @@ use objc2_foundation::NSString;
 use super::{paste_log, restore_paste_target, FocusRef, PASTE_TARGET_FOCUS, PASTE_TARGET_PID};
 
 /// Bundle IDs where `AXPaste` is unreliable; use synthetic Cmd+V instead.
+#[cfg(any(target_os = "macos", test))]
 pub(crate) const KEYBOARD_PASTE_BUNDLE_IDS: &[&str] = &["com.apple.MobileSMS", "com.apple.iChat"];
 
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn bundle_prefers_keyboard_paste(bundle_id: &str) -> bool {
     KEYBOARD_PASTE_BUNDLE_IDS.contains(&bundle_id)
 }
@@ -26,16 +28,6 @@ pub(crate) fn prefers_keyboard_paste(pid: i32) -> bool {
 #[cfg(target_os = "macos")]
 pub(crate) fn try_ax_paste_for_pid(pid: i32) -> bool {
     !prefers_keyboard_paste(pid) && try_ax_paste()
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn prefers_keyboard_paste(_pid: i32) -> bool {
-    false
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn try_ax_paste_for_pid(_pid: i32) -> bool {
-    false
 }
 
 #[cfg(target_os = "macos")]
@@ -65,9 +57,6 @@ pub(crate) fn store_focused_ui_element(element: Option<*mut std::ffi::c_void>) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn store_focused_ui_element(_element: Option<*mut std::ffi::c_void>) {}
-
 #[cfg(target_os = "macos")]
 pub(crate) fn refresh_paste_focus_if_needed() {
     if PASTE_TARGET_FOCUS.lock().unwrap().is_some() {
@@ -88,19 +77,11 @@ pub(crate) fn refresh_paste_focus_if_needed() {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn refresh_paste_focus_if_needed() {}
-
 #[cfg(target_os = "macos")]
 pub(crate) fn capture_focus_for_pid(pid: i32) -> Option<*mut std::ffi::c_void> {
     copy_focused_ui_element_for_pid(pid)
         .or_else(copy_focused_ui_element_system)
         .or_else(|| find_editable_element_for_pid(pid))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn capture_focus_for_pid(_pid: i32) -> Option<*mut std::ffi::c_void> {
-    None
 }
 
 #[cfg(target_os = "macos")]
@@ -383,9 +364,6 @@ pub(crate) fn restore_focused_ui_element(pid: i32, element: *mut std::ffi::c_voi
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn restore_focused_ui_element(_pid: i32, _element: *mut std::ffi::c_void) {}
-
 #[cfg(target_os = "macos")]
 unsafe fn ax_create_system_wide() -> Option<*mut std::ffi::c_void> {
     let system = ax_ui_element_create_system_wide();
@@ -519,10 +497,6 @@ pub(crate) fn has_paste_focus() -> bool {
     PASTE_TARGET_FOCUS.lock().unwrap().is_some()
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn has_paste_focus() -> bool {
-    false
-}
 /// Whether Copyosity may use Accessibility APIs (not the frontmost app's AX tree).
 #[cfg(target_os = "macos")]
 fn accessibility_live_check() -> bool {

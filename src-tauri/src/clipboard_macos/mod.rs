@@ -6,13 +6,15 @@ mod accessibility;
 mod paste;
 
 pub use accessibility::{accessibility_trusted, open_accessibility_settings};
-#[allow(unused_imports)]
-pub use paste::{paste_into_target, simulate_cmd_v, spawn_automated_paste};
+#[cfg(target_os = "macos")]
+pub use paste::spawn_automated_paste;
 
+#[cfg(target_os = "macos")]
 pub(crate) use accessibility::{
     capture_focus_for_pid, has_paste_focus, prefers_keyboard_paste, refresh_paste_focus_if_needed,
     restore_focused_ui_element, store_focused_ui_element, try_ax_paste_for_pid,
 };
+#[cfg(target_os = "macos")]
 pub(crate) use paste::activate_pid;
 #[cfg(target_os = "macos")]
 pub(crate) use paste::capture_mouse_location;
@@ -39,7 +41,9 @@ unsafe impl Send for FocusRef {}
 #[cfg(target_os = "macos")]
 unsafe impl Sync for FocusRef {}
 
+#[cfg(target_os = "macos")]
 static IGNORE_CAPTURE_AT: AtomicI64 = AtomicI64::new(-1);
+#[cfg(target_os = "macos")]
 pub(crate) static PASTE_TARGET_PID: AtomicI32 = AtomicI32::new(0);
 
 #[cfg(target_os = "macos")]
@@ -50,6 +54,7 @@ pub(crate) static PASTE_MOUSE_X: AtomicU64 = AtomicU64::new(0);
 #[cfg(target_os = "macos")]
 pub(crate) static PASTE_MOUSE_Y: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(target_os = "macos")]
 pub(crate) fn paste_debug_enabled() -> bool {
     std::env::var("COPYOSITY_DEBUG_PASTE")
         .map(|v| {
@@ -59,6 +64,7 @@ pub(crate) fn paste_debug_enabled() -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn paste_log(message: impl AsRef<str>) {
     if paste_debug_enabled() {
         eprintln!("[paste] {}", message.as_ref());
@@ -67,22 +73,18 @@ pub(crate) fn paste_log(message: impl AsRef<str>) {
 #[cfg(target_os = "macos")]
 pub(crate) static PASTE_MOUSE_VALID: AtomicBool = AtomicBool::new(false);
 
+#[cfg(target_os = "macos")]
 pub fn change_count() -> i64 {
-    #[cfg(target_os = "macos")]
-    {
-        let pasteboard = NSPasteboard::generalPasteboard();
-        pasteboard.changeCount() as i64
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        0
-    }
+    let pasteboard = NSPasteboard::generalPasteboard();
+    pasteboard.changeCount() as i64
 }
 
+#[cfg(target_os = "macos")]
 pub fn mark_own_clipboard_write(change_count: i64) {
     IGNORE_CAPTURE_AT.store(change_count, Ordering::SeqCst);
 }
 
+#[cfg(target_os = "macos")]
 pub fn should_ignore_capture(change_count: i64) -> bool {
     change_count == IGNORE_CAPTURE_AT.load(Ordering::SeqCst)
 }
@@ -190,11 +192,6 @@ fn paths_from_legacy_filenames_pasteboard(pasteboard: &NSPasteboard) -> Vec<Path
     paths
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn pasteboard_file_paths() -> Vec<std::path::PathBuf> {
-    Vec::new()
-}
-
 /// Write animated GIF bytes to the general pasteboard.
 #[cfg(target_os = "macos")]
 pub fn write_gif_to_pasteboard(bytes: &[u8], exclude_from_history: bool) -> Result<(), String> {
@@ -226,20 +223,15 @@ pub fn write_gif_to_pasteboard(_bytes: &[u8], _exclude_from_history: bool) -> Re
     Err("GIF pasteboard write is only supported on macOS".to_string())
 }
 
+#[cfg(target_os = "macos")]
 pub fn is_concealed() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        let pasteboard = NSPasteboard::generalPasteboard();
-        let ty = ns_string!("org.nspasteboard.ConcealedType");
-        pasteboard.dataForType(ty).is_some()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        false
-    }
+    let pasteboard = NSPasteboard::generalPasteboard();
+    let ty = ns_string!("org.nspasteboard.ConcealedType");
+    pasteboard.dataForType(ty).is_some()
 }
 
 /// Remember a specific app as the paste target (voice hotkey, palette open, etc.).
+#[cfg(target_os = "macos")]
 pub fn remember_paste_target_for_pid(pid: i32) {
     if pid <= 0 || pid == std::process::id() as i32 {
         return;
@@ -259,6 +251,7 @@ pub fn remember_paste_target_for_pid(pid: i32) {
 }
 
 /// Remember frontmost app before the panel becomes key (call before `show_and_make_key`).
+#[cfg(target_os = "macos")]
 pub fn remember_paste_target() {
     if let Some(pid) = frontmost_pid_excluding_self() {
         remember_paste_target_for_pid(pid);
@@ -266,6 +259,7 @@ pub fn remember_paste_target() {
 }
 
 /// Reactivate the app that had focus before Copyosity (call after `hide_panel`, before Cmd+V).
+#[cfg(target_os = "macos")]
 pub fn restore_paste_target() {
     let pid = PASTE_TARGET_PID.load(Ordering::SeqCst);
     if pid <= 0 {
@@ -296,12 +290,8 @@ fn frontmost_pid_excluding_self() -> Option<i32> {
     Some(pid)
 }
 
-#[cfg(not(target_os = "macos"))]
-fn frontmost_pid_excluding_self() -> Option<i32> {
-    None
-}
-
 /// Last non-Copyosity app remembered before the panel took focus.
+#[cfg(target_os = "macos")]
 pub fn paste_target_pid() -> Option<i32> {
     let pid = PASTE_TARGET_PID.load(Ordering::SeqCst);
     (pid > 0).then_some(pid)
@@ -313,16 +303,12 @@ pub(crate) fn frontmost_pid() -> Option<i32> {
     let app = workspace.frontmostApplication()?;
     Some(app.processIdentifier())
 }
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn frontmost_pid() -> Option<i32> {
-    None
-}
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn own_clipboard_write_is_ignored_once() {
         mark_own_clipboard_write(42);
         assert!(should_ignore_capture(42));
@@ -334,6 +320,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn remember_paste_target_for_pid_ignores_invalid_pids() {
         let previous = PASTE_TARGET_PID.load(Ordering::SeqCst);
         remember_paste_target_for_pid(0);
@@ -347,12 +334,15 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn remember_paste_target_for_pid_is_send_for_background_spawn() {
         let _job: Box<dyn Send + 'static> = Box::new(|| remember_paste_target_for_pid(1));
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn paste_into_target_is_send_for_background_spawn() {
+        use paste::paste_into_target;
         let _job: Box<dyn Send + 'static> = Box::new(paste_into_target);
     }
 

@@ -11,18 +11,15 @@ use super::{
     refresh_paste_focus_if_needed, restore_paste_target, try_ax_paste_for_pid, PASTE_MOUSE_VALID,
     PASTE_MOUSE_X, PASTE_MOUSE_Y, PASTE_TARGET_PID,
 };
-#[cfg(not(target_os = "macos"))]
-use super::{
-    accessibility_trusted, frontmost_pid, has_paste_focus, paste_log, prefers_keyboard_paste,
-    refresh_paste_focus_if_needed, restore_paste_target, try_ax_paste_for_pid, PASTE_TARGET_PID,
-};
 
 /// Whether synthetic Cmd+V should use the session event tap (frontmost app) vs `CGEventPostToPid`.
+#[cfg(target_os = "macos")]
 pub(crate) fn cmd_v_uses_session_tap(pid: i32, frontmost: Option<i32>) -> bool {
     pid <= 0 || frontmost == Some(pid)
 }
 
 /// Spawn automated paste on a background thread after optional accessibility prompt.
+#[cfg(target_os = "macos")]
 pub fn spawn_automated_paste(prompt_if_needed: bool) {
     if !accessibility_trusted(false) {
         if prompt_if_needed {
@@ -37,6 +34,7 @@ pub fn spawn_automated_paste(prompt_if_needed: bool) {
 }
 
 /// Restore the previous target and paste. Call from a background thread after the panel hides.
+#[cfg(target_os = "macos")]
 pub fn paste_into_target() {
     struct GifTempCleanup;
     impl Drop for GifTempCleanup {
@@ -166,11 +164,6 @@ pub fn simulate_cmd_v() -> bool {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn simulate_cmd_v() -> bool {
-    false
-}
-
 #[cfg(target_os = "macos")]
 fn simulate_cmd_v_osascript() -> bool {
     let pid = PASTE_TARGET_PID.load(Ordering::SeqCst);
@@ -230,10 +223,6 @@ fn run_osascript(script: &str) -> bool {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn simulate_cmd_v_osascript() -> bool {
-    false
-}
 #[cfg(target_os = "macos")]
 fn wait_for_frontmost(target_pid: i32) -> bool {
     if target_pid <= 0 {
@@ -246,11 +235,6 @@ fn wait_for_frontmost(target_pid: i32) -> bool {
         activate_pid(target_pid);
         std::thread::sleep(std::time::Duration::from_millis(50 + attempt * 10));
     }
-    false
-}
-
-#[cfg(not(target_os = "macos"))]
-fn wait_for_frontmost(_target_pid: i32) -> bool {
     false
 }
 
@@ -283,9 +267,6 @@ pub(crate) fn capture_mouse_location() {
         PASTE_MOUSE_VALID.store(true, Ordering::SeqCst);
     }
 }
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn capture_mouse_location() {}
 
 #[cfg(target_os = "macos")]
 fn click_saved_mouse() -> bool {
@@ -355,20 +336,10 @@ fn click_saved_mouse() -> bool {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn click_saved_mouse() -> bool {
-    false
-}
-
 #[cfg(target_os = "macos")]
 fn localized_app_name_for_pid(pid: i32) -> Option<String> {
     let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid)?;
     app.localizedName().map(|s| s.to_string())
-}
-
-#[cfg(not(target_os = "macos"))]
-fn localized_app_name_for_pid(_pid: i32) -> Option<String> {
-    None
 }
 
 #[cfg(target_os = "macos")]
@@ -381,12 +352,7 @@ pub(crate) fn activate_pid(pid: i32) -> bool {
     app.activateWithOptions(NSApplicationActivationOptions::ActivateIgnoringOtherApps)
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn activate_pid(_pid: i32) -> bool {
-    false
-}
-
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 

@@ -1054,6 +1054,7 @@ fn app_bundle_id(pid: i32) -> Option<String> {
 }
 
 /// Classify the target app into a context bucket for polishing.
+#[cfg(target_os = "macos")]
 fn classify_app_kind(bundle_id: &str) -> &'static str {
     let b = bundle_id.to_lowercase();
     let has = |needles: &[&str]| needles.iter().any(|n| b.contains(n));

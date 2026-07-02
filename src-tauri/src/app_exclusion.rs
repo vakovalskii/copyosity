@@ -11,6 +11,7 @@ pub enum ExcludableAppSource {
 
 static REMEMBERED_BUNDLE_ID: Mutex<Option<String>> = Mutex::new(None);
 
+#[cfg(any(target_os = "macos", test))]
 pub fn remember_app_identity(identity: &AppIdentity) {
     if macos_app::is_copyosity_bundle(&identity.bundle_id) {
         return;
@@ -22,6 +23,7 @@ pub fn remembered_bundle_id() -> Option<String> {
     REMEMBERED_BUNDLE_ID.lock().unwrap().clone()
 }
 
+#[cfg(target_os = "macos")]
 pub fn remember_from_pid(pid: i32) {
     if let Some(identity) = macos_app::app_identity_for_pid(pid) {
         remember_app_identity(&identity);
