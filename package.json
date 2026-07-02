@@ -1,7 +1,7 @@
 {
   "name": "copyosity",
   "version": "0.6.0",
-  "description": "",
+  "description": "A fast, native clipboard manager with on-device intelligence. Built with Tauri, Svelte, and Rust.",
   "license": "MIT",
   "type": "module",
   "scripts": {
