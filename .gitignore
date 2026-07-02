@@ -45,5 +45,9 @@ icon.png.bak
 theme-check.png
 theme-voice.png
 
+# Tauri updater signing private key — NEVER commit
+.tauri/copyosity-updater.key
+docs/image_2026-07-02_14-00-57.png
+docs/screenshot-app.png
 # --- Local verification artifacts ---
 /outputs/

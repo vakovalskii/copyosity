@@ -66,6 +66,7 @@
   } from "$lib/exclusion-label";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { initPlatform, platformIsMacOS } from "$lib/platform.svelte";
+  import { checkForUpdate, currentVersion, relaunch, type Update } from "$lib/updater";
 
   let settings = $state<AppSettings>({
     ollama_model: "qwen3:4b-instruct-2507-q4_K_M",
@@ -392,6 +393,11 @@
     loadModelCatalog();
     void loadHistoryCounts();
     refreshOllamaStatus();
+    void currentVersion().then((v) => {
+      appVersion = v;
+      return undefined;
+    });
+    void checkUpdates();
     listMicrophones().then((m) => {
       microphones = m;
       return undefined;
@@ -716,7 +722,7 @@
   }
 
   // ---- Sidebar navigation ----
-  type Pane = "hub" | "voice" | "ai" | "history" | "permissions";
+  type Pane = "hub" | "voice" | "ai" | "history" | "permissions" | "updates";
   let activePane = $state<Pane>("hub");
   const panes: { id: Pane; label: string; icon: SectionIconName }[] = [
     { id: "hub", label: "NeuralDeep", icon: "hub" },
@@ -724,7 +730,61 @@
     { id: "ai", label: "Local AI", icon: "ai-tagging" },
     { id: "history", label: "History", icon: "clipboard-panel" },
     { id: "permissions", label: "Permissions", icon: "permissions" },
+    { id: "updates", label: "Updates", icon: "setup" },
   ];
+
+  // ---- Auto-updates ----
+  let appVersion = $state("");
+  let updateChecking = $state(false);
+  let update = $state<Update | null>(null);
+  let updateMessage = $state("");
+  let updateInstalling = $state(false);
+  let updateProgress = $state(0); // 0..100, -1 = indeterminate
+
+  async function checkUpdates() {
+    updateChecking = true;
+    updateMessage = "";
+    update = null;
+    try {
+      const u = await checkForUpdate();
+      if (u) {
+        update = u;
+        updateMessage = `Update available: ${u.version}`;
+      } else {
+        updateMessage = "You're on the latest version.";
+      }
+    } catch (e) {
+      updateMessage = `Check failed: ${e}`;
+    } finally {
+      updateChecking = false;
+    }
+  }
+
+  async function installUpdate() {
+    if (!update) return;
+    updateInstalling = true;
+    updateProgress = -1;
+    let total = 0;
+    let downloaded = 0;
+    try {
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          total = event.data.contentLength ?? 0;
+          updateProgress = total ? 0 : -1;
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          updateProgress = total ? Math.round((downloaded / total) * 100) : -1;
+        } else if (event.event === "Finished") {
+          updateProgress = 100;
+        }
+      });
+      updateMessage = "Installed — restarting…";
+      await relaunch();
+    } catch (e) {
+      updateMessage = `Install failed: ${e}`;
+      updateInstalling = false;
+    }
+  }
   const visiblePanes = $derived(
     platformIsMacOS() ? panes : panes.filter((p) => p.id !== "permissions"),
   );
@@ -1179,6 +1239,49 @@
               <div class="status-hint">
                 After a new build or reinstall, remove Copyosity from Accessibility and add it again if paste stops working.
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    {:else if activePane === "updates"}
+      <div class="pane-head">
+        <div class="pane-title">Updates</div>
+        <div class="pane-subtitle">Copyosity updates itself from GitHub Releases — signed and verified.</div>
+      </div>
+
+      <section class="form-section">
+        <div class="form-section-title form-section-title--with-icon"><SectionIcon name="setup" />Version</div>
+        <div class="form-section-body">
+          <div class="inset-list">
+            <div class="status-step">
+              <div class="status-row">
+                <span class="status-dot" class:ok={!update && !!updateMessage} class:checking={updateChecking}></span>
+                <span class="status-text">
+                  Current: <code>{appVersion || "…"}</code>
+                  {#if update}— new version <code>{update.version}</code> available{/if}
+                </span>
+                <button class="status-action app-btn" type="button" disabled={updateChecking || updateInstalling} onclick={checkUpdates}>
+                  {updateChecking ? "Checking…" : "Check now"}
+                </button>
+              </div>
+              {#if updateMessage && !update}
+                <div class="status-hint">{updateMessage}</div>
+              {/if}
+              {#if update}
+                <div class="status-hint">
+                  {#if update.body}{update.body}{/if}
+                </div>
+                <button class="app-btn" type="button" disabled={updateInstalling} onclick={installUpdate}>
+                  {#if updateInstalling}
+                    {updateProgress >= 0 ? `Installing… ${updateProgress}%` : "Installing…"}
+                  {:else}
+                    Download &amp; install, then restart
+                  {/if}
+                </button>
+                {#if updateInstalling && updateProgress >= 0}
+                  <div class="update-progress"><div class="update-progress-fill" style="width: {updateProgress}%"></div></div>
+                {/if}
+              {/if}
             </div>
           </div>
         </div>
@@ -1867,5 +1970,20 @@
   .dirty-save:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+
+  .update-progress {
+    margin-top: 10px;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+
+  .update-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #10b981, #34d399);
+    border-radius: 999px;
+    transition: width 0.2s ease;
   }
 </style>

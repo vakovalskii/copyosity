@@ -1,11 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "settings",
-  "description": "Settings window — no paste or clipboard activate commands",
-  "windows": ["settings"],
+  "description": "Settings window \u2014 no paste or clipboard activate commands",
+  "windows": [
+    "settings"
+  ],
   "permissions": [
     "core:event:default",
     "opener:default",
-    "settings-window-commands"
+    "settings-window-commands",
+    "updater:default",
+    "process:default"
   ]
 }

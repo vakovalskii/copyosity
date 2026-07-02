@@ -32,6 +32,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -42,6 +43,14 @@
     "macOS": {
       "signingIdentity": "Developer ID Application: Valeriy Kovalsky (A933C2TJXU)",
       "entitlements": "Entitlements.plist"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/vakovalskii/copyosity/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlFM0QzODE3MjUxQjIwNzUKUldSMUlCc2xGemc5bnE2eUpFMEppanVYMi9aM0tSVi9xSzY1QmltUVJadkNCNmdKM3FVWUg2KzcK"
     }
   }
 }

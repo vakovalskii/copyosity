@@ -44,6 +44,10 @@ jobs:
         run: npm ci
 
       - name: Build (Tauri bundle)
+        env:
+          # Signs the updater artifacts (.sig) so auto-update can verify them.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: npm run tauri build
 
       - name: Upload installers
