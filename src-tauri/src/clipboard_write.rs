@@ -219,6 +219,8 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn sweep_stale_gif_temp_files_removes_old_only() {
+        use std::fs::OpenOptions;
+
         let base_dir =
             std::env::temp_dir().join(format!("copyosity-gif-paste-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base_dir);
@@ -227,10 +229,20 @@ mod tests {
         let old_path = base_dir.join("gif-old.gif");
         let new_path = base_dir.join("gif-new.gif");
         std::fs::write(&old_path, b"GIF89a").unwrap();
-        std::thread::sleep(Duration::from_millis(5));
         std::fs::write(&new_path, b"GIF89a").unwrap();
 
-        remove_stale_files_in_dir(&base_dir, Duration::from_millis(2));
+        let now = SystemTime::now();
+        let stale_mtime = now
+            .checked_sub(Duration::from_secs(60))
+            .expect("system clock before unix epoch");
+        OpenOptions::new()
+            .write(true)
+            .open(&old_path)
+            .unwrap()
+            .set_modified(stale_mtime)
+            .unwrap();
+
+        remove_stale_files_in_dir(&base_dir, Duration::from_secs(30));
 
         assert!(!old_path.exists());
         assert!(new_path.exists());
