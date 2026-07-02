@@ -17,24 +17,24 @@ Built with Tauri 2, Svelte 5, Rust, and SQLite.
 Clipboard history with search, History / Starred tabs, tag and format filters,
 and image cards with OCR previews:
 
-![Clipboard overlay](docs/screenshots/overlay-horizontal.png)
+<img src="docs/screenshots/overlay-horizontal.png" alt="Clipboard overlay with History tab, search, and tag filters" width="720">
 
 Command / agent palette — web search and a streaming research agent when
 NeuralDeep Hub is enabled (`⌘⇧Space`, tray menu, or the sparkles button in the
 overlay):
 
-![Command palette](docs/screenshots/agent-search.png)
+<img src="docs/screenshots/agent-search.png" alt="Command palette in Agent mode" width="640">
+
+NeuralDeep Hub settings — one master switch for tagging, transcription, web
+search, and voice polishing; optional fallback to local Ollama for tagging:
+
+<img src="docs/screenshots/settings-neuraldeep.png" alt="NeuralDeep Hub settings with master switch" width="640">
 
 Context-aware voice polishing — hold a shortcut to dictate; the hub LLM cleans
 the transcription (punctuation, filler, lists) and adapts it to the app
 you're pasting into:
 
-![Voice settings](docs/screenshots/settings-voice.png)
-
-NeuralDeep Hub settings — one master switch for tagging, transcription, web
-search, and voice polishing; optional fallback to local Ollama for tagging:
-
-![NeuralDeep Hub settings](docs/screenshots/settings-neuraldeep.png)
+<img src="docs/screenshots/settings-voice.png" alt="Voice settings with transcription and AI polish" width="640">
 
 ## Features
 
