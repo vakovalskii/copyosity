@@ -185,7 +185,7 @@ When the focused element cannot be read, the AX tree walk picks the best editabl
 
 ### Accessibility trust probe
 
-`accessibility_trusted` uses `AXIsProcessTrusted` plus a live probe on Copyosity's own AX element (`probe_own_ax_access`). This avoids false negatives when an Electron app (e.g. Cursor) is frontmost but Copyosity already has Accessibility permission.
+`accessibility_trusted` uses `AXIsProcessTrusted` (TCC). A live AX probe on Copyosity's own element is not used for the Settings check because it can return `kAXErrorCannotComplete` while trust is already granted.
 
 ## Extending keyboard-paste apps
 

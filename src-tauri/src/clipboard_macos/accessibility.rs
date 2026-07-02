@@ -500,10 +500,10 @@ pub(crate) fn has_paste_focus() -> bool {
 /// Whether Copyosity may use Accessibility APIs (not the frontmost app's AX tree).
 #[cfg(target_os = "macos")]
 fn accessibility_live_check() -> bool {
-    if !accessibility_process_trusted() {
-        return false;
-    }
-    probe_own_ax_access()
+    // `AXIsProcessTrusted` is the canonical TCC check. A live AX probe on our own
+    // process can return `kAXErrorCannotComplete` (-25208) even when trust is granted,
+    // which produced false "not granted" UI while System Settings still showed Copyosity on.
+    accessibility_process_trusted()
 }
 
 /// `AXIsProcessTrusted` — does not depend on which app is frontmost.
@@ -515,29 +515,6 @@ fn accessibility_process_trusted() -> bool {
             fn AXIsProcessTrusted() -> bool;
         }
         AXIsProcessTrusted()
-    }
-}
-
-/// Probe our own process AX element; avoids false negatives when Electron (Cursor) is frontmost.
-#[cfg(target_os = "macos")]
-fn probe_own_ax_access() -> bool {
-    const K_AX_ERROR_SUCCESS: i32 = 0;
-    const K_AX_ERROR_NO_VALUE: i32 = -25205;
-
-    unsafe {
-        let pid = std::process::id() as i32;
-        let Some(app) = ax_create_application(pid) else {
-            return false;
-        };
-        let attr = NSString::from_str("AXRole");
-        let mut value: *mut std::ffi::c_void = std::ptr::null_mut();
-        let err =
-            ax_copy_attribute_value(app, objc2::rc::Retained::as_ptr(&attr).cast(), &mut value);
-        if !value.is_null() {
-            cf_release(value);
-        }
-        release_ax_element(app);
-        err == K_AX_ERROR_SUCCESS || err == K_AX_ERROR_NO_VALUE
     }
 }
 
@@ -603,6 +580,15 @@ mod tests {
         assert!(bundle_prefers_keyboard_paste("com.apple.iChat"));
         assert!(!bundle_prefers_keyboard_paste("com.apple.Notes"));
         assert!(!bundle_prefers_keyboard_paste("com.tinyspeck.slackmacgap"));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn accessibility_trusted_matches_process_trust() {
+        assert_eq!(
+            accessibility_trusted(false),
+            accessibility_process_trusted()
+        );
     }
 
     #[test]

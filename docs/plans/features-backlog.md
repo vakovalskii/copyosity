@@ -6,7 +6,7 @@ Not a feature spec — items with a linked `feature-*.md` keep the full design t
 
 **Related plans:** [feature-overlay-content-tag-filters.md](feature-overlay-content-tag-filters.md) · [feature-voice-hud-accessibility.md](feature-voice-hud-accessibility.md) · [feature-appearance-theme.md](feature-appearance-theme.md) · [audit-hig.md](audit-hig.md) · [feature-quick-look-preview.md](feature-quick-look-preview.md)
 
-**Legend:** **fork** — added on the Copyosity fork (pre–upstream merge, preserved in 0.5.1) · **upstream** — brought in with upstream v0.5.1 merge
+**Legend:** **fork** — original Copyosity fork work · **upstream** — merged from upstream **v0.5.1** into Copyosity **0.6.0**
 
 ---
 
@@ -63,35 +63,35 @@ Not a feature spec — items with a linked `feature-*.md` keep the full design t
 
 ---
 
-## Shipped — security hardening (fork)
+## Shipped — 0.6.0
 
-- [x] **Explicit Tauri capabilities for the** `settings` **window** — **0.3.0** — first scoped `settings.json` instead of a shared broad default.
+Fork merge release: upstream **v0.5.1** integrated with fork overlay, paste pipeline, security hardening, and HIG polish. Release details: [CHANGELOG.md](../../CHANGELOG.md#060---unreleased).
+
+### Fork — security hardening
+
+- [x] **Explicit Tauri capabilities for the** `settings` **window** — first scoped `settings.json` instead of a shared broad default.
 
   ```
-  **0.4.0:** three-window ACL — `main.json`, `settings.json`, `voice_overlay.json` with explicit `commands.allow` via permission sets. **0.5.1:** `palette.json` added for the command palette.
+  Four-window ACL — `main.json`, `settings.json`, `voice_overlay.json`, and `palette.json` with explicit `commands.allow` via permission sets.
   ```
 
-- [x] **Validate Ollama model names before** `ollama pull` — **0.3.0** — `ollama::validate_model_name` (trim, length ≤ 128, safe character set) before pull and settings persistence. `pull_ollama_model` stays on the settings capability set only.
+- [x] **Validate Ollama model names before** `ollama pull` — `ollama::validate_model_name` (trim, length ≤ 128, safe character set) before pull and settings persistence. `pull_ollama_model` stays on the settings capability set only.
 
-- [x] `cargo audit` **in release workflow** — **0.4.0** — dependency audit step in GitHub Actions before release artifacts ship.
+- [x] `cargo audit` **in release workflow** — dependency audit step in GitHub Actions before release artifacts ship.
 
-- [x] **Per-window IPC command scoping** — **0.4.0** — sensitive commands limited per window: `paste_entry` / `activate_entry` on `main` only; `clear_history`, `start_ollama_server`, exclusion editing on `settings` only; `voice_overlay` events-only; palette scoped to hub search/agent/voice IPC.
+- [x] **Per-window IPC command scoping** — sensitive commands limited per window: `paste_entry` / `activate_entry` on `main` only; `clear_history`, `start_ollama_server`, exclusion editing on `settings` only; `voice_overlay` events-only; palette scoped to hub search/agent/voice IPC.
 
----
+### Fork — developer toolchain
 
-## Shipped — developer toolchain (fork)
+- [x] **Lefthook pre-commit** — parallel staged auto-fix (Oxfmt, Oxlint, Stylelint, `cargo fmt`, `cargo clippy --fix --lib`); full gate remains `make check` / CI.
 
-- [x] **Lefthook pre-commit** — **0.4.0** — parallel staged auto-fix (Oxfmt, Oxlint, Stylelint, `cargo fmt`, `cargo clippy --fix --lib`); full gate remains `make check` / CI.
+- [x] **Oxlint / Oxfmt / Stylelint +** `make fix` / `make lint` / `make check` — validation contract in `AGENTS.md`.
 
-- [x] **Oxlint / Oxfmt / Stylelint +** `make fix` / `make lint` / `make check` — **0.4.0** — validation contract in `AGENTS.md`.
+- [x] **macOS Intel (x86_64) release matrix** — `make build-macos-intel`, arch-specific DMGs in `dist/macos/`. Plan: [build-macos-intel.md](build-macos-intel.md).
 
-- [x] **macOS Intel (x86_64) release matrix** — **0.4.0** — `make build-macos-intel`, arch-specific DMGs in `dist/macos/`. Plan: [build-macos-intel.md](build-macos-intel.md).
+### Fork — features
 
----
-
-## Shipped — features (fork)
-
-Clipboard overlay and macOS integration (mostly **0.4.0**, preserved through **0.5.1** merge):
+Clipboard overlay and macOS integration:
 
 - [x] **macOS paste pipeline** — `clipboard_macos/` on **objc2**: paste-target remember/restore, AX tree walk, synthetic Cmd+V, Accessibility trust; panel hides before user-initiated paste; Messages / Electron targets.
 
@@ -109,7 +109,9 @@ Clipboard overlay and macOS integration (mostly **0.4.0**, preserved through **0
 
 - [x] **Image capture & card meta** — PNG / JPG / GIF from pasteboard or Finder (~20 MB); format badges and filter chips; dimensions and file size on cards (`image_format`, `image_width`, `image_height`, `image_byte_size`). _Deferred follow-up:_ full image-pipeline reconciliation (legacy rows, retag format-tag drift) — track in a future backlog item if needed.
 
-Settings and product policy (fork):
+- [x] **On-device OCR** (macOS Vision) — `ocr_text` in DB, overlay search, live `entry-ocr` updates; recognized text under image thumbnails on cards (`imageOcrPreviewText` / `ClipboardCard`). Quick Look will show the same text when that feature ships.
+
+Settings and product policy:
 
 - [x] **AI tagging toggle** — off by default; `is_tagging_ready` IPC; Ollama onboarding per `CLAUDE.md`; tag backfill when enabled.
 
@@ -121,17 +123,13 @@ Settings and product policy (fork):
 
 - [x] **Design system & HIG pass (baseline)** — `tokens.css`, `form-controls.css`, reduced motion/transparency, overlay a11y baseline. Tracker: [audit-hig.md](audit-hig.md).
 
----
+### From upstream (v0.5.1)
 
-## Shipped — upstream merge (0.5.1)
-
-Brought in with upstream; not original fork work:
+Not original fork work; merged into **0.6.0**:
 
 - [x] **NeuralDeep Hub** — settings pane, hub tagging / transcription / search, `/v1/models` list.
 
 - [x] **Command palette / Agent** — `Cmd+Shift+Space`, ReAct agent, session history, draggable palette window.
-
-- [x] **On-device OCR** (macOS Vision) — **0.6.0** — `ocr_text` in DB, overlay search, live `entry-ocr` updates; recognized text under image thumbnails on cards (`imageOcrPreviewText` / `ClipboardCard`). Quick Look will show the same text when that feature ships.
 
 - [x] **Hub multimodal image tagging**.
 
@@ -149,11 +147,9 @@ Brought in with upstream; not original fork work:
 
 - [x] **Windows experimental CI** — hollow shell build (`build-windows` job). macOS remains the supported product.
 
----
+### Command palette polish
 
-## Shipped — palette baseline (0.6.0)
-
-Command palette polish items completed in this release (remainder tracked above):
+Completed in **0.6.0** (open remainder tracked above):
 
 - [x] Agent/Web mode switch with Tab; session history (localStorage, 50 sessions)
 - [x] Streaming agent progress + error display; markdown answers
