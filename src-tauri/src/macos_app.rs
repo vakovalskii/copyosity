@@ -1,7 +1,6 @@
 use std::collections::HashMap;
-use std::path::Path;
 #[cfg(target_os = "macos")]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const COPYOSITY_BUNDLE_ID: &str = "com.vkovalskii.copyosity";
 

@@ -20,8 +20,7 @@ pub(crate) use paste::activate_pid;
 pub(crate) use paste::capture_mouse_location;
 
 #[cfg(target_os = "macos")]
-use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::sync::atomic::{AtomicI32, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64, Ordering};
 #[cfg(target_os = "macos")]
 use std::sync::Mutex;
 
