@@ -26,6 +26,8 @@
     updateAppSettings,
     rebindVoiceShortcut,
     rebindPaletteShortcut,
+    getQuickMenuShortcut,
+    setQuickMenuShortcut,
     listMicrophones,
     checkAccessibility,
     openAccessibilitySettings,
@@ -41,6 +43,7 @@
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import SectionIcon, { type SectionIconName } from "$lib/components/SectionIcon.svelte";
+  import SnippetsEditor from "$lib/components/SnippetsEditor.svelte";
   import { confirmDestructive } from "$lib/confirm";
   import {
     clearAllConfirmBody,
@@ -392,6 +395,7 @@
     });
     loadModelCatalog();
     void loadHistoryCounts();
+    void loadQuickMenuShortcut();
     refreshOllamaStatus();
     void currentVersion().then((v) => {
       appVersion = v;
@@ -427,6 +431,11 @@
     const unlistenClipboard = listen("clipboard-changed", onHistoryCountsEvent);
     const unlistenHistory = listen("history-changed", onHistoryCountsEvent);
 
+    // "Edit Snippets…" from the quick menu deep-links here.
+    const unlistenSnippets = listen("open-snippets", () => {
+      activePane = "quickmenu";
+    });
+
     const unlistenFocus = win.onFocusChanged(({ payload: focused }) => {
       if (focused) {
         void updateAccessibilityStatus();
@@ -441,6 +450,7 @@
       unlistenShown.then((fn) => fn());
       unlistenClipboard.then((fn) => fn());
       unlistenHistory.then((fn) => fn());
+      unlistenSnippets.then((fn) => fn());
       unlistenFocus.then((fn) => fn());
     };
   });
@@ -722,16 +732,37 @@
   }
 
   // ---- Sidebar navigation ----
-  type Pane = "hub" | "voice" | "ai" | "history" | "permissions" | "updates";
+  type Pane = "hub" | "voice" | "quickmenu" | "ai" | "history" | "permissions" | "updates";
   let activePane = $state<Pane>("hub");
   const panes: { id: Pane; label: string; icon: SectionIconName }[] = [
     { id: "hub", label: "NeuralDeep", icon: "hub" },
     { id: "voice", label: "Voice", icon: "voice" },
+    { id: "quickmenu", label: "Quick Menu", icon: "clipboard-panel" },
     { id: "ai", label: "Local AI", icon: "ai-tagging" },
     { id: "history", label: "History", icon: "clipboard-panel" },
     { id: "permissions", label: "Permissions", icon: "permissions" },
     { id: "updates", label: "Updates", icon: "setup" },
   ];
+
+  // ---- Quick menu (Clipy-style native menu) ----
+  let quickMenuShortcut = $state("cmd+shift+c");
+  let quickMenuNotice = $state("");
+  async function loadQuickMenuShortcut() {
+    try {
+      quickMenuShortcut = await getQuickMenuShortcut();
+    } catch {
+      // keep default
+    }
+  }
+  async function saveQuickMenuShortcut() {
+    quickMenuNotice = "";
+    try {
+      quickMenuShortcut = await setQuickMenuShortcut(quickMenuShortcut);
+      quickMenuNotice = "Saved";
+    } catch (e) {
+      quickMenuNotice = `${e}`;
+    }
+  }
 
   // ---- Auto-updates ----
   let appVersion = $state("");
@@ -1194,6 +1225,42 @@
             {/if}
           </div>
         </fieldset>
+      </section>
+    {:else if activePane === "quickmenu"}
+      <div class="pane-head">
+        <div class="pane-title">Quick Menu</div>
+        <div class="pane-subtitle">A native pop-up menu for recent history and saved snippets — paste in two clicks, no overlay browsing.</div>
+      </div>
+
+      <section class="form-section">
+        <div class="form-section-title form-section-title--with-icon"><SectionIcon name="clipboard-panel" />Hotkey</div>
+        <div class="form-section-body">
+          <label class="form-field">
+            <span class="form-label">Quick menu shortcut</span>
+            <div class="quickmenu-shortcut-row">
+              <input
+                class="form-input"
+                type="text"
+                placeholder="cmd+shift+c"
+                bind:value={quickMenuShortcut}
+                onkeydown={(e) => e.key === "Enter" && saveQuickMenuShortcut()}
+              />
+              <button class="app-btn" type="button" onclick={saveQuickMenuShortcut}>Save</button>
+            </div>
+            <div class="form-hint">
+              Combine <code>cmd</code>, <code>option</code>, <code>ctrl</code>, <code>shift</code> with a key,
+              e.g. <code>cmd+shift+c</code>. Press it anywhere to pop the menu at your cursor; recent items
+              1–9 have number keys. {#if quickMenuNotice}<strong>{quickMenuNotice}</strong>{/if}
+            </div>
+          </label>
+        </div>
+      </section>
+
+      <section class="form-section">
+        <div class="form-section-title form-section-title--with-icon"><SectionIcon name="clipboard-panel" />Snippets</div>
+        <div class="form-section-body">
+          <SnippetsEditor />
+        </div>
       </section>
     {:else if activePane === "permissions"}
       <div class="pane-head">
@@ -1763,6 +1830,15 @@
     background: var(--surface-page);
     font-family: var(--font-family-system);
     color: var(--color-text-body);
+  }
+
+  .quickmenu-shortcut-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .quickmenu-shortcut-row .form-input {
+    flex: 1 1 auto;
   }
 
   .settings-shell {
