@@ -144,6 +144,26 @@ pub struct Collection {
     pub sort_order: i64,
 }
 
+/// A snippet folder — a named group of reusable snippets shown as a submenu in
+/// the native quick menu (Clipy-style).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SnippetFolder {
+    pub id: i64,
+    pub name: String,
+    pub position: i64,
+}
+
+/// A reusable text snippet (email, address, phone, prompt, …) that pastes in
+/// two clicks from the quick menu.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Snippet {
+    pub id: i64,
+    pub folder_id: i64,
+    pub title: String,
+    pub content: String,
+    pub position: i64,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ExcludedApp {
@@ -402,6 +422,22 @@ impl Database {
                 bundle_id TEXT NOT NULL UNIQUE
             );
 
+            CREATE TABLE IF NOT EXISTS snippet_folders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS snippets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                folder_id INTEGER NOT NULL REFERENCES snippet_folders(id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_snippets_folder ON snippets(folder_id);
+
             CREATE INDEX IF NOT EXISTS idx_clipboard_tags_entry ON clipboard_tags(entry_id);
             CREATE INDEX IF NOT EXISTS idx_clipboard_tags_tag ON clipboard_tags(tag);
             CREATE INDEX IF NOT EXISTS idx_clipboard_tag_state_status ON clipboard_tag_state(status);
@@ -464,6 +500,28 @@ impl Database {
                 [],
             );
             conn.execute_batch("PRAGMA user_version = 3;")?;
+        }
+
+        // v4: snippet folders + snippets for the native quick menu.
+        if version < 4 {
+            conn.execute_batch(
+                "
+                CREATE TABLE IF NOT EXISTS snippet_folders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    position INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS snippets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    folder_id INTEGER NOT NULL REFERENCES snippet_folders(id) ON DELETE CASCADE,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    position INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_snippets_folder ON snippets(folder_id);
+                PRAGMA user_version = 4;
+                ",
+            )?;
         }
 
         Ok(())
@@ -1155,6 +1213,134 @@ impl Database {
     pub fn delete_collection(&self, id: i64) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM collections WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    // ---- Snippets ----
+
+    pub fn get_snippet_folders(&self) -> Result<Vec<SnippetFolder>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT id, name, position FROM snippet_folders ORDER BY position, id")?;
+        let folders = stmt
+            .query_map([], |row| {
+                Ok(SnippetFolder {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    position: row.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(folders)
+    }
+
+    pub fn get_snippets(&self) -> Result<Vec<Snippet>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, folder_id, title, content, position FROM snippets ORDER BY folder_id, position, id",
+        )?;
+        let snippets = stmt
+            .query_map([], |row| {
+                Ok(Snippet {
+                    id: row.get(0)?,
+                    folder_id: row.get(1)?,
+                    title: row.get(2)?,
+                    content: row.get(3)?,
+                    position: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(snippets)
+    }
+
+    pub fn get_snippet_by_id(&self, id: i64) -> Result<Option<Snippet>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, folder_id, title, content, position FROM snippets WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query(params![id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(Snippet {
+                id: row.get(0)?,
+                folder_id: row.get(1)?,
+                title: row.get(2)?,
+                content: row.get(3)?,
+                position: row.get(4)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn create_snippet_folder(&self, name: &str) -> Result<i64, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let next_pos: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(position) + 1, 0) FROM snippet_folders",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        conn.execute(
+            "INSERT INTO snippet_folders (name, position) VALUES (?1, ?2)",
+            params![name, next_pos],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn rename_snippet_folder(&self, id: i64, name: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE snippet_folders SET name = ?2 WHERE id = ?1",
+            params![id, name],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_snippet_folder(&self, id: i64) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM snippet_folders WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn create_snippet(
+        &self,
+        folder_id: i64,
+        title: &str,
+        content: &str,
+    ) -> Result<i64, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let next_pos: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(position) + 1, 0) FROM snippets WHERE folder_id = ?1",
+                params![folder_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        conn.execute(
+            "INSERT INTO snippets (folder_id, title, content, position) VALUES (?1, ?2, ?3, ?4)",
+            params![folder_id, title, content, next_pos],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn update_snippet(
+        &self,
+        id: i64,
+        title: &str,
+        content: &str,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE snippets SET title = ?2, content = ?3 WHERE id = ?1",
+            params![id, title, content],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_snippet(&self, id: i64) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM snippets WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -2142,7 +2328,8 @@ mod tests {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        // v3 (and any later migrations) applied.
+        assert!(version >= 3);
     }
 
     #[test]

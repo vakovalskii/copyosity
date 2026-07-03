@@ -627,6 +627,159 @@ pub fn paste_entry(app: tauri::AppHandle, text: String) -> Result<(), String> {
     paste_text_into_target(&app, text)
 }
 
+// ---- Quick menu (native Clipy-style menu) paste helpers ----
+//
+// Unlike the overlay actions, the quick menu has no panel to hide, so these
+// paste directly into a captured target pid (mirroring `palette_insert`).
+
+/// Paste a history entry (by id) into `target_pid` from the native quick menu.
+#[cfg(target_os = "macos")]
+pub fn quick_menu_paste_entry(
+    db: &Arc<Database>,
+    entry_id: i64,
+    target_pid: i32,
+) -> Result<(), String> {
+    let Some(entry) = db.get_entry_by_id(entry_id).map_err(|e| e.to_string())? else {
+        return Ok(());
+    };
+    {
+        let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+        write_entry_for_paste(&mut clipboard, &entry)?;
+    }
+    if target_pid > 0 {
+        crate::clipboard_macos::remember_paste_target_for_pid(target_pid);
+    }
+    crate::clipboard_macos::spawn_automated_paste(false);
+    Ok(())
+}
+
+/// Paste arbitrary text (a snippet) into `target_pid` from the native quick menu.
+#[cfg(target_os = "macos")]
+pub fn quick_menu_paste_text(text: String, target_pid: i32) -> Result<(), String> {
+    {
+        let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+        clipboard_write::write_text(&mut clipboard, text, ClipboardWriteMode::Paste)?;
+    }
+    if target_pid > 0 {
+        crate::clipboard_macos::remember_paste_target_for_pid(target_pid);
+    }
+    crate::clipboard_macos::spawn_automated_paste(false);
+    Ok(())
+}
+
+// ---- Quick menu shortcut (stored under its own settings key) ----
+
+#[tauri::command]
+pub fn get_quick_menu_shortcut(db: State<'_, Arc<Database>>) -> Result<String, String> {
+    Ok(db
+        .get_setting("quick_menu_shortcut")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| crate::DEFAULT_QUICK_MENU_SHORTCUT.to_string()))
+}
+
+#[tauri::command]
+pub fn set_quick_menu_shortcut(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<Database>>,
+    shortcut: String,
+) -> Result<String, String> {
+    let trimmed = shortcut.trim();
+    db.set_setting("quick_menu_shortcut", trimmed)
+        .map_err(|e| e.to_string())?;
+    crate::register_quick_menu_shortcut(&app)
+}
+
+// ---- Snippet commands ----
+
+#[tauri::command]
+pub fn get_snippet_folders(
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<crate::db::SnippetFolder>, String> {
+    db.get_snippet_folders().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_snippets(db: State<'_, Arc<Database>>) -> Result<Vec<crate::db::Snippet>, String> {
+    db.get_snippets().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_snippet_folder(db: State<'_, Arc<Database>>, name: String) -> Result<i64, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("Folder name cannot be empty".to_string());
+    }
+    db.create_snippet_folder(trimmed).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn rename_snippet_folder(
+    db: State<'_, Arc<Database>>,
+    id: i64,
+    name: String,
+) -> Result<(), String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("Folder name cannot be empty".to_string());
+    }
+    db.rename_snippet_folder(id, trimmed)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_snippet_folder(db: State<'_, Arc<Database>>, id: i64) -> Result<(), String> {
+    db.delete_snippet_folder(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_snippet(
+    db: State<'_, Arc<Database>>,
+    folder_id: i64,
+    title: String,
+    content: String,
+) -> Result<i64, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("Snippet title cannot be empty".to_string());
+    }
+    db.create_snippet(folder_id, title, &content)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_snippet(
+    db: State<'_, Arc<Database>>,
+    id: i64,
+    title: String,
+    content: String,
+) -> Result<(), String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("Snippet title cannot be empty".to_string());
+    }
+    db.update_snippet(id, title, &content)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_snippet(db: State<'_, Arc<Database>>, id: i64) -> Result<(), String> {
+    db.delete_snippet(id).map_err(|e| e.to_string())
+}
+
+/// Paste a snippet (by id) into the app that was frontmost when the quick menu
+/// opened. Also usable from the settings UI for a quick test.
+#[tauri::command]
+pub fn paste_snippet(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<Database>>,
+    id: i64,
+) -> Result<(), String> {
+    let Some(snippet) = db.get_snippet_by_id(id).map_err(|e| e.to_string())? else {
+        return Ok(());
+    };
+    paste_text_into_target(&app, snippet.content)
+}
+
 #[tauri::command]
 pub fn check_accessibility(prompt: bool) -> Result<bool, String> {
     Ok(crate::clipboard_macos::accessibility_trusted(prompt))
