@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { ClipboardEntry } from "$lib/types";
-  import { copyEntry, activateEntry, deleteEntry, pinEntry, retagEntry } from "$lib/api";
+  import { copyEntry, copyText, activateEntry, deleteEntry, pinEntry, retagEntry } from "$lib/api";
   import { prepareBusyUi } from "$lib/run-with-busy-ui";
   import {
     cardTagFooterTruncateFlags,
@@ -241,6 +241,21 @@
     }
   }
 
+  /** Copy the OCR-recognised text of an image to the clipboard. */
+  async function handleCopyOcr(e: MouseEvent) {
+    e.stopPropagation();
+    const text = entry.ocr_text?.trim();
+    if (!text) return;
+    try {
+      await copyText(text);
+      if (!mounted) return;
+      showCopiedFeedback();
+    } catch {
+      if (!mounted) return;
+      announceCopyFailure();
+    }
+  }
+
   function handleCardKeydown(e: KeyboardEvent) {
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
@@ -313,6 +328,9 @@
   const ocrPreview = $derived(
     compactVertical ? "" : imageOcrPreviewText(entry.content_type, entry.ocr_text),
   );
+  const hasOcrText = $derived(
+    entry.content_type === "image" && !!entry.ocr_text?.trim(),
+  );
   const imageFormatBadge = $derived(
     entry.content_type === "image"
       ? resolveImageFormatBadge(entry.image_format, entry.image_thumb)
@@ -365,6 +383,20 @@
           </span>
           <svg class="action-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path d="M5.22 3.12 L5.22 10.30 C5.22 11.37 5.75 11.92 6.82 11.92 L11.68 11.92 C12.75 11.92 13.28 11.37 13.28 10.30 L13.28 3.12 C13.28 2.04 12.75 1.50 11.68 1.50 L6.82 1.50 C5.75 1.50 5.22 2.04 5.22 3.12 Z M7.99 3.27 C7.76 3.27 7.66 3.12 7.66 2.97 L7.66 2.86 C7.66 2.70 7.76 2.55 7.99 2.55 L10.51 2.55 C10.74 2.55 10.84 2.70 10.84 2.86 L10.84 2.97 C10.84 3.12 10.74 3.27 10.51 3.27 Z M2.72 12.88 C2.72 13.96 3.25 14.50 4.32 14.50 L9.18 14.50 C10.25 14.50 10.78 13.95 10.78 12.88 L10.78 8.84 C10.78 8.18 10.70 7.89 10.29 7.47 L7.44 4.57 C7.05 4.17 6.72 4.08 6.14 4.08 L4.32 4.08 C3.25 4.08 2.72 4.62 2.72 5.70 Z M3.55 12.86 L3.55 5.71 C3.55 5.20 3.82 4.91 4.36 4.91 L6.05 4.91 L6.05 7.91 C6.05 8.56 6.39 8.88 7.03 8.88 L9.95 8.88 L9.95 12.86 C9.95 13.38 9.67 13.67 9.13 13.67 L4.35 13.67 C3.82 13.67 3.55 13.38 3.55 12.86 Z M7.12 8.10 C6.92 8.10 6.83 8.02 6.83 7.81 L6.83 5.10 L9.79 8.10 Z" />
+          </svg>
+        </button>
+      {/if}
+      {#if hasOcrText}
+        <button
+          class="action-btn app-btn"
+          onclick={handleCopyOcr}
+          aria-label="Copy recognised text"
+          title="Copy recognised text"
+        >
+          <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2" />
+            <line x1="12" y1="4" x2="12" y2="20" />
+            <line x1="9" y1="20" x2="15" y2="20" />
           </svg>
         </button>
       {/if}
@@ -616,6 +648,7 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
+    gap: var(--card-type-gap);
     margin-bottom: var(--space-stack);
     flex-shrink: 0;
   }
@@ -624,12 +657,15 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-segment-inset);
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   .type-label {
     display: inline-flex;
     align-items: center;
     gap: var(--card-type-gap);
+    max-width: 100%;
     width: fit-content;
     padding: var(--card-type-pad);
     border-radius: var(--radius-pill);
@@ -640,7 +676,15 @@
     color: var(--color-text-body);
   }
 
+  .type-label > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
   .format-suffix {
+    flex-shrink: 0;
     font-weight: 700;
     font-size: var(--font-size-2xs);
     letter-spacing: 0.08em;
@@ -656,6 +700,9 @@
   .card-actions {
     display: flex;
     gap: var(--space-segment-inset);
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    align-items: center;
   }
 
   .card-actions .action-btn {

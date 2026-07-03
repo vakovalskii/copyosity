@@ -214,6 +214,10 @@ export async function isTaggingReady(): Promise<boolean> {
   return invoke("is_tagging_ready");
 }
 
+export async function copyText(text: string): Promise<void> {
+  return invoke("copy_text", { text });
+}
+
 export async function copyEntry(entryId: number): Promise<void> {
   return invoke("copy_entry", { entryId });
 }

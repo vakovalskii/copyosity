@@ -521,6 +521,14 @@ pub fn copy_entry(db: State<'_, Arc<Database>>, entry_id: i64) -> Result<(), Str
     Ok(())
 }
 
+/// Copy arbitrary text (e.g. the OCR-recognised text of an image) to the clipboard.
+#[tauri::command]
+pub fn copy_text(text: String) -> Result<(), String> {
+    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard_write::set_text(&mut clipboard, text)?;
+    Ok(())
+}
+
 fn write_entry_for_paste(clipboard: &mut Clipboard, entry: &ClipboardEntry) -> Result<(), String> {
     match entry.content_type.as_str() {
         "text" => {

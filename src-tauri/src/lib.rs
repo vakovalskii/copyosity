@@ -468,6 +468,7 @@ pub fn run() {
             commands::retag_entry,
             commands::is_tagging_ready,
             commands::copy_entry,
+            commands::copy_text,
             commands::activate_entry,
             commands::paste_entry,
             commands::check_accessibility,
