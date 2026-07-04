@@ -81,6 +81,9 @@ static QUICK_MENU_TARGET_PID: AtomicI32 = AtomicI32::new(0);
 /// Default hotkey for the native quick menu (Clipy-style).
 pub(crate) const DEFAULT_QUICK_MENU_SHORTCUT: &str = "cmd+shift+c";
 
+/// Default hotkey for opening the snippets editor in Settings.
+pub(crate) const DEFAULT_SNIPPETS_SHORTCUT: &str = "cmd+shift+s";
+
 static RECORDING: std::sync::OnceLock<std::sync::Mutex<Option<whisper::RecordingSession>>> =
     std::sync::OnceLock::new();
 
@@ -218,6 +221,53 @@ pub fn register_quick_menu_shortcut(app: &tauri::AppHandle) -> Result<String, St
     Ok(shortcut_str)
 }
 
+static CURRENT_SNIPPETS_SHORTCUT: std::sync::OnceLock<std::sync::Mutex<Option<Shortcut>>> =
+    std::sync::OnceLock::new();
+
+fn snippets_shortcut_mutex() -> &'static std::sync::Mutex<Option<Shortcut>> {
+    CURRENT_SNIPPETS_SHORTCUT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+pub fn snippets_shortcut_string(db: &db::Database) -> Result<String, String> {
+    Ok(db
+        .get_setting("snippets_shortcut")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| DEFAULT_SNIPPETS_SHORTCUT.to_string()))
+}
+
+pub fn open_snippets_editor(app: &tauri::AppHandle) {
+    let _ = commands::open_settings_window(app.clone(), Some("quickmenu".to_string()));
+}
+
+/// Register (or re-register) the snippets-editor hotkey from DB settings.
+/// Returns the shortcut string on success.
+pub fn register_snippets_shortcut(app: &tauri::AppHandle) -> Result<String, String> {
+    let db = app.state::<std::sync::Arc<db::Database>>();
+    let shortcut_str = snippets_shortcut_string(db.as_ref())?;
+
+    let new_shortcut = parse_shortcut(&shortcut_str)
+        .ok_or_else(|| format!("Invalid shortcut: {}", shortcut_str))?;
+
+    {
+        let mut current = snippets_shortcut_mutex().lock().unwrap();
+        if let Some(old) = current.take() {
+            let _ = app.global_shortcut().unregister(old);
+        }
+    }
+
+    let handle = app.clone();
+    app.global_shortcut()
+        .on_shortcut(new_shortcut, move |_app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                open_snippets_editor(&handle);
+            }
+        })
+        .map_err(|e| format!("Failed to register snippets shortcut: {}", e))?;
+
+    *snippets_shortcut_mutex().lock().unwrap() = Some(new_shortcut);
+    Ok(shortcut_str)
+}
+
 /// Dispatch a selection from the native quick menu. Ignores non-`qm:` ids so it
 /// can safely share the app-level menu-event channel with other menus.
 fn handle_quick_menu_event(app: &tauri::AppHandle, id: &str) {
@@ -233,12 +283,11 @@ fn handle_quick_menu_event(app: &tauri::AppHandle, id: &str) {
             return;
         }
         "settings" => {
-            let _ = commands::open_settings_window(app.clone());
+            let _ = commands::open_settings_window(app.clone(), None);
             return;
         }
         "edit-snippets" => {
-            let _ = commands::open_settings_window(app.clone());
-            let _ = app.emit("open-snippets", ());
+            let _ = commands::open_settings_window(app.clone(), Some("quickmenu".to_string()));
             return;
         }
         "quit" => {
@@ -332,6 +381,66 @@ fn parse_shortcut(s: &str) -> Option<Shortcut> {
     let key = key_code?;
     let mods_opt = if mods.is_empty() { None } else { Some(mods) };
     Some(Shortcut::new(mods_opt, key))
+}
+
+fn format_shortcut_for_menu(shortcut: &str) -> String {
+    let lower = shortcut.to_lowercase();
+    let parts: Vec<&str> = lower.split('+').map(|p| p.trim()).collect();
+    let key_part = parts.last().copied().unwrap_or("");
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut display = String::new();
+        if parts
+            .iter()
+            .any(|p| matches!(*p, "cmd" | "super" | "command"))
+        {
+            display.push('⌘');
+        }
+        if parts.iter().any(|p| matches!(*p, "ctrl" | "control")) {
+            display.push('⌃');
+        }
+        if parts.iter().any(|p| matches!(*p, "option" | "alt")) {
+            display.push('⌥');
+        }
+        if parts.contains(&"shift") {
+            display.push('⇧');
+        }
+        match key_part {
+            "space" => display.push_str("Space"),
+            "tab" => display.push_str("Tab"),
+            "enter" | "return" => display.push_str("Return"),
+            k if k.len() == 1 => display.push(k.chars().next().unwrap().to_ascii_uppercase()),
+            _ => {}
+        }
+        display
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut parts_display: Vec<String> = Vec::new();
+        for part in &parts[..parts.len().saturating_sub(1)] {
+            match *part {
+                "cmd" | "super" | "command" => parts_display.push("Cmd".to_string()),
+                "ctrl" | "control" => parts_display.push("Ctrl".to_string()),
+                "option" | "alt" => parts_display.push("Alt".to_string()),
+                "shift" => parts_display.push("Shift".to_string()),
+                _ => {}
+            }
+        }
+        let key = match key_part {
+            "space" => "Space".to_string(),
+            "tab" => "Tab".to_string(),
+            "enter" | "return" => "Return".to_string(),
+            k if k.len() == 1 => k.to_ascii_uppercase(),
+            other => other.to_string(),
+        };
+        if parts_display.is_empty() {
+            key
+        } else {
+            format!("{}+{}", parts_display.join("+"), key)
+        }
+    }
 }
 
 /// Register (or re-register) the voice shortcut from current DB settings.
@@ -453,8 +562,9 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "search" => toggle_command_palette(app.app_handle()),
                     "overlay" => toggle_window(app.app_handle()),
+                    "snippets" => open_snippets_editor(app.app_handle()),
                     "settings" => {
-                        let _ = commands::open_settings_window(app.app_handle().clone());
+                        let _ = commands::open_settings_window(app.app_handle().clone(), None);
                     }
                     "quit" => {
                         let _ = commands::quit_app(app.app_handle().clone());
@@ -501,6 +611,10 @@ pub fn run() {
             // Native quick menu (Clipy-style) hotkey.
             if let Err(e) = register_quick_menu_shortcut(app.handle()) {
                 eprintln!("Quick-menu shortcut registration failed: {}", e);
+            }
+
+            if let Err(e) = register_snippets_shortcut(app.handle()) {
+                eprintln!("Snippets shortcut registration failed: {}", e);
             }
 
             // Handle selections from the native quick menu (popup menu events are
@@ -594,6 +708,8 @@ pub fn run() {
             commands::rebind_palette_shortcut,
             commands::get_quick_menu_shortcut,
             commands::set_quick_menu_shortcut,
+            commands::get_snippets_shortcut,
+            commands::set_snippets_shortcut,
             commands::get_snippet_folders,
             commands::get_snippets,
             commands::create_snippet_folder,
@@ -758,6 +874,21 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     #[cfg(not(target_os = "macos"))]
     let overlay_label = "Open Clipboard  Ctrl+Shift+V";
     let overlay = MenuItem::with_id(app, "overlay", overlay_label, true, None::<&str>)?;
+    let snippets_label = app
+        .try_state::<std::sync::Arc<db::Database>>()
+        .and_then(|db| snippets_shortcut_string(db.as_ref()).ok())
+        .map(|shortcut| format!("Open Snippets  {}", format_shortcut_for_menu(&shortcut)))
+        .unwrap_or_else(|| {
+            #[cfg(target_os = "macos")]
+            {
+                "Open Snippets  ⌘⇧S".to_string()
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                "Open Snippets  Ctrl+Shift+S".to_string()
+            }
+        });
+    let snippets = MenuItem::with_id(app, "snippets", &snippets_label, true, None::<&str>)?;
     let ver = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
@@ -765,7 +896,9 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     Menu::with_items(
         app,
-        &[&search, &overlay, &ver, &sep, &settings, &sep2, &quit],
+        &[
+            &search, &overlay, &snippets, &ver, &sep, &settings, &sep2, &quit,
+        ],
     )
 }
 

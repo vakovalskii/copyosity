@@ -193,8 +193,56 @@ fn ensure_settings_window_size(window: &tauri::WebviewWindow) {
     ));
 }
 
+const SETTINGS_PANES: &[&str] = &[
+    "hub",
+    "voice",
+    "quickmenu",
+    "ai",
+    "history",
+    "permissions",
+    "updates",
+];
+
+fn is_settings_pane(pane: &str) -> bool {
+    !pane.is_empty() && SETTINGS_PANES.contains(&pane)
+}
+
+fn settings_app_path(initial_pane: Option<&str>) -> String {
+    match initial_pane.filter(|pane| is_settings_pane(pane)) {
+        Some(pane) => format!("/settings?pane={}", percent_encode_query_component(pane)),
+        None => "/settings".to_string(),
+    }
+}
+
+fn percent_encode_query_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => {
+                use std::fmt::Write;
+                let _ = write!(out, "%{byte:02X}");
+            }
+        }
+    }
+    out
+}
+
+fn settings_app_url(initial_pane: Option<&str>) -> tauri::WebviewUrl {
+    tauri::WebviewUrl::App(settings_app_path(initial_pane).into())
+}
+
+fn emit_settings_pane(window: &tauri::WebviewWindow, pane: &str) {
+    let _ = window.emit("navigate-settings-pane", pane);
+}
+
 #[tauri::command]
-pub fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+pub fn open_settings_window(
+    app: tauri::AppHandle,
+    initial_pane: Option<String>,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     crate::clipboard_macos::remember_paste_target();
 
@@ -212,6 +260,12 @@ pub fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
         #[cfg(target_os = "macos")]
         activate_for_settings_window();
         let _ = window.emit("settings-shown", ());
+        if let Some(pane) = initial_pane
+            .as_deref()
+            .filter(|pane| is_settings_pane(pane))
+        {
+            emit_settings_pane(&window, pane);
+        }
         return Ok(());
     }
 
@@ -219,7 +273,7 @@ pub fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
     let builder = tauri::WebviewWindowBuilder::new(
         &app,
         "settings",
-        tauri::WebviewUrl::App("/settings".into()),
+        settings_app_url(initial_pane.as_deref()),
     )
     .title("Copyosity Settings")
     .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
@@ -689,6 +743,27 @@ pub fn set_quick_menu_shortcut(
     crate::register_quick_menu_shortcut(&app)
 }
 
+#[tauri::command]
+pub fn get_snippets_shortcut(db: State<'_, Arc<Database>>) -> Result<String, String> {
+    crate::snippets_shortcut_string(db.as_ref())
+}
+
+#[tauri::command]
+pub fn set_snippets_shortcut(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<Database>>,
+    shortcut: String,
+) -> Result<String, String> {
+    let trimmed = shortcut.trim();
+    db.set_setting("snippets_shortcut", trimmed)
+        .map_err(|e| e.to_string())?;
+    let stored = crate::register_snippets_shortcut(&app)?;
+    if let Err(e) = crate::refresh_tray_menu(&app) {
+        eprintln!("Tray menu refresh failed: {e}");
+    }
+    Ok(stored)
+}
+
 // ---- Snippet commands ----
 
 #[tauri::command]
@@ -897,5 +972,31 @@ mod tests {
     #[test]
     fn open_accessibility_settings_command_returns_ok() {
         assert!(open_accessibility_settings().is_ok());
+    }
+
+    #[test]
+    fn settings_app_path_defaults_to_settings_root() {
+        assert_eq!(settings_app_path(None), "/settings");
+        assert_eq!(settings_app_path(Some("")), "/settings");
+    }
+
+    #[test]
+    fn settings_app_path_includes_pane_query() {
+        assert_eq!(
+            settings_app_path(Some("quickmenu")),
+            "/settings?pane=quickmenu"
+        );
+        assert_eq!(settings_app_path(Some("hub")), "/settings?pane=hub");
+    }
+
+    #[test]
+    fn settings_app_path_rejects_unknown_pane() {
+        assert_eq!(settings_app_path(Some("not-a-pane")), "/settings");
+        assert_eq!(settings_app_path(Some("QuickMenu")), "/settings");
+    }
+
+    #[test]
+    fn settings_app_path_rejects_unsafe_pane_values() {
+        assert_eq!(settings_app_path(Some("hub&x=1")), "/settings");
     }
 }

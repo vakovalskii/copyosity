@@ -608,6 +608,16 @@
   padding: var(--padding-hint-y) 0;
 }
 
+.form-hint--stacked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-row);
+}
+
+.form-hint--stacked > .form-hint-line {
+  margin: 0;
+}
+
 .form-hint code,
 .form-instruction-list code,
 .status-hint code {
