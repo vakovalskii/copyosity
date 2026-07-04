@@ -16,6 +16,7 @@ mod ocr;
 mod ollama;
 mod overlay_dismiss;
 mod palette_window;
+mod quick_menu;
 mod screen;
 mod tagging;
 mod transcription;
@@ -72,6 +73,13 @@ static VOICE_SELECTION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new
 /// PID of the app that was frontmost when the command palette was opened, so the
 /// agent answer can be inserted back into it.
 static PALETTE_TARGET_PID: AtomicI32 = AtomicI32::new(0);
+
+/// PID of the app that was frontmost when the native quick menu was opened, so
+/// the selected history entry / snippet pastes back into it.
+static QUICK_MENU_TARGET_PID: AtomicI32 = AtomicI32::new(0);
+
+/// Default hotkey for the native quick menu (Clipy-style).
+pub(crate) const DEFAULT_QUICK_MENU_SHORTCUT: &str = "cmd+shift+c";
 
 static RECORDING: std::sync::OnceLock<std::sync::Mutex<Option<whisper::RecordingSession>>> =
     std::sync::OnceLock::new();
@@ -169,6 +177,100 @@ pub fn register_palette_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
     let db = app.state::<std::sync::Arc<db::Database>>();
     let settings = db.get_app_settings().map_err(|e| e.to_string())?;
     sync_palette_shortcut_for_hub(app, settings.hub_enabled)
+}
+
+static CURRENT_QUICK_MENU_SHORTCUT: std::sync::OnceLock<std::sync::Mutex<Option<Shortcut>>> =
+    std::sync::OnceLock::new();
+
+fn quick_menu_shortcut_mutex() -> &'static std::sync::Mutex<Option<Shortcut>> {
+    CURRENT_QUICK_MENU_SHORTCUT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// Register (or re-register) the native quick-menu hotkey from DB settings.
+/// Returns the shortcut string on success.
+pub fn register_quick_menu_shortcut(app: &tauri::AppHandle) -> Result<String, String> {
+    let db = app.state::<std::sync::Arc<db::Database>>();
+    let shortcut_str = db
+        .get_setting("quick_menu_shortcut")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| DEFAULT_QUICK_MENU_SHORTCUT.to_string());
+
+    let new_shortcut = parse_shortcut(&shortcut_str)
+        .ok_or_else(|| format!("Invalid shortcut: {}", shortcut_str))?;
+
+    {
+        let mut current = quick_menu_shortcut_mutex().lock().unwrap();
+        if let Some(old) = current.take() {
+            let _ = app.global_shortcut().unregister(old);
+        }
+    }
+
+    let handle = app.clone();
+    app.global_shortcut()
+        .on_shortcut(new_shortcut, move |_app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                quick_menu::show(&handle);
+            }
+        })
+        .map_err(|e| format!("Failed to register quick-menu shortcut: {}", e))?;
+
+    *quick_menu_shortcut_mutex().lock().unwrap() = Some(new_shortcut);
+    Ok(shortcut_str)
+}
+
+/// Dispatch a selection from the native quick menu. Ignores non-`qm:` ids so it
+/// can safely share the app-level menu-event channel with other menus.
+fn handle_quick_menu_event(app: &tauri::AppHandle, id: &str) {
+    let Some(action) = id.strip_prefix("qm:") else {
+        return;
+    };
+
+    match action {
+        "clear" => {
+            let db = app.state::<std::sync::Arc<db::Database>>();
+            let _ = db.clear_history();
+            let _ = app.emit("history-changed", ());
+            return;
+        }
+        "settings" => {
+            let _ = commands::open_settings_window(app.clone());
+            return;
+        }
+        "edit-snippets" => {
+            let _ = commands::open_settings_window(app.clone());
+            let _ = app.emit("open-snippets", ());
+            return;
+        }
+        "quit" => {
+            let _ = commands::quit_app(app.clone());
+            return;
+        }
+        _ => {}
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let target = QUICK_MENU_TARGET_PID.swap(0, Ordering::Relaxed);
+        if let Some(entry_id) = action
+            .strip_prefix("paste:")
+            .and_then(|s| s.parse::<i64>().ok())
+        {
+            let db = app.state::<std::sync::Arc<db::Database>>();
+            if let Err(e) = commands::quick_menu_paste_entry(&db, entry_id, target) {
+                eprintln!("[quick_menu] paste entry failed: {}", e);
+            }
+        } else if let Some(snip_id) = action
+            .strip_prefix("snip:")
+            .and_then(|s| s.parse::<i64>().ok())
+        {
+            let db = app.state::<std::sync::Arc<db::Database>>();
+            if let Ok(Some(snip)) = db.get_snippet_by_id(snip_id) {
+                if let Err(e) = commands::quick_menu_paste_text(snip.content, target) {
+                    eprintln!("[quick_menu] paste snippet failed: {}", e);
+                }
+            }
+        }
+    }
 }
 
 /// Parse a string like "option+space", "cmd+space", "ctrl+alt+space" into a Shortcut.
@@ -395,6 +497,16 @@ pub fn run() {
             if let Err(e) = register_voice_shortcut(app.handle()) {
                 eprintln!("Voice shortcut registration failed: {}", e);
             }
+
+            // Native quick menu (Clipy-style) hotkey.
+            if let Err(e) = register_quick_menu_shortcut(app.handle()) {
+                eprintln!("Quick-menu shortcut registration failed: {}", e);
+            }
+
+            // Handle selections from the native quick menu (popup menu events are
+            // delivered to the app-level handler, not the tray's).
+            app.on_menu_event(|app, event| handle_quick_menu_event(app, event.id().as_ref()));
+
             eprintln!(
                 "copyosity: global shortcut registered = {}",
                 app.global_shortcut().is_registered(shortcut)
@@ -468,6 +580,7 @@ pub fn run() {
             commands::retag_entry,
             commands::is_tagging_ready,
             commands::copy_entry,
+            commands::copy_text,
             commands::activate_entry,
             commands::paste_entry,
             commands::check_accessibility,
@@ -479,6 +592,17 @@ pub fn run() {
             commands::test_ollama_tagging,
             commands::rebind_voice_shortcut,
             commands::rebind_palette_shortcut,
+            commands::get_quick_menu_shortcut,
+            commands::set_quick_menu_shortcut,
+            commands::get_snippet_folders,
+            commands::get_snippets,
+            commands::create_snippet_folder,
+            commands::rename_snippet_folder,
+            commands::delete_snippet_folder,
+            commands::create_snippet,
+            commands::update_snippet,
+            commands::delete_snippet,
+            commands::paste_snippet,
             commands::list_microphones,
             commands::hub_test_connection,
             commands::hub_list_models,

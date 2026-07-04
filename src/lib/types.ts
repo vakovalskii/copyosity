@@ -26,6 +26,20 @@ export interface Collection {
   sort_order: number;
 }
 
+export interface SnippetFolder {
+  id: number;
+  name: string;
+  position: number;
+}
+
+export interface Snippet {
+  id: number;
+  folder_id: number;
+  title: string;
+  content: string;
+  position: number;
+}
+
 export interface HistoryCounts {
   total: number;
   unpinned: number;

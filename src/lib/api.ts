@@ -11,6 +11,8 @@ import type {
   HistoryCounts,
   ModelCatalog,
   OverlayTagCounts,
+  Snippet,
+  SnippetFolder,
 } from "./types";
 
 /** Page size for entry list pagination; mirrored by the backend default. */
@@ -174,6 +176,59 @@ export async function rebindPaletteShortcut(): Promise<void> {
   return invoke("rebind_palette_shortcut");
 }
 
+// ---- Quick menu (Clipy-style native menu) ----
+
+export async function getQuickMenuShortcut(): Promise<string> {
+  return invoke("get_quick_menu_shortcut");
+}
+
+/** Persist the quick-menu hotkey and re-register it. Returns the stored string. */
+export async function setQuickMenuShortcut(shortcut: string): Promise<string> {
+  return invoke("set_quick_menu_shortcut", { shortcut });
+}
+
+// ---- Snippets ----
+
+export async function getSnippetFolders(): Promise<SnippetFolder[]> {
+  return invoke("get_snippet_folders");
+}
+
+export async function getSnippets(): Promise<Snippet[]> {
+  return invoke("get_snippets");
+}
+
+export async function createSnippetFolder(name: string): Promise<number> {
+  return invoke("create_snippet_folder", { name });
+}
+
+export async function renameSnippetFolder(id: number, name: string): Promise<void> {
+  return invoke("rename_snippet_folder", { id, name });
+}
+
+export async function deleteSnippetFolder(id: number): Promise<void> {
+  return invoke("delete_snippet_folder", { id });
+}
+
+export async function createSnippet(
+  folderId: number,
+  title: string,
+  content: string,
+): Promise<number> {
+  return invoke("create_snippet", { folderId, title, content });
+}
+
+export async function updateSnippet(id: number, title: string, content: string): Promise<void> {
+  return invoke("update_snippet", { id, title, content });
+}
+
+export async function deleteSnippet(id: number): Promise<void> {
+  return invoke("delete_snippet", { id });
+}
+
+export async function pasteSnippet(id: number): Promise<void> {
+  return invoke("paste_snippet", { id });
+}
+
 export async function getModelCatalog(): Promise<ModelCatalog> {
   return invoke("get_model_catalog");
 }
@@ -212,6 +267,10 @@ export async function retagEntry(entryId: number): Promise<string[]> {
 
 export async function isTaggingReady(): Promise<boolean> {
   return invoke("is_tagging_ready");
+}
+
+export async function copyText(text: string): Promise<void> {
+  return invoke("copy_text", { text });
 }
 
 export async function copyEntry(entryId: number): Promise<void> {
