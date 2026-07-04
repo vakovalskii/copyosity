@@ -360,10 +360,11 @@
   <span class="sr-only" role="status" aria-live="polite">{copyAnnouncement}</span>
   <div class="card-header">
     <div class="card-type">
-      <span class="type-label">
-        <span>{typeLabel}</span>
-        {#if imageFormatBadge}
-          <span class="format-suffix">{imageFormatBadge}</span>
+      <span class="type-label" class:type-label--image={entry.content_type === "image"}>
+        {#if entry.content_type === "image" && imageFormatBadge}
+          <span class="format-badge">{imageFormatBadge}</span>
+        {:else}
+          <span>{typeLabel}</span>
         {/if}
       </span>
       <span class="time">{timeAgo(entry.created_at)}</span>
@@ -683,12 +684,17 @@
     min-width: 0;
   }
 
-  .format-suffix {
+  .type-label--image {
+    letter-spacing: 0.06em;
+    color: var(--color-text-label-muted);
+  }
+
+  .format-badge {
     flex-shrink: 0;
-    font-weight: 700;
-    font-size: var(--font-size-2xs);
-    letter-spacing: 0.08em;
-    color: var(--color-accent-text-soft);
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    letter-spacing: 0.06em;
+    color: inherit;
     text-transform: uppercase;
   }
 
@@ -720,32 +726,6 @@
   .card.pinned .card-actions .action-btn.pinned {
     opacity: 1;
     pointer-events: auto;
-  }
-
-  .action-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--size-card-action-hit);
-    height: var(--size-card-action-hit);
-    background: none;
-    border: none;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    padding: 0;
-    border-radius: var(--radius-control-sm);
-    flex-shrink: 0;
-  }
-
-  .action-icon {
-    width: var(--icon-size-card-action);
-    height: var(--icon-size-card-action);
-    display: block;
-  }
-
-  .action-btn:hover:not(:disabled, [aria-busy="true"]) {
-    color: var(--color-text-bright);
-    background: var(--surface-10);
   }
 
   .action-btn.paste {
@@ -788,13 +768,6 @@
     color: var(--color-warning-bright);
     background: var(--surface-warning);
     box-shadow: inset 0 0 0 1px var(--border-warning-hover);
-  }
-
-  .action-btn.delete:hover:not(:disabled, [aria-busy="true"]),
-  .action-btn.delete:active:not(:disabled, [aria-busy="true"]) {
-    color: var(--color-danger);
-    background: var(--surface-danger);
-    box-shadow: inset 0 0 0 1px var(--border-danger-hover);
   }
 
   .card-body {

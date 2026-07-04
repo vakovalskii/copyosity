@@ -28,13 +28,19 @@ overlay):
 NeuralDeep Hub settings — one master switch for tagging, transcription, web
 search, and voice polishing; optional fallback to local Ollama for tagging:
 
-<img src="docs/screenshots/settings-neuraldeep.png" alt="NeuralDeep Hub settings with master switch" width="640">
+<img src="docs/screenshots/settings-neuraldeep.png" alt="Hub settings with master switch" width="640">
 
 Context-aware voice polishing — hold a shortcut to dictate; the hub LLM cleans
 the transcription (punctuation, filler, lists) and adapts it to the app
 you're pasting into:
 
 <img src="docs/screenshots/settings-voice.png" alt="Voice settings with transcription and AI polish" width="640">
+
+Quick Menu settings — configurable global hotkey (default `⌘⇧C`) and snippet
+folders; the native Clipy-style menu lists recent history and saved snippets for
+two-click paste without opening the overlay:
+
+<img src="docs/screenshots/settings-quick-menu.png" alt="Quick Menu settings with hotkey and snippets editor" width="640">
 
 ## Features
 
