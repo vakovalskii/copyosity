@@ -1007,6 +1007,7 @@
           class="overlay-icon-btn overlay-icon-btn--settings app-btn"
           type="button"
           aria-label="Open settings"
+          title="Settings"
           onclick={() => openSettingsWindow()}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1073,6 +1074,7 @@
           class="overlay-icon-btn overlay-icon-btn--settings app-btn"
           type="button"
           aria-label="Open settings"
+          title="Settings"
           onclick={() => openSettingsWindow()}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1085,10 +1087,11 @@
           class="close-btn overlay-icon-btn overlay-icon-btn--close app-btn"
           type="button"
           aria-label="Close overlay"
+          title="Close"
           onclick={() => forceHideWindow()}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6" />
+            <path d="M5 5 19 19M19 5 5 19" />
           </svg>
         </button>
       </div>
@@ -1563,22 +1566,4 @@
     margin: 0;
   }
 
-  .overlay-shortcuts {
-    flex-shrink: 0;
-    padding: 6px var(--overlay-grid-pad-x) 8px;
-    border-top: 1px solid var(--border-default);
-    background: var(--surface-1);
-  }
-
-  .overlay-shortcuts.vertical {
-    padding:
-      var(--space-chip-gap)
-      calc(var(--overlay-grid-pad-x) + var(--overlay-scrollbar-gutter))
-      var(--space-stack)
-      var(--overlay-grid-pad-x);
-  }
-
-  .overlay-shortcuts.vertical :global(.keyboard-hints) {
-    row-gap: 4px;
-  }
 </style>

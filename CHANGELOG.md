@@ -5,7 +5,24 @@ All notable changes to Copyosity are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - Unreleased
+## [0.6.1] - Unreleased
+
+### Changed
+
+- **Menu bar app** — no Dock icon and no Cmd+Tab entry; Copyosity runs from the menu bar only.
+- **Command palette** — Spotlight-style query field with toolbar and search grouped in a header strip; updated session-history, new-session, compact-to-dot, and close icons; status hints and errors use the same secondary-line style as the overlay and settings (larger status text, no dividers under the query, consistent spacing); voice and loading indicators sit in the query row; hints clear when you type and do not persist after close or reopen; keyboard-hints footer stays visible whenever the palette is open without an answer (including during history, loading, and agent progress).
+- **Command palette min-dot** — drag anywhere on the dot to move it; double-click or Enter expands; palette restores centered on the screen where you left the dot; expanded size is remembered across minimize and app restarts (user-resized dimensions, not the default).
+- **Image cards** — slightly tighter vertical padding on OCR text previews under thumbnails.
+- **Overlay & collections** — tooltips on Settings, Close, Pin, Add collection, and Remove; close icon sized to match other header controls.
+- **Keyboard hints** — improved wrapping and spacing in overlay and palette footers.
+
+### Fixed
+
+- **Settings → Accessibility** — trust check no longer falsely reports "not granted" when Copyosity is already enabled in System Settings (uses `AXIsProcessTrusted` instead of a live AX probe that could return `kAXErrorCannotComplete`).
+- Command palette min-dot — rectangular window shadow no longer lingers after minimizing to the dot.
+- Command palette min-dot — expanding after dragging the dot restores the palette on the same display (not the primary screen).
+
+## [0.6.0] - 2026-07-02
 
 Fork merge release: upstream **v0.5.1** plus macOS clipboard/paste pipeline, overlay filters, security hardening, and HIG polish from the fork.
 

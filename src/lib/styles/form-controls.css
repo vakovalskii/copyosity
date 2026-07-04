@@ -1019,30 +1019,6 @@
   border-color: var(--border-accent-strong);
 }
 
-.status-hint {
-  margin: 0 0 0 var(--space-hint-indent);
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-hint);
-  padding: var(--padding-hint-y) 0;
-  color: var(--color-text-tertiary);
-}
-
-.status-hint.ok {
-  color: var(--color-success-text);
-}
-
-.status-hint.neutral {
-  color: var(--color-text-tertiary);
-}
-
-.status-hint.warn {
-  color: var(--color-warning-text);
-}
-
-.status-hint.fail {
-  color: var(--color-danger-text);
-}
-
 .status-hint.pull-progress {
   display: flex;
   align-items: center;

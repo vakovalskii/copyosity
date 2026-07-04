@@ -17,31 +17,35 @@
   } = $props();
 </script>
 
-<div class="keyboard-hints" class:align-start={align === "start"} aria-hidden="true">
+<div
+  class="keyboard-hints ui-no-select"
+  class:align-start={align === "start"}
+  aria-hidden="true"
+>
   {#each hints as hint, i}
     {#if i > 0}
-      <span class="hint-sep" aria-hidden="true">·</span>
+      <span class="hint-sep ui-no-select" aria-hidden="true">·</span>
     {/if}
-    <span class="hint-item">
+    <span class="hint-item ui-no-select">
       {#if typeof hint === "string"}
-        <span class="hint-text">{hint}</span>
+        <span class="hint-text ui-selectable-text">{hint}</span>
       {:else}
-        <span class="hint-triggers">
+        <span class="hint-triggers ui-no-select">
           {#if hint.prefix}
-            <span class="hint-trigger">{hint.prefix}</span>
+            <span class="hint-trigger ui-no-select">{hint.prefix}</span>
           {/if}
           {#if hint.keys}
             {#if Array.isArray(hint.keys)}
               {#each hint.keys as key}
-                <kbd class="hint-trigger">{key}</kbd>
+                <kbd class="hint-trigger ui-no-select">{key}</kbd>
               {/each}
             {:else}
-              <kbd class="hint-trigger">{hint.keys}</kbd>
+              <kbd class="hint-trigger ui-no-select">{hint.keys}</kbd>
             {/if}
           {/if}
         </span>
         {#if hint.action}
-          <span class="hint-action">{hint.action}</span>
+          <span class="hint-action ui-selectable-text">{hint.action}</span>
         {/if}
       {/if}
     </span>
@@ -54,17 +58,20 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 0;
+    gap: 4px 0;
+    width: fit-content;
+    max-width: 100%;
+    margin-inline: auto;
     font-size: var(--font-size-2xs);
     line-height: var(--line-height-tight);
     color: var(--color-text-faint);
     font-weight: 400;
     letter-spacing: 0.01em;
-    user-select: none;
   }
 
   .keyboard-hints.align-start {
     justify-content: flex-start;
+    margin-inline: 0;
   }
 
   .hint-sep {
@@ -79,17 +86,13 @@
   }
 
   .hint-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3125rem;
+    display: inline;
     white-space: nowrap;
   }
 
   .hint-triggers {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.125rem;
-    flex-shrink: 0;
+    display: inline;
+    white-space: nowrap;
   }
 
   .hint-trigger,
@@ -99,6 +102,8 @@
     justify-content: center;
     box-sizing: border-box;
     height: 1.125rem;
+    min-width: 1.125rem;
+    margin-right: 0.3125rem;
     padding: 0 6px;
     font-family: inherit;
     font-size: 1em;
@@ -112,9 +117,8 @@
   }
 
   .hint-action {
-    display: inline-flex;
-    align-items: center;
-    line-height: 1;
+    display: inline;
+    line-height: var(--line-height-tight);
     color: var(--color-text-faint);
     font-weight: 400;
   }

@@ -35,7 +35,7 @@
   height: var(--icon-size-overlay-header-close);
   fill: none;
   stroke: currentcolor;
-  stroke-width: 2;
+  stroke-width: 1.75;
   stroke-linecap: round;
 }
 
@@ -52,7 +52,6 @@
 .overlay-icon-btn-icon--close {
   width: var(--icon-size-overlay-header-close);
   height: var(--icon-size-overlay-header-close);
-  stroke-width: 2;
 }
 
 .overlay-header {
@@ -74,4 +73,60 @@
 .overlay-footer-strip {
   flex-shrink: 0;
   background: var(--surface-1);
+}
+
+.overlay-shortcuts {
+  flex-shrink: 0;
+  padding: 6px var(--overlay-grid-pad-x) 8px;
+  border-top: 1px solid var(--border-default);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.overlay-shortcuts.vertical {
+  padding: var(--space-chip-gap) calc(var(--overlay-grid-pad-x) + var(--overlay-scrollbar-gutter))
+    var(--space-stack) var(--overlay-grid-pad-x);
+}
+
+/* Full-bleed footer inside padded palette shell. */
+.palette > .overlay-shortcuts {
+  margin-top: auto;
+  margin-inline: calc(-1 * var(--overlay-grid-pad-x));
+  margin-bottom: calc(-1 * var(--space-panel-inline));
+  padding-inline: var(--overlay-grid-pad-x);
+}
+
+/* Secondary status line — shared typography for overlay shells and settings forms. */
+.overlay-status-hint,
+.status-hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-hint);
+  padding: var(--padding-hint-y) 0;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.status-hint {
+  margin-left: var(--space-hint-indent);
+}
+
+.overlay-status-hint.ok,
+.status-hint.ok {
+  color: var(--color-success-text);
+}
+
+.overlay-status-hint.neutral,
+.status-hint.neutral {
+  color: var(--color-text-tertiary);
+}
+
+.overlay-status-hint.warn,
+.status-hint.warn {
+  color: var(--color-warning-text);
+}
+
+.overlay-status-hint.fail,
+.status-hint.fail {
+  color: var(--color-danger-text);
 }

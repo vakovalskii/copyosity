@@ -15,8 +15,10 @@ mod mactools;
 mod ocr;
 mod ollama;
 mod overlay_dismiss;
+mod palette_window;
 mod screen;
 mod tagging;
+mod transcription;
 mod whisper;
 
 use db::Database;
@@ -93,27 +95,7 @@ fn transcribe_with_settings(
     samples: Vec<f32>,
     sample_rate: u32,
 ) -> Result<String, String> {
-    let use_hub = settings.hub_enabled
-        && settings.hub_transcribe_enabled
-        && !settings.hub_token.is_empty()
-        && !settings.hub_url.trim().is_empty();
-    let (url, tok) = if use_hub {
-        (
-            format!(
-                "{}/v1/audio/transcriptions",
-                settings.hub_url.trim_end_matches('/')
-            ),
-            settings.hub_token.clone(),
-        )
-    } else {
-        (
-            settings.whisper_server_url.clone(),
-            settings.whisper_server_token.clone(),
-        )
-    };
-    if url.is_empty() {
-        return Err("Transcription endpoint not configured".to_string());
-    }
+    let (url, tok) = transcription::transcription_endpoint(settings)?;
     whisper::transcribe_audio(
         samples,
         sample_rate,
@@ -508,6 +490,8 @@ pub fn run() {
             palette_agent,
             palette_voice_start,
             palette_voice_stop,
+            palette_set_dot_mode,
+            palette_is_dot_mode,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -866,30 +850,14 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                             return;
                         }
                     };
-                    // Route to the hub's transcription endpoint when enabled,
-                    // otherwise use the standalone Whisper server config.
-                    let use_hub = settings.hub_enabled
-                        && settings.hub_transcribe_enabled
-                        && !settings.hub_token.is_empty()
-                        && !settings.hub_url.trim().is_empty();
-                    let (whisper_url, whisper_token) = if use_hub {
-                        (
-                            format!(
-                                "{}/v1/audio/transcriptions",
-                                settings.hub_url.trim_end_matches('/')
-                            ),
-                            settings.hub_token.clone(),
-                        )
-                    } else {
-                        (
-                            settings.whisper_server_url.clone(),
-                            settings.whisper_server_token.clone(),
-                        )
-                    };
-                    if whisper_url.is_empty() {
-                        eprintln!("[voice] ERROR: transcription endpoint is not configured");
-                        return;
-                    }
+                    let (whisper_url, whisper_token) =
+                        match transcription::transcription_endpoint(&settings) {
+                            Ok(pair) => pair,
+                            Err(e) => {
+                                eprintln!("[voice] ERROR: {e}");
+                                return;
+                            }
+                        };
                     eprintln!("[voice] sending to {}", whisper_url);
                     match whisper::transcribe_audio(
                         samples,
@@ -1176,6 +1144,7 @@ fn ensure_command_palette(app: &tauri::AppHandle) {
     .decorations(false)
     .transparent(true)
     .skip_taskbar(true)
+    .accept_first_mouse(true)
     .visible(false)
     .center();
 
@@ -1234,12 +1203,17 @@ fn palette_voice_start(app: tauri::AppHandle) -> Result<(), String> {
     if rec.is_some() {
         return Ok(());
     }
-    let mic = app
+    let db = app
         .try_state::<std::sync::Arc<db::Database>>()
-        .and_then(|db| db.get_app_settings().ok())
-        .map(|s| s.selected_microphone)
-        .filter(|s| !s.is_empty());
-    let session = whisper::RecordingSession::start(mic.as_deref())?;
+        .ok_or_else(|| "database not ready".to_string())?;
+    let settings = db.get_app_settings().map_err(|e| e.to_string())?;
+    transcription::transcription_endpoint(&settings)?;
+    let mic = if settings.selected_microphone.is_empty() {
+        None
+    } else {
+        Some(settings.selected_microphone.as_str())
+    };
+    let session = whisper::RecordingSession::start(mic)?;
     *rec = Some(session);
     Ok(())
 }
@@ -1255,6 +1229,66 @@ fn palette_voice_stop(app: tauri::AppHandle) -> Result<String, String> {
     let db = app.state::<std::sync::Arc<db::Database>>();
     let settings = db.get_app_settings().map_err(|e| e.to_string())?;
     transcribe_with_settings(&settings, samples, sample_rate)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn palette_webview_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
+    app.get_webview_window("command_palette")
+        .ok_or_else(|| "command palette window not found".to_string())
+}
+
+/// Shrink/restore the palette window for min-dot mode (NSPanel + min_inner_size).
+#[tauri::command]
+fn palette_set_dot_mode(
+    app: tauri::AppHandle,
+    minimized: bool,
+    restore_width: f64,
+    restore_height: f64,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_window::palette_set_dot_mode(&app, minimized, restore_width, restore_height)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        use palette_window::{PALETTE_DOT_SIZE, PALETTE_MIN_HEIGHT, PALETTE_MIN_WIDTH};
+        use tauri::LogicalSize;
+        let win = palette_webview_window(&app)?;
+        if minimized {
+            let dot = LogicalSize::new(PALETTE_DOT_SIZE, PALETTE_DOT_SIZE);
+            win.set_min_size(Some(dot)).map_err(|e| e.to_string())?;
+            win.set_size(dot).map_err(|e| e.to_string())?;
+        } else {
+            win.set_min_size(Some(LogicalSize::new(
+                PALETTE_MIN_WIDTH,
+                PALETTE_MIN_HEIGHT,
+            )))
+            .map_err(|e| e.to_string())?;
+            win.set_size(LogicalSize::new(restore_width, restore_height))
+                .map_err(|e| e.to_string())?;
+            win.center().map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+}
+
+/// Returns whether the palette window is currently in min-dot mode.
+#[tauri::command]
+fn palette_is_dot_mode(app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_window::palette_is_dot_mode(&app)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        use palette_window::is_dot_logical_size;
+        let win = palette_webview_window(&app)?;
+        let size = win.inner_size().map_err(|e| e.to_string())?;
+        let scale = win.scale_factor().map_err(|e| e.to_string())?;
+        let logical_width = f64::from(size.width) / scale;
+        let logical_height = f64::from(size.height) / scale;
+        Ok(is_dot_logical_size(logical_width, logical_height))
+    }
 }
 
 /// Hide the command palette.

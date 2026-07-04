@@ -23,8 +23,20 @@ body {
   border-radius: var(--radius-panel);
   border: 1px solid var(--border-soft);
   color: var(--color-text-primary);
-  padding: var(--space-panel-inline) var(--overlay-grid-pad-x);
-  gap: var(--space-section);
+  padding: 12px var(--overlay-grid-pad-x) var(--space-panel-inline);
+  gap: var(--space-subsection);
+}
+
+/* Chrome + primary query — grouped like Spotlight / Raycast (toolbar → search). */
+.palette-head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-inline: calc(-1 * var(--overlay-grid-pad-x));
+  padding-inline: var(--overlay-grid-pad-x);
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border-default);
 }
 
 .topbar {
@@ -32,8 +44,9 @@ body {
   align-items: center;
   gap: var(--space-stack);
   flex-shrink: 0;
-  margin: -4px -4px 0;
-  padding: var(--space-segment-inset) 4px var(--space-chip-gap);
+  margin: 0;
+  padding: 2px 0 10px;
+  outline: none;
 }
 
 .topbar-spacer {
@@ -69,16 +82,10 @@ body {
   outline-offset: 2px;
 }
 
-.history-empty-hint {
-  border: none;
-  padding: 0;
-}
-
 .history {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  border-top: 1px solid var(--border-soft);
-  padding-top: var(--space-stack);
   display: flex;
   flex-direction: column;
   gap: var(--space-segment-inset);
@@ -162,11 +169,36 @@ body {
   color: var(--color-text-subtle);
 }
 
-.search-row {
+.query-field {
   display: flex;
   align-items: center;
-  gap: var(--space-stack);
+  gap: 10px;
   flex-shrink: 0;
+  box-sizing: border-box;
+  min-height: 44px;
+  height: 44px;
+  padding: 0 12px 0 16px;
+  border: none;
+  border-radius: 12px;
+  background-color: var(--surface-4);
+  transition: background-color var(--duration-fast) var(--ease-interactive);
+}
+
+.query-field:hover:not(:focus-within, .recording) {
+  background-color: var(--surface-6);
+}
+
+.query-field:focus-within {
+  background-color: var(--surface-8);
+  outline: none;
+}
+
+.query-field.recording {
+  background-color: rgb(var(--rgb-recording) / 5%);
+}
+
+.query-field.recording:focus-within {
+  background-color: rgb(var(--rgb-recording) / 6%);
 }
 
 .mode-badge {
@@ -191,17 +223,57 @@ body {
   color: var(--color-agent-text);
 }
 
-.search-input {
+.query-input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
   outline: none;
   color: var(--color-text-primary);
   font-size: var(--font-size-palette-search);
+  line-height: 1.35;
+  font-family: inherit;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
-.search-input::placeholder {
-  color: var(--color-text-faint);
+.query-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.query-input:disabled {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.query-spinner {
+  flex-shrink: 0;
+}
+
+.mic-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: -4px -6px -4px 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--duration-fast) var(--ease-interactive);
+}
+
+.mic-btn:hover:not(:disabled, .recording) {
+  color: var(--color-text-secondary);
+}
+
+.mic-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-accent);
 }
 
 .mic-btn-icon {
@@ -215,10 +287,7 @@ body {
 }
 
 .mic-btn.recording {
-  color: var(--color-text-bright);
-  background: var(--color-danger-soft);
-  border-color: var(--color-danger-soft);
-  animation: palette-pulse 1.1s ease-in-out infinite;
+  color: var(--color-recording);
 }
 
 @keyframes palette-pulse {
@@ -234,6 +303,7 @@ body {
 
 .result {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   font-size: var(--font-size-base);
   line-height: var(--line-height-body);
@@ -242,12 +312,6 @@ body {
   overflow-wrap: break-word;
   user-select: text;
   -webkit-user-select: text;
-  border-top: 1px solid var(--border-soft);
-  padding-top: var(--control-chevron-inset);
-}
-
-.result.error {
-  color: var(--color-danger-text);
 }
 
 /* Markdown rendering of the agent answer */
@@ -316,9 +380,8 @@ body {
 
 .progress {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  border-top: 1px solid var(--border-soft);
-  padding-top: var(--control-chevron-inset);
   font-size: var(--font-size-md);
   color: var(--color-text-subtle);
 }
@@ -327,18 +390,11 @@ body {
   padding: 3px 0;
 }
 
-.hint {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  border-top: 1px solid var(--border-soft);
-  padding-top: var(--space-section);
-}
-
-.palette-shortcuts {
-  flex-shrink: 0;
-  margin-top: auto;
-  padding: var(--space-chip-gap) 0 var(--space-segment-inset);
-  border-top: 1px solid var(--border-default);
+/* Status hints/errors — same offset from query field as other body content (palette gap only). */
+.palette .overlay-status-hint {
+  font-size: var(--font-size-palette-status);
+  line-height: var(--line-height-body);
+  padding: 0;
 }
 
 .actions {
@@ -380,27 +436,38 @@ body {
   border-color: var(--border-emphasis);
 }
 
-.min-dot {
+.min-dot-shell {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  /* macOS transparent webviews ignore fully transparent hits */
+  background: rgb(0 0 0 / 0.001%);
+  outline: none;
+}
+
+.min-dot-shell:active {
+  cursor: grabbing;
+}
+
+.min-dot-orb {
   width: var(--size-min-dot);
   height: var(--size-min-dot);
   border-radius: 50%;
-  border: none;
-  cursor: pointer;
+  pointer-events: none;
   background: var(--gradient-agent-orb);
   box-shadow: var(--shadow-agent-orb);
   animation: palette-dotpulse 1.6s ease-in-out infinite;
 }
 
-.min-dot.busy {
-  background: var(--gradient-agent-orb);
+.min-dot-orb.busy {
   animation: palette-dotpulse 0.9s ease-in-out infinite;
 }
 
-.min-dot.done {
+.min-dot-orb.done {
   background: var(--gradient-palette-success-orb);
   box-shadow: var(--shadow-palette-success-orb);
 }
@@ -408,12 +475,12 @@ body {
 @keyframes palette-dotpulse {
   0%,
   100% {
-    transform: translate(-50%, -50%) scale(1);
+    transform: scale(1);
     opacity: 1;
   }
 
   50% {
-    transform: translate(-50%, -50%) scale(0.82);
+    transform: scale(0.82);
     opacity: 0.7;
   }
 }

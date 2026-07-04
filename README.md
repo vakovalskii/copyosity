@@ -23,7 +23,7 @@ Command / agent palette — web search and a streaming research agent when
 NeuralDeep Hub is enabled (`⌘⇧Space`, tray menu, or the sparkles button in the
 overlay):
 
-<img src="docs/screenshots/agent-search.png" alt="Command palette in Agent mode" width="640">
+<img src="docs/screenshots/command-palette-agent.png" alt="Command palette in Agent mode" width="640">
 
 NeuralDeep Hub settings — one master switch for tagging, transcription, web
 search, and voice polishing; optional fallback to local Ollama for tagging:
