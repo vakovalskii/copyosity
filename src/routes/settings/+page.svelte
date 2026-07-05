@@ -43,8 +43,15 @@
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import SectionIcon, { type SectionIconName } from "$lib/components/SectionIcon.svelte";
+  import HotkeySettingsSection from "$lib/components/HotkeySettingsSection.svelte";
   import SnippetsEditor from "$lib/components/SnippetsEditor.svelte";
   import { confirmDestructive } from "$lib/confirm";
+  import {
+    coerceSettingsPane,
+    isSettingsPane,
+    parseSettingsPaneFromQuery,
+    type SettingsPane,
+  } from "$lib/settings-pane";
   import {
     clearAllConfirmBody,
     clearUnpinnedConfirmBody,
@@ -179,7 +186,6 @@
     "whisper_server_url",
     "whisper_server_token",
     "whisper_server_model",
-    "voice_shortcut",
     "selected_microphone",
     "hub_url",
     "hub_token",
@@ -431,9 +437,8 @@
     const unlistenClipboard = listen("clipboard-changed", onHistoryCountsEvent);
     const unlistenHistory = listen("history-changed", onHistoryCountsEvent);
 
-    // "Edit Snippets…" from the quick menu deep-links here.
-    const unlistenSnippets = listen("open-snippets", () => {
-      activePane = "quickmenu";
+    const unlistenNavigatePane = listen<string>("navigate-settings-pane", (event) => {
+      applySettingsPane(event.payload);
     });
 
     const unlistenFocus = win.onFocusChanged(({ payload: focused }) => {
@@ -450,7 +455,7 @@
       unlistenShown.then((fn) => fn());
       unlistenClipboard.then((fn) => fn());
       unlistenHistory.then((fn) => fn());
-      unlistenSnippets.then((fn) => fn());
+      unlistenNavigatePane.then((fn) => fn());
       unlistenFocus.then((fn) => fn());
     };
   });
@@ -732,9 +737,18 @@
   }
 
   // ---- Sidebar navigation ----
-  type Pane = "hub" | "voice" | "quickmenu" | "ai" | "history" | "permissions" | "updates";
-  let activePane = $state<Pane>("hub");
-  const panes: { id: Pane; label: string; icon: SectionIconName }[] = [
+  function paneFromUrl(): SettingsPane | null {
+    if (typeof window === "undefined") return null;
+    return parseSettingsPaneFromQuery(window.location.search);
+  }
+
+  function applySettingsPane(pane: string | null | undefined) {
+    if (!pane || !isSettingsPane(pane)) return;
+    activePane = pane;
+  }
+
+  let activePane = $state<SettingsPane>(coerceSettingsPane(paneFromUrl()));
+  const panes: { id: SettingsPane; label: string; icon: SectionIconName }[] = [
     { id: "hub", label: "NeuralDeep", icon: "hub" },
     { id: "voice", label: "Voice", icon: "voice" },
     { id: "quickmenu", label: "Quick Menu", icon: "clipboard-panel" },
@@ -761,6 +775,21 @@
       quickMenuNotice = "Saved";
     } catch (e) {
       quickMenuNotice = `${e}`;
+    }
+  }
+
+  let voiceShortcutNotice = $state("");
+  async function saveVoiceShortcut() {
+    voiceShortcutNotice = "";
+    try {
+      const deferred = pickDeferred(settings);
+      const saved = await updateAppSettings({ voice_shortcut: settings.voice_shortcut });
+      settings = { ...saved, ...deferred };
+      await rebindVoiceShortcut();
+      snapshotDeferred();
+      voiceShortcutNotice = "Saved";
+    } catch (e) {
+      voiceShortcutNotice = `${e}`;
     }
   }
 
@@ -897,7 +926,7 @@
 
       <section class="form-section">
         <div class="form-section-header">
-          <div class="form-section-title form-section-title--with-icon"><SectionIcon name="hub" />NeuralDeep Hub</div>
+          <div class="form-section-title form-section-title--with-icon"><SectionIcon name="hub" />Hub</div>
           <label class="toggle">
             <input
               type="checkbox"
@@ -1028,7 +1057,7 @@
 
       <section class="form-section">
         <div class="form-section-header">
-          <div class="form-section-title form-section-title--with-icon"><SectionIcon name="voice" />Voice Transcription</div>
+          <div class="form-section-title form-section-title--with-icon"><SectionIcon name="recording" />Recording</div>
           <label class="toggle">
             <input
               type="checkbox"
@@ -1049,31 +1078,34 @@
             When off, the global hold-to-record shortcut is not registered.
           </div>
 
+          <HotkeySettingsSection
+            bind:value={settings.voice_shortcut}
+            placeholder="option+space"
+            examples={["option+space", "cmd+shift+r", "ctrl+alt+space"]}
+            detail="Hold to record, release to transcribe and paste at the cursor."
+            notice={voiceShortcutNotice || undefined}
+            onSave={saveVoiceShortcut}
+          />
+
+          <div class="form-subsection-rule" role="separator"></div>
+
           <div class="form-subsection">
-            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="recording" />Recording</div>
+            <div class="form-subsection-title form-subsection-title--with-icon">
+              <SectionIcon name="voice" class="form-subsection-icon" />Microphone
+            </div>
             <div class="inset-list">
-              <label class="form-field">
-                <span class="form-label">Shortcut (hold to record)</span>
-                <input
-                  class="form-input"
-                  type="text"
-                  bind:value={settings.voice_shortcut}
-                  placeholder="option+space"
-                />
-                <div class="form-hint">
-                  Use: <code>cmd</code>, <code>option</code>, <code>ctrl</code>, <code>shift</code> + key.
-                  Examples: <code>option+space</code>, <code>cmd+shift+r</code>, <code>ctrl+alt+space</code>
-                </div>
-              </label>
-              <label class="form-field">
-                <span class="form-label">Microphone</span>
-                <select class="form-select" bind:value={settings.selected_microphone}>
+              <div class="form-field">
+                <select
+                  class="form-select"
+                  aria-label="Microphone"
+                  bind:value={settings.selected_microphone}
+                >
                   <option value="">System default</option>
                   {#each microphones as mic}
                     <option value={mic.name}>{mic.name}{mic.is_default ? " (default)" : ""}</option>
                   {/each}
                 </select>
-              </label>
+              </div>
             </div>
           </div>
 
@@ -1126,7 +1158,7 @@
           <div class="form-subsection-rule" role="separator"></div>
 
           <div class="form-subsection">
-            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="ai-tagging" />AI text polishing</div>
+            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="text-polish" />AI text polishing</div>
             <div class="form-hint">
               After transcription, run the text through the hub LLM to add punctuation,
               remove filler, format lists, and match the app you're pasting into.
@@ -1171,11 +1203,7 @@
                   </span>
                   <span class="form-checkbox-label ui-selectable-text">Selected-text mode: if text is selected, your voice becomes an instruction (summarize / fix / translate / rewrite it)</span>
                 </label>
-              {/if}
-            </div>
 
-            {#if settings.voice_polish_enabled && settings.hub_enabled}
-              <div class="inset-list">
                 <label class="form-field">
                   <span class="form-label">Polish model (multimodal for screenshots)</span>
                   <div class="form-inline">
@@ -1221,8 +1249,8 @@
                   ></textarea>
                   <div class="form-hint">The model will keep these terms spelled exactly as written.</div>
                 </label>
-              </div>
-            {/if}
+              {/if}
+            </div>
           </div>
         </fieldset>
       </section>
@@ -1233,33 +1261,27 @@
       </div>
 
       <section class="form-section">
-        <div class="form-section-title form-section-title--with-icon"><SectionIcon name="clipboard-panel" />Hotkey</div>
-        <div class="form-section-body">
-          <label class="form-field">
-            <span class="form-label">Quick menu shortcut</span>
-            <div class="quickmenu-shortcut-row">
-              <input
-                class="form-input"
-                type="text"
-                placeholder="cmd+shift+c"
-                bind:value={quickMenuShortcut}
-                onkeydown={(e) => e.key === "Enter" && saveQuickMenuShortcut()}
-              />
-              <button class="app-btn" type="button" onclick={saveQuickMenuShortcut}>Save</button>
+        <div class="form-section-body form-section-body--subsections">
+          <HotkeySettingsSection
+            bind:value={quickMenuShortcut}
+            placeholder="cmd+shift+c"
+            examples={["cmd+shift+c"]}
+            detail="Press anywhere to pop the menu at your cursor with history and snippets; items 1–9 have number keys."
+            notice={quickMenuNotice || undefined}
+            onSave={saveQuickMenuShortcut}
+          />
+
+          <div class="form-subsection-rule" role="separator"></div>
+
+          <div class="form-subsection">
+            <div class="form-subsection-title form-subsection-title--with-icon">
+              <SectionIcon name="snippets" class="form-subsection-icon" />Snippets
             </div>
             <div class="form-hint">
-              Combine <code>cmd</code>, <code>option</code>, <code>ctrl</code>, <code>shift</code> with a key,
-              e.g. <code>cmd+shift+c</code>. Press it anywhere to pop the menu at your cursor; recent items
-              1–9 have number keys. {#if quickMenuNotice}<strong>{quickMenuNotice}</strong>{/if}
+              Reusable text templates grouped in folders — they show up in the quick menu for two-click paste.
             </div>
-          </label>
-        </div>
-      </section>
-
-      <section class="form-section">
-        <div class="form-section-title form-section-title--with-icon"><SectionIcon name="clipboard-panel" />Snippets</div>
-        <div class="form-section-body">
-          <SnippetsEditor />
+            <SnippetsEditor />
+          </div>
         </div>
       </section>
     {:else if activePane === "permissions"}
@@ -1830,15 +1852,6 @@
     background: var(--surface-page);
     font-family: var(--font-family-system);
     color: var(--color-text-body);
-  }
-
-  .quickmenu-shortcut-row {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-  .quickmenu-shortcut-row .form-input {
-    flex: 1 1 auto;
   }
 
   .settings-shell {

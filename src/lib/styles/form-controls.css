@@ -608,6 +608,16 @@
   padding: var(--padding-hint-y) 0;
 }
 
+.form-hint--stacked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-row);
+}
+
+.form-hint--stacked > .form-hint-line {
+  margin: 0;
+}
+
 .form-hint code,
 .form-instruction-list code,
 .status-hint code {
@@ -1017,30 +1027,6 @@
 .status-action:hover:not(.is-busy, .is-locked, :disabled) {
   background: var(--surface-accent-strong);
   border-color: var(--border-accent-strong);
-}
-
-.status-hint {
-  margin: 0 0 0 var(--space-hint-indent);
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-hint);
-  padding: var(--padding-hint-y) 0;
-  color: var(--color-text-tertiary);
-}
-
-.status-hint.ok {
-  color: var(--color-success-text);
-}
-
-.status-hint.neutral {
-  color: var(--color-text-tertiary);
-}
-
-.status-hint.warn {
-  color: var(--color-warning-text);
-}
-
-.status-hint.fail {
-  color: var(--color-danger-text);
 }
 
 .status-hint.pull-progress {

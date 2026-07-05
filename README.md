@@ -23,18 +23,24 @@ Command / agent palette — web search and a streaming research agent when
 NeuralDeep Hub is enabled (`⌘⇧Space`, tray menu, or the sparkles button in the
 overlay):
 
-<img src="docs/screenshots/agent-search.png" alt="Command palette in Agent mode" width="640">
+<img src="docs/screenshots/command-palette-agent.png" alt="Command palette in Agent mode" width="640">
 
 NeuralDeep Hub settings — one master switch for tagging, transcription, web
 search, and voice polishing; optional fallback to local Ollama for tagging:
 
-<img src="docs/screenshots/settings-neuraldeep.png" alt="NeuralDeep Hub settings with master switch" width="640">
+<img src="docs/screenshots/settings-neuraldeep.png" alt="Hub settings with master switch" width="640">
 
 Context-aware voice polishing — hold a shortcut to dictate; the hub LLM cleans
 the transcription (punctuation, filler, lists) and adapts it to the app
 you're pasting into:
 
 <img src="docs/screenshots/settings-voice.png" alt="Voice settings with transcription and AI polish" width="640">
+
+Quick Menu settings — configurable global hotkey (default `⌘⇧C`), collapsible
+snippet folders with inline rename; the native Clipy-style menu lists recent
+history and saved snippets for two-click paste without opening the overlay:
+
+<img src="docs/screenshots/settings-quick-menu.png" alt="Quick Menu settings with hotkey and snippets editor" width="640">
 
 ## Features
 
@@ -67,6 +73,14 @@ you're pasting into:
 - **Command / agent palette** — Agent and Web modes, session history, streaming
   agent progress, markdown answers, voice input, and Insert / Copy / Close
   actions; draggable, resizable window with minimize-to-dot.
+- **Quick menu** — native Clipy-style pop-up at the cursor on a global hotkey
+  (default `⌘⇧C`): recent clipboard history with number keys 1–9, overflow in
+  submenus (up to 100 entries), and saved snippets grouped by folder; pick an
+  item to paste into the app that was frontmost when the menu opened — two
+  clicks, no overlay.
+- **Snippets** — reusable text templates (email, address, prompts, …) in
+  folders; edit them in **Settings → Quick Menu**; they appear in the quick menu
+  for two-click paste; **Edit Snippets…** in the menu opens that settings pane.
 - **Native macOS actions** — the assistant can create Notes, create and list
   Reminders, and read upcoming Calendar events via AppleScript / Apple Events.
 - **Local AI option** — optional Ollama integration for fully local tagging,
@@ -127,21 +141,22 @@ Expected onboarding states: `Ollama not installed` → `Ollama installed, server
 
 ## Keyboard shortcuts
 
-| Action                     | What it does                                  |
-| -------------------------- | --------------------------------------------- |
-| `Cmd + Shift + V`          | Open / close clipboard history                |
-| `Cmd + Shift + Space`      | Open command / agent palette (when hub is on) |
-| `Cmd + F` or `/`           | Focus search in the overlay                   |
-| Hold voice shortcut        | Record voice (default `Option + Space`)       |
-| Single click on card       | Copy to clipboard                             |
-| Double click on card       | Paste into active cursor                      |
-| `Enter` or `Space` on card | Paste selected entry                          |
-| `Escape`                   | Clear search, then hide overlay               |
-| Arrow keys                 | Navigate cards                                |
-| Click paste button         | Paste into active cursor                      |
-| Click ★ button             | Star / unstar                                 |
-| Click sparkles button      | Open command / agent palette                  |
-| Click gear icon            | Open Settings                                 |
+| Action                     | What it does                                   |
+| -------------------------- | ---------------------------------------------- |
+| `Cmd + Shift + V`          | Open / close clipboard history                 |
+| `Cmd + Shift + C`          | Open quick menu at cursor (history + snippets) |
+| `Cmd + Shift + Space`      | Open command / agent palette (when hub is on)  |
+| `Cmd + F` or `/`           | Focus search in the overlay                    |
+| Hold voice shortcut        | Record voice (default `Option + Space`)        |
+| Single click on card       | Copy to clipboard                              |
+| Double click on card       | Paste into active cursor                       |
+| `Enter` or `Space` on card | Paste selected entry                           |
+| `Escape`                   | Clear search, then hide overlay                |
+| Arrow keys                 | Navigate cards                                 |
+| Click paste button         | Paste into active cursor                       |
+| Click ★ button             | Star / unstar                                  |
+| Click sparkles button      | Open command / agent palette                   |
+| Click gear icon            | Open Settings                                  |
 
 ## Privacy
 

@@ -2,6 +2,7 @@
   export type SectionIconName =
     | "permissions"
     | "ai-tagging"
+    | "text-polish"
     | "ollama-model"
     | "this-mac"
     | "storage"
@@ -10,7 +11,9 @@
     | "recording"
     | "setup"
     | "clipboard-panel"
-    | "hub";
+    | "hub"
+    | "hotkey"
+    | "snippets";
 
   const {
     name,
@@ -37,6 +40,12 @@
   {:else if name === "ai-tagging"}
     <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />
     <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" stroke="none" />
+  {:else if name === "text-polish"}
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h7" />
+    <path d="M14 2v6h6" />
+    <path d="M8 13h5M8 17h4" />
+    <path d="m18 14 1 2 2 1-2 1-1 2-1-2-2-1 2-1z" />
+    <path d="M15 20h2" />
   {:else if name === "ollama-model"}
     <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
     <path d="M3.29 7 12 12l8.71-5" />
@@ -77,5 +86,12 @@
     <path d="M12 3 4.5 8.5v7L12 21l7.5-5.5v-7L12 3z" />
     <path d="M12 8v8" />
     <path d="M8.5 10.5 12 8l3.5 2.5" />
+  {:else if name === "hotkey"}
+    <rect x="2" y="6" width="20" height="12" rx="2" />
+    <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" />
+  {:else if name === "snippets"}
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <path d="M14 2v6h6" />
+    <path d="M8 13h8M8 17h5M8 9h2" />
   {/if}
 </svg>

@@ -12,4 +12,6 @@ commands.allow = [
   "palette_agent",
   "palette_voice_start",
   "palette_voice_stop",
+  "palette_set_dot_mode",
+  "palette_is_dot_mode",
 ]

@@ -81,7 +81,7 @@
   --card-preview-pad-block-ocr: 16px;
   --card-ocr-line-clamp: 4;
   --card-text-preview-pad: 10px 12px;
-  --card-text-preview-pad-ocr: 8px;
+  --card-text-preview-pad-ocr: 6px 8px;
   --card-hover-lift: -2px;
   --size-card-action-hit: 24px;
   --card-type-pad: 3px 8px;
@@ -108,7 +108,7 @@
   /* Icon display sizes — one token per semantic icon block.
    * card-action (14px) and card-copied (24px): visually verified after fill-glyph migration. */
   --icon-size-overlay-header-settings: 16px;
-  --icon-size-overlay-header-close: 13px;
+  --icon-size-overlay-header-close: 16px; /* match header stroke icons — optical parity across toolbar glyphs */
   --icon-size-search: 16px;
   --icon-size-search-clear: 10px;
   --icon-size-card-action: 14px;
@@ -388,6 +388,7 @@
   --surface-code-block: rgb(var(--rgb-black) / 30%);
   --blur-palette-panel: 20px;
   --font-size-palette-search: 1.125rem;
+  --font-size-palette-status: var(--font-size-sm);
   --font-size-palette-mode: 0.6875rem;
   --font-size-palette-markdown-heading: 0.9375rem;
   --gradient-resize-grip: linear-gradient(

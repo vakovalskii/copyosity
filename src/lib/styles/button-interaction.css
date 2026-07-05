@@ -130,3 +130,37 @@ button.app-btn:disabled {
   cursor: default;
   pointer-events: none;
 }
+
+/* Icon action buttons (clipboard cards, snippet rows, etc.) */
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-card-action-hit);
+  height: var(--size-card-action-hit);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+  border-radius: var(--radius-control-sm);
+  flex-shrink: 0;
+}
+
+.action-icon {
+  width: var(--icon-size-card-action);
+  height: var(--icon-size-card-action);
+  display: block;
+}
+
+.action-btn:hover:not(:disabled, [aria-busy="true"]) {
+  color: var(--color-text-bright);
+  background: var(--surface-10);
+}
+
+.action-btn.delete:hover:not(:disabled, [aria-busy="true"]),
+.action-btn.delete:active:not(:disabled, [aria-busy="true"]) {
+  color: var(--color-danger);
+  background: var(--surface-danger);
+  box-shadow: inset 0 0 0 1px var(--border-danger-hover);
+}

@@ -91,6 +91,7 @@
           type="button"
           class="tab-delete"
           aria-label="Remove collection {col.name}"
+          title="Remove"
           onclick={(e) => handleDelete(e, col.id)}
         >
           <svg class="tab-delete-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -117,6 +118,7 @@
         class="add-tab app-btn"
         type="button"
         aria-label="Add collection"
+        title="Add collection"
         onclick={() => (showAdd = true)}
       >
         <svg class="add-tab-icon" viewBox="0 0 24 24" aria-hidden="true">

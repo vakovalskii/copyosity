@@ -281,8 +281,8 @@ export async function activateEntry(entryId: number): Promise<void> {
   return invoke("activate_entry", { entryId });
 }
 
-export async function openSettingsWindow(): Promise<void> {
-  return invoke("open_settings_window");
+export async function openSettingsWindow(initialPane?: string): Promise<void> {
+  return invoke("open_settings_window", { initialPane: initialPane ?? null });
 }
 
 export async function quitApp(): Promise<void> {
