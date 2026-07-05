@@ -740,24 +740,7 @@ pub fn set_quick_menu_shortcut(
     let trimmed = shortcut.trim();
     db.set_setting("quick_menu_shortcut", trimmed)
         .map_err(|e| e.to_string())?;
-    crate::register_quick_menu_shortcut(&app)
-}
-
-#[tauri::command]
-pub fn get_snippets_shortcut(db: State<'_, Arc<Database>>) -> Result<String, String> {
-    crate::snippets_shortcut_string(db.as_ref())
-}
-
-#[tauri::command]
-pub fn set_snippets_shortcut(
-    app: tauri::AppHandle,
-    db: State<'_, Arc<Database>>,
-    shortcut: String,
-) -> Result<String, String> {
-    let trimmed = shortcut.trim();
-    db.set_setting("snippets_shortcut", trimmed)
-        .map_err(|e| e.to_string())?;
-    let stored = crate::register_snippets_shortcut(&app)?;
+    let stored = crate::register_quick_menu_shortcut(&app)?;
     if let Err(e) = crate::refresh_tray_menu(&app) {
         eprintln!("Tray menu refresh failed: {e}");
     }

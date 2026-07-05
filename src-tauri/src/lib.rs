@@ -81,9 +81,6 @@ static QUICK_MENU_TARGET_PID: AtomicI32 = AtomicI32::new(0);
 /// Default hotkey for the native quick menu (Clipy-style).
 pub(crate) const DEFAULT_QUICK_MENU_SHORTCUT: &str = "cmd+shift+c";
 
-/// Default hotkey for opening the snippets editor in Settings.
-pub(crate) const DEFAULT_SNIPPETS_SHORTCUT: &str = "cmd+shift+s";
-
 static RECORDING: std::sync::OnceLock<std::sync::Mutex<Option<whisper::RecordingSession>>> =
     std::sync::OnceLock::new();
 
@@ -221,51 +218,15 @@ pub fn register_quick_menu_shortcut(app: &tauri::AppHandle) -> Result<String, St
     Ok(shortcut_str)
 }
 
-static CURRENT_SNIPPETS_SHORTCUT: std::sync::OnceLock<std::sync::Mutex<Option<Shortcut>>> =
-    std::sync::OnceLock::new();
-
-fn snippets_shortcut_mutex() -> &'static std::sync::Mutex<Option<Shortcut>> {
-    CURRENT_SNIPPETS_SHORTCUT.get_or_init(|| std::sync::Mutex::new(None))
-}
-
-pub fn snippets_shortcut_string(db: &db::Database) -> Result<String, String> {
-    Ok(db
-        .get_setting("snippets_shortcut")
-        .map_err(|e| e.to_string())?
-        .unwrap_or_else(|| DEFAULT_SNIPPETS_SHORTCUT.to_string()))
-}
-
 pub fn open_snippets_editor(app: &tauri::AppHandle) {
     let _ = commands::open_settings_window(app.clone(), Some("quickmenu".to_string()));
 }
 
-/// Register (or re-register) the snippets-editor hotkey from DB settings.
-/// Returns the shortcut string on success.
-pub fn register_snippets_shortcut(app: &tauri::AppHandle) -> Result<String, String> {
-    let db = app.state::<std::sync::Arc<db::Database>>();
-    let shortcut_str = snippets_shortcut_string(db.as_ref())?;
-
-    let new_shortcut = parse_shortcut(&shortcut_str)
-        .ok_or_else(|| format!("Invalid shortcut: {}", shortcut_str))?;
-
-    {
-        let mut current = snippets_shortcut_mutex().lock().unwrap();
-        if let Some(old) = current.take() {
-            let _ = app.global_shortcut().unregister(old);
-        }
-    }
-
-    let handle = app.clone();
-    app.global_shortcut()
-        .on_shortcut(new_shortcut, move |_app, _shortcut, event| {
-            if event.state == ShortcutState::Pressed {
-                open_snippets_editor(&handle);
-            }
-        })
-        .map_err(|e| format!("Failed to register snippets shortcut: {}", e))?;
-
-    *snippets_shortcut_mutex().lock().unwrap() = Some(new_shortcut);
-    Ok(shortcut_str)
+pub fn quick_menu_shortcut_string(db: &db::Database) -> Result<String, String> {
+    Ok(db
+        .get_setting("quick_menu_shortcut")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| DEFAULT_QUICK_MENU_SHORTCUT.to_string()))
 }
 
 /// Dispatch a selection from the native quick menu. Ignores non-`qm:` ids so it
@@ -562,7 +523,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "search" => toggle_command_palette(app.app_handle()),
                     "overlay" => toggle_window(app.app_handle()),
-                    "snippets" => open_snippets_editor(app.app_handle()),
+                    "snippets" => quick_menu::show(app.app_handle()),
                     "settings" => {
                         let _ = commands::open_settings_window(app.app_handle().clone(), None);
                     }
@@ -611,10 +572,6 @@ pub fn run() {
             // Native quick menu (Clipy-style) hotkey.
             if let Err(e) = register_quick_menu_shortcut(app.handle()) {
                 eprintln!("Quick-menu shortcut registration failed: {}", e);
-            }
-
-            if let Err(e) = register_snippets_shortcut(app.handle()) {
-                eprintln!("Snippets shortcut registration failed: {}", e);
             }
 
             // Handle selections from the native quick menu (popup menu events are
@@ -708,8 +665,6 @@ pub fn run() {
             commands::rebind_palette_shortcut,
             commands::get_quick_menu_shortcut,
             commands::set_quick_menu_shortcut,
-            commands::get_snippets_shortcut,
-            commands::set_snippets_shortcut,
             commands::get_snippet_folders,
             commands::get_snippets,
             commands::create_snippet_folder,
@@ -876,16 +831,16 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let overlay = MenuItem::with_id(app, "overlay", overlay_label, true, None::<&str>)?;
     let snippets_label = app
         .try_state::<std::sync::Arc<db::Database>>()
-        .and_then(|db| snippets_shortcut_string(db.as_ref()).ok())
+        .and_then(|db| quick_menu_shortcut_string(db.as_ref()).ok())
         .map(|shortcut| format!("Open Snippets  {}", format_shortcut_for_menu(&shortcut)))
         .unwrap_or_else(|| {
             #[cfg(target_os = "macos")]
             {
-                "Open Snippets  ⌘⇧S".to_string()
+                "Open Snippets  ⌘⇧C".to_string()
             }
             #[cfg(not(target_os = "macos"))]
             {
-                "Open Snippets  Ctrl+Shift+S".to_string()
+                "Open Snippets  Ctrl+Shift+C".to_string()
             }
         });
     let snippets = MenuItem::with_id(app, "snippets", &snippets_label, true, None::<&str>)?;
