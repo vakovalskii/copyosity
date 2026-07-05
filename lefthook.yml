@@ -13,9 +13,9 @@ pre-commit:
       group:
         piped: true
         jobs:
-          - run: oxlint --fix {staged_files}
+          - run: npx --no-install oxlint --fix {staged_files}
             stage_fixed: true
-          - run: oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+          - run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
             stage_fixed: true
 
     - name: svelte
@@ -23,11 +23,11 @@ pre-commit:
       group:
         piped: true
         jobs:
-          - run: oxlint --fix {staged_files}
+          - run: npx --no-install oxlint --fix {staged_files}
             stage_fixed: true
-          - run: stylelint --fix {staged_files}
+          - run: npx --no-install stylelint --fix {staged_files}
             stage_fixed: true
-          - run: oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+          - run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
             stage_fixed: true
 
     - name: css
@@ -35,16 +35,16 @@ pre-commit:
       group:
         piped: true
         jobs:
-          - run: stylelint --fix {staged_files}
+          - run: npx --no-install stylelint --fix {staged_files}
             stage_fixed: true
-          - run: oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+          - run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
             stage_fixed: true
 
     - name: docs
       glob:
         - "**/*.json"
         - "**/*.md"
-      run: oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+      run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
 
     - name: rust
