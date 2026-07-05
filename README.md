@@ -141,22 +141,22 @@ Expected onboarding states: `Ollama not installed` → `Ollama installed, server
 
 ## Keyboard shortcuts
 
-| Action                     | What it does                                     |
-| -------------------------- | ------------------------------------------------ |
-| `Cmd + Shift + V`          | Open / close clipboard history                   |
-| `Cmd + Shift + C`          | Open quick menu at cursor (history + snippets)   |
-| `Cmd + Shift + Space`      | Open command / agent palette (when hub is on)    |
-| `Cmd + F` or `/`           | Focus search in the overlay                      |
-| Hold voice shortcut        | Record voice (default `Option + Space`)          |
-| Single click on card       | Copy to clipboard                                |
-| Double click on card       | Paste into active cursor                         |
-| `Enter` or `Space` on card | Paste selected entry                             |
-| `Escape`                   | Clear search, then hide overlay                  |
-| Arrow keys                 | Navigate cards                                   |
-| Click paste button         | Paste into active cursor                         |
-| Click ★ button             | Star / unstar                                    |
-| Click sparkles button      | Open command / agent palette                     |
-| Click gear icon            | Open Settings                                    |
+| Action                     | What it does                                   |
+| -------------------------- | ---------------------------------------------- |
+| `Cmd + Shift + V`          | Open / close clipboard history                 |
+| `Cmd + Shift + C`          | Open quick menu at cursor (history + snippets) |
+| `Cmd + Shift + Space`      | Open command / agent palette (when hub is on)  |
+| `Cmd + F` or `/`           | Focus search in the overlay                    |
+| Hold voice shortcut        | Record voice (default `Option + Space`)        |
+| Single click on card       | Copy to clipboard                              |
+| Double click on card       | Paste into active cursor                       |
+| `Enter` or `Space` on card | Paste selected entry                           |
+| `Escape`                   | Clear search, then hide overlay                |
+| Arrow keys                 | Navigate cards                                 |
+| Click paste button         | Paste into active cursor                       |
+| Click ★ button             | Star / unstar                                  |
+| Click sparkles button      | Open command / agent palette                   |
+| Click gear icon            | Open Settings                                  |
 
 ## Privacy
 
