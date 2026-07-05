@@ -28,8 +28,6 @@
     rebindPaletteShortcut,
     getQuickMenuShortcut,
     setQuickMenuShortcut,
-    getSnippetsShortcut,
-    setSnippetsShortcut,
     listMicrophones,
     checkAccessibility,
     openAccessibilitySettings,
@@ -404,7 +402,6 @@
     loadModelCatalog();
     void loadHistoryCounts();
     void loadQuickMenuShortcut();
-    void loadSnippetsShortcut();
     refreshOllamaStatus();
     void currentVersion().then((v) => {
       appVersion = v;
@@ -778,25 +775,6 @@
       quickMenuNotice = "Saved";
     } catch (e) {
       quickMenuNotice = `${e}`;
-    }
-  }
-
-  let snippetsShortcut = $state("cmd+shift+s");
-  let snippetsShortcutNotice = $state("");
-  async function loadSnippetsShortcut() {
-    try {
-      snippetsShortcut = await getSnippetsShortcut();
-    } catch {
-      // keep default
-    }
-  }
-  async function saveSnippetsShortcut() {
-    snippetsShortcutNotice = "";
-    try {
-      snippetsShortcut = await setSnippetsShortcut(snippetsShortcut);
-      snippetsShortcutNotice = "Saved";
-    } catch (e) {
-      snippetsShortcutNotice = `${e}`;
     }
   }
 
@@ -1288,7 +1266,7 @@
             bind:value={quickMenuShortcut}
             placeholder="cmd+shift+c"
             examples={["cmd+shift+c"]}
-            detail="Press anywhere to pop the menu at your cursor; items 1–9 have number keys."
+            detail="Press anywhere to pop the menu at your cursor with history and snippets; items 1–9 have number keys."
             notice={quickMenuNotice || undefined}
             onSave={saveQuickMenuShortcut}
           />
@@ -1302,14 +1280,6 @@
             <div class="form-hint">
               Reusable text templates grouped in folders — they show up in the quick menu for two-click paste.
             </div>
-            <HotkeySettingsSection
-              bind:value={snippetsShortcut}
-              placeholder="cmd+shift+s"
-              examples={["cmd+shift+s"]}
-              detail="Opens Settings on the snippets editor. Also available from the tray menu."
-              notice={snippetsShortcutNotice || undefined}
-              onSave={saveSnippetsShortcut}
-            />
             <SnippetsEditor />
           </div>
         </div>

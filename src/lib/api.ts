@@ -187,15 +187,6 @@ export async function setQuickMenuShortcut(shortcut: string): Promise<string> {
   return invoke("set_quick_menu_shortcut", { shortcut });
 }
 
-export async function getSnippetsShortcut(): Promise<string> {
-  return invoke("get_snippets_shortcut");
-}
-
-/** Persist the snippets-editor hotkey and re-register it. Returns the stored string. */
-export async function setSnippetsShortcut(shortcut: string): Promise<string> {
-  return invoke("set_snippets_shortcut", { shortcut });
-}
-
 // ---- Snippets ----
 
 export async function getSnippetFolders(): Promise<SnippetFolder[]> {
