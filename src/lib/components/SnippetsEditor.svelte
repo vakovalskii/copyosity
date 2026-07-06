@@ -244,11 +244,12 @@
   {:else if folders.length === 0}
     <p class="form-hint">No folders yet. Create one above to start adding snippets.</p>
   {:else}
-    <div class="inset-list snip-folders-list">
+    <div class="snip-folders-list">
       {#each folders as folder (folder.id)}
         {@const expanded = folderExpanded(folder.id)}
         {@const folderSnippets = snippetsIn(folder.id)}
         {@const renaming = renamingFolderId === folder.id}
+        <div class="inset-list snip-folder">
         <div
           class="snip-folder-header"
           class:snip-folder-header--renaming={renaming}
@@ -482,6 +483,7 @@
           </div>
         {/if}
         </div>
+        </div>
       {/each}
     </div>
   {/if}
@@ -496,6 +498,9 @@
   }
 
   .snip-folders-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-stack);
     min-width: 0;
   }
 
@@ -503,7 +508,7 @@
     display: none;
   }
 
-  .snippets-stack :global(.inset-list > .snip-folder-header) {
+  .snippets-stack :global(.snip-folder > .snip-folder-header) {
     box-sizing: border-box;
     display: grid;
     grid-template-columns: auto 1fr auto auto;
@@ -597,7 +602,7 @@
     padding: var(--space-control-y) var(--inset-list-pad-inline);
   }
 
-  .snippets-stack :global(.inset-list > .snip-entry-row) {
+  .snippets-stack :global(.snip-folder-panel > .snip-entry-row) {
     box-sizing: border-box;
     display: flex;
     align-items: center;
@@ -607,7 +612,13 @@
     padding: var(--space-control-y) var(--inset-list-pad-inline);
   }
 
-  .snippets-stack :global(.inset-list > .snip-folder-footer) {
+  .snippets-stack :global(.snip-folder-panel > .form-field) {
+    box-sizing: border-box;
+    min-width: 0;
+    padding: var(--inset-list-pad-block) var(--inset-list-pad-inline);
+  }
+
+  .snippets-stack :global(.snip-folder-panel > .snip-folder-footer) {
     box-sizing: border-box;
     padding: var(--space-control-y) var(--inset-list-pad-inline);
   }
