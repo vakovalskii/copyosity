@@ -514,6 +514,11 @@
     display: none;
   }
 
+  /* Same row dividers as `.inset-list > * + *` (HIG item 30); panel is nested inside per-folder inset card */
+  .snippets-stack :global(.snip-folder-panel > * + *) {
+    border-top: 1px solid var(--border-subtle);
+  }
+
   .snippets-stack :global(.snip-folder > .snip-folder-header) {
     box-sizing: border-box;
     display: grid;
