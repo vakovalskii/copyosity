@@ -1,5 +1,11 @@
 # Copyosity
 
+[![Latest release](https://img.shields.io/github/v/release/vakovalskii/copyosity)](https://github.com/vakovalskii/copyosity/releases/latest)
+[![CI](https://github.com/vakovalskii/copyosity/actions/workflows/ci.yml/badge.svg)](https://github.com/vakovalskii/copyosity/actions/workflows/ci.yml)
+[![Tauri](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=black)](https://tauri.app/)
+[![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte&logoColor=white)](https://svelte.dev/)
+[![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+
 A fast, native macOS clipboard manager with on-device intelligence.
 
 Copyosity keeps a searchable history of everything you copy, reads text out of
@@ -109,7 +115,7 @@ Requires **macOS 12+** on **Apple Silicon** (M1 and later) or **Intel** (x86_64)
 | Apple Silicon (M1, M2, M3, …) | `Copyosity_*_aarch64.dmg` |
 | Intel                         | `Copyosity_*_x86_64.dmg`  |
 
-1. Pick the DMG for your architecture from the [latest release](https://github.com/vakovalskii/copyosity/releases/latest) (for example `Copyosity_0.6.0_aarch64.dmg` or `Copyosity_0.6.0_x86_64.dmg`).
+1. Pick the DMG for your architecture from the [latest release](https://github.com/vakovalskii/copyosity/releases/latest) (for example `Copyosity_0.6.1_aarch64.dmg` or `Copyosity_0.6.1_x86_64.dmg`). See [CHANGELOG.md](CHANGELOG.md) for release notes.
 2. Open the DMG and drag **Copyosity** into **Applications**.
 3. Launch it. On first run macOS will ask for **Accessibility** permission
    (needed to paste into other apps) and, depending on the features you use,
