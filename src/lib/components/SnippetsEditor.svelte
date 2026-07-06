@@ -74,8 +74,11 @@
     persistCollapsedFolders();
   }
 
-  async function reload() {
-    loading = true;
+  async function reload(options?: { silent?: boolean }) {
+    const silent = options?.silent ?? false;
+    if (!silent) {
+      loading = true;
+    }
     error = "";
     try {
       [folders, snippets] = await Promise.all([getSnippetFolders(), getSnippets()]);
@@ -86,7 +89,9 @@
     } catch (e) {
       error = `Failed to load snippets: ${e}`;
     } finally {
-      loading = false;
+      if (!silent) {
+        loading = false;
+      }
     }
   }
 
@@ -101,7 +106,7 @@
     try {
       const folderId = await createSnippetFolder(name);
       newFolderName = "";
-      await reload();
+      await reload({ silent: true });
       expandFolder(folderId);
     } catch (e) {
       error = `${e}`;
@@ -140,7 +145,7 @@
     if (!trimmed || trimmed === folder.name) return;
     try {
       await renameSnippetFolder(folder.id, trimmed);
-      await reload();
+      await reload({ silent: true });
     } catch (e) {
       error = `${e}`;
     }
@@ -156,7 +161,7 @@
     if (!confirmed) return;
     try {
       await deleteSnippetFolder(folder.id);
-      await reload();
+      await reload({ silent: true });
     } catch (e) {
       error = `${e}`;
     }
@@ -170,7 +175,7 @@
     try {
       await createSnippet(folderId, title, draft.content);
       drafts[folderId] = { title: "", content: "" };
-      await reload();
+      await reload({ silent: true });
       expandFolder(folderId);
     } catch (e) {
       error = `${e}`;
@@ -195,7 +200,7 @@
     try {
       await updateSnippet(id, title, draft.content);
       cancelEdit(id);
-      await reload();
+      await reload({ silent: true });
     } catch (e) {
       error = `${e}`;
     }
@@ -204,7 +209,8 @@
   async function removeSnippet(snippet: Snippet) {
     try {
       await deleteSnippet(snippet.id);
-      await reload();
+      snippets = snippets.filter((s) => s.id !== snippet.id);
+      cancelEdit(snippet.id);
     } catch (e) {
       error = `${e}`;
     }
