@@ -67,8 +67,12 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSScreen",
   "NSView",
   "NSWindow",
+  "NSButton",
+  "NSStatusItem",
+  "NSStatusBarButton",
   "block2",
 ] }
+# NSStatusItem / NSStatusBarButton: tray_macos highlight (docs/architecture/macos-tray-menu.md §4)
 objc2-foundation = { version = "0.3", default-features = false, features = [
   "NSArray",
   "NSString",
@@ -86,3 +90,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 ] }
 objc2-vision = { version = "0.3", features = ["VNRequest", "VNRecognizeTextRequest", "VNRequestHandler", "VNObservation", "VNTypes"] }
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e89" }
+
+# §6 Agent guardrail: docs/architecture/macos-tray-menu.md — do not remove pin without upstream merge.
+# tray-icon#318: popUpStatusItemMenu inside on_tray_click (macOS; patch applies on all targets).
+[patch.crates-io]
+tray-icon = { git = "https://github.com/tauri-apps/tray-icon", rev = "8cd6dce9bae905069416e524a077a3a9d7a6b451" }

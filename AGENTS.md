@@ -38,6 +38,7 @@ Command contract: `make fix` auto-fixes, `make lint` checks lint/format only, an
 
 | Topic                                             | File                                                                                                   |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **macOS menu-bar tray (blink fix — read first)**  | [docs/architecture/macos-tray-menu.md](docs/architecture/macos-tray-menu.md)                           |
 | macOS paste automation (AXPaste, Cmd+V, Messages) | [docs/architecture/macos-paste-pipeline.md](docs/architecture/macos-paste-pipeline.md)                 |
 | Features backlog                                  | [docs/plans/features-backlog.md](docs/plans/features-backlog.md)                                       |
 | Overlay content & tag filters                     | [docs/plans/feature-overlay-content-tag-filters.md](docs/plans/feature-overlay-content-tag-filters.md) |

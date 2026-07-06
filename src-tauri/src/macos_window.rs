@@ -1,4 +1,7 @@
 //! macOS window/panel presentation — float above fullscreen apps on all Spaces.
+//!
+//! Agent guardrail: docs/architecture/macos-tray-menu.md §3, §7 — hidden overlay uses level 3
+//! until shown; fullscreen auxiliary (24) only when overlay/settings are presented.
 
 use crate::palette_window::{
     center_in_work_area, is_dot_logical_size, window_center, PALETTE_DOT_SIZE, PALETTE_MIN_HEIGHT,
@@ -9,6 +12,11 @@ use crate::palette_window::{
 #[cfg(target_os = "macos")]
 pub const FULLSCREEN_AUXILIARY_LEVEL: i64 = 24;
 
+/// Hidden auxiliary panels stay below status-bar menu popups (first tray click).
+/// Agent guardrail: docs/architecture/macos-tray-menu.md — do not raise hidden main to 24 at startup.
+#[cfg(target_os = "macos")]
+pub const HIDDEN_AUXILIARY_LEVEL: i64 = 3;
+
 #[cfg(target_os = "macos")]
 pub fn fullscreen_auxiliary_collection_behavior() -> objc2_app_kit::NSWindowCollectionBehavior {
     use tauri_nspanel::CollectionBehavior;
@@ -17,6 +25,15 @@ pub fn fullscreen_auxiliary_collection_behavior() -> objc2_app_kit::NSWindowColl
         .can_join_all_spaces()
         .full_screen_auxiliary()
         .into()
+}
+
+#[cfg(target_os = "macos")]
+pub fn configure_hidden_auxiliary_panel(panel: &dyn tauri_nspanel::Panel) {
+    // §3 docs/architecture/macos-tray-menu.md — level 3 while hidden (after overlay hide)
+    panel.set_level(HIDDEN_AUXILIARY_LEVEL);
+    panel.set_collection_behavior(fullscreen_auxiliary_collection_behavior());
+    panel.set_hides_on_deactivate(false);
+    panel.set_floating_panel(true);
 }
 
 #[cfg(target_os = "macos")]
@@ -31,6 +48,22 @@ pub fn configure_fullscreen_auxiliary_panel(panel: &dyn tauri_nspanel::Panel) {
 pub fn present_fullscreen_auxiliary_panel(panel: &dyn tauri_nspanel::Panel) {
     configure_fullscreen_auxiliary_panel(panel);
     panel.show_and_make_key();
+}
+
+#[cfg(target_os = "macos")]
+pub fn apply_hidden_auxiliary_webview(window: &tauri::WebviewWindow) {
+    // §3 Called from ensure_main_overlay_window at startup — keeps main below tray menu popups.
+    use objc2_app_kit::NSWindow;
+
+    let Ok(raw) = window.ns_window() else {
+        return;
+    };
+    unsafe {
+        let ns_window = &*raw.cast::<NSWindow>();
+        ns_window.setCollectionBehavior(fullscreen_auxiliary_collection_behavior());
+        ns_window.setLevel(HIDDEN_AUXILIARY_LEVEL as isize);
+        ns_window.setHidesOnDeactivate(false);
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -247,5 +280,13 @@ mod tests {
     #[test]
     fn fullscreen_auxiliary_level_matches_main_menu() {
         assert_eq!(FULLSCREEN_AUXILIARY_LEVEL, 24);
+    }
+
+    #[test]
+    fn hidden_auxiliary_level_stays_below_status_bar_menus() {
+        const {
+            assert!(HIDDEN_AUXILIARY_LEVEL < FULLSCREEN_AUXILIARY_LEVEL);
+        }
+        assert_eq!(HIDDEN_AUXILIARY_LEVEL, 3);
     }
 }

@@ -4,7 +4,6 @@
 identifier = "main-window-commands"
 description = "Clipboard panel: entries, copy, activate, hide, open settings"
 commands.allow = [
-  "frontend_ready",
   "get_entries",
   "get_overlay_tag_counts",
   "delete_entry",

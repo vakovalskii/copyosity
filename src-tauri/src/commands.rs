@@ -159,10 +159,12 @@ pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn activate_for_settings_window() {
+fn activate_for_settings_window(app: &tauri::AppHandle) {
+    // docs/architecture/macos-tray-menu.md §9 — Regular only while Settings is open
     use objc2::MainThreadMarker;
     use objc2_app_kit::NSApplication;
 
+    crate::activation_macos::promote_to_regular(app);
     if let Some(mtm) = MainThreadMarker::new() {
         let app = NSApplication::sharedApplication(mtm);
         app.activate();
@@ -258,7 +260,7 @@ pub fn open_settings_window(
         ensure_settings_window_size(&window);
         crate::present_settings_window(&window);
         #[cfg(target_os = "macos")]
-        activate_for_settings_window();
+        activate_for_settings_window(&app);
         let _ = window.emit("settings-shown", ());
         if let Some(pane) = initial_pane
             .as_deref()
@@ -284,7 +286,7 @@ pub fn open_settings_window(
     let window = builder.build().map_err(|e| e.to_string())?;
     crate::present_settings_window(&window);
     #[cfg(target_os = "macos")]
-    activate_for_settings_window();
+    activate_for_settings_window(&app);
     let _ = window.emit("settings-shown", ());
 
     Ok(())

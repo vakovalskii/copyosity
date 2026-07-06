@@ -17,6 +17,12 @@ make fix-backend && make check-backend   # Rust/backend-only changes
 make fix && make check                   # full-stack or cross-cutting changes
 ```
 
+After macOS tray, overlay, or activation-policy changes, also run `make verify-tray` on a GUI Mac with Accessibility granted for System Events. Exit code `2` means automation was unavailable (inconclusive), not a pass.
+
+**Before editing tray startup, `tray_macos.rs`, window levels, or activation policy:** read [docs/architecture/macos-tray-menu.md](docs/architecture/macos-tray-menu.md) end-to-end. Partial “simplifications” break either the 1st or 2nd tray click — only the combined scheme in that doc is verified.
+
+See [docs/architecture/macos-tray-menu.md](docs/architecture/macos-tray-menu.md) for blink constraints and smoke targets.
+
 ## Expected Practice
 
 - Do not continue feature development directly on the last release branch.

@@ -1,5 +1,7 @@
 #![allow(unexpected_cfgs)]
 
+#[cfg(target_os = "macos")]
+mod activation_macos; // docs/architecture/macos-tray-menu.md §9
 mod agent;
 mod app_exclusion;
 mod clipboard_macos;
@@ -17,16 +19,19 @@ mod ollama;
 mod overlay_dismiss;
 mod palette_window;
 mod quick_menu;
-#[cfg(target_os = "macos")]
 mod quick_menu_position;
 mod screen;
 mod tagging;
 mod transcription;
+#[cfg(target_os = "macos")]
+mod tray_macos; // docs/architecture/macos-tray-menu.md §4–§5
 mod whisper;
 
 use db::Database;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::Arc;
+#[cfg(target_os = "macos")]
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
@@ -49,12 +54,15 @@ static LAST_SHOW_MS: AtomicU64 = AtomicU64::new(0);
 pub(crate) static PANEL_HIDE_SCHEDULED: AtomicBool = AtomicBool::new(false);
 pub(crate) static PENDING_PASTE_AFTER_HIDE: AtomicBool = AtomicBool::new(false);
 
-/// Main panel level while hidden — below status-bar menu popups.
+/// Main overlay WebviewWindow exists at launch (Handy); NSPanel conversion is deferred.
+/// Agent guardrail: docs/architecture/macos-tray-menu.md §3, §7 — do not convert to NSPanel here.
+///
+/// INVARIANT: `ensure_main_overlay_panel` is **main-thread-only**. All callers reach it through
+/// Tauri's main-thread event loop, so no two callers can be concurrent — the load/store pair is
+/// safe. Do NOT call from a spawned task or background thread: AppKit panel ops are not thread-safe
+/// and `to_panel` would likely panic or corrupt state on re-entry.
 #[cfg(target_os = "macos")]
-const PANEL_LEVEL_IDLE: i64 = 3;
-/// Main panel level while shown — above fullscreen apps.
-#[cfg(target_os = "macos")]
-const PANEL_LEVEL_ACTIVE: i64 = macos_window::FULLSCREEN_AUXILIARY_LEVEL;
+static MAIN_OVERLAY_PANEL: AtomicBool = AtomicBool::new(false);
 
 /// PID of the app that was frontmost when the voice hotkey was pressed.
 /// Used to deliver the synthesized Cmd+V directly to that app instead of
@@ -456,13 +464,6 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-#[tauri::command]
-fn frontend_ready(app: tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = {
@@ -481,12 +482,21 @@ pub fn run() {
         }
     };
 
+    let builder = {
+        #[cfg(target_os = "macos")]
+        {
+            // Agent guardrail: docs/architecture/macos-tray-menu.md §1
+            // Tauri default menubar (Apple/File/Edit) fights NSStatusItem — tray blinks if enabled.
+            builder.enable_macos_default_menu(false)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            builder
+        }
+    };
+
     builder
         .setup(|app| {
-            // Menu-bar app: no Dock icon, no Cmd+Tab entry.
-            #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-
             let app_dir = app
                 .path()
                 .app_data_dir()
@@ -494,48 +504,62 @@ pub fn run() {
             let db = Arc::new(Database::new(app_dir).expect("Failed to initialize database"));
             app.manage(db.clone());
 
-            // Convert main window to NSPanel (non-activating, floating)
+            // --- TRAY STARTUP ---
+            // Agent guardrail: docs/architecture/macos-tray-menu.md — read before editing.
+            // Verified 5× in tauri dev. Combined scheme only; partial fixes break 1st OR 2nd click.
+            // Do not reorder, remove tray_macos defer, or switch to show_menu_on_left_click(true).
+            // Gate: make verify-tray
             #[cfg(target_os = "macos")]
             {
-                use tauri_nspanel::panel::NSWindowStyleMask;
-
-                let window = app.get_webview_window("main").unwrap();
-                let panel = window
-                    .to_panel::<CopyosityPanel>()
-                    .expect("Failed to convert window to panel");
-
-                // Floating above other windows like Spotlight
-                panel.set_level(PANEL_LEVEL_ACTIVE);
-                panel.set_style_mask(
-                    NSWindowStyleMask::Borderless
-                        | NSWindowStyleMask::NonactivatingPanel
-                        | NSWindowStyleMask::Resizable,
-                );
-                // Show on all spaces including over fullscreen apps
-                panel.set_collection_behavior(
-                    macos_window::fullscreen_auxiliary_collection_behavior(),
-                );
-                overlay_dismiss::install_overlay_dismiss_guards();
+                // §2 Accessory before tray
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
 
-            let tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Copyosity")
-                .menu(&build_tray_menu(app.handle())?)
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "search" => toggle_command_palette(app.app_handle()),
-                    "overlay" => toggle_window(app.app_handle()),
-                    "snippets" => quick_menu::show(app.app_handle()),
-                    "settings" => {
-                        let _ = commands::open_settings_window(app.app_handle().clone(), None);
-                    }
-                    "quit" => {
-                        let _ = commands::quit_app(app.app_handle().clone());
-                    }
-                    _ => {}
-                })
-                .build(app)?;
+            // §3 Hidden main at level 3 before tray (sync on main thread — async defer breaks make dev)
+            ensure_main_overlay_window(app.handle())?;
+
+            let tray_menu = build_tray_menu(app.handle())?;
+            let tray = {
+                let tray_builder = TrayIconBuilder::new()
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .tooltip("Copyosity")
+                    .menu(&tray_menu)
+                    .on_menu_event(|app, event| {
+                        handle_tray_menu_event(app.app_handle(), event.id().as_ref())
+                    });
+                #[cfg(target_os = "macos")]
+                {
+                    // §4 Deferred popup — show_menu_on_left_click(true) regresses 2nd/3rd click
+                    tray_builder
+                        .show_menu_on_left_click(false)
+                        .on_tray_icon_event(|tray, event| {
+                            if let TrayIconEvent::Click {
+                                button: MouseButton::Left,
+                                button_state: MouseButtonState::Down,
+                                ..
+                            } = event
+                            {
+                                tray_macos::set_tray_highlight(tray, true);
+                                tray_macos::schedule_tray_menu_popup(tray.clone());
+                            }
+                        })
+                        .build(app)?
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    tray_builder.show_menu_on_left_click(true).build(app)?
+                }
+            };
             app.manage(tray);
+
+            #[cfg(target_os = "macos")]
+            {
+                // §5 Warmup — do not replace activateIgnoringOtherApps(true) with activate()
+                tray_macos::warmup_app_for_status_item_menu();
+                overlay_dismiss::install_overlay_dismiss_guards();
+                eprintln!("[tray] startup: hidden main + deferred tray popup ready");
+            }
+            // --- end TRAY STARTUP ---
 
             let shortcut = {
                 #[cfg(target_os = "macos")]
@@ -561,11 +585,6 @@ pub fn run() {
                 eprintln!("Palette shortcut registration failed: {}", e);
             }
 
-            // Pre-create voice overlay panel so it's ready without stealing focus later
-            ensure_voice_overlay(app.handle());
-            #[cfg(target_os = "macos")]
-            ensure_command_palette(app.handle());
-
             // Register voice transcription shortcut from settings
             if let Err(e) = register_voice_shortcut(app.handle()) {
                 eprintln!("Voice shortcut registration failed: {}", e);
@@ -584,6 +603,10 @@ pub fn run() {
                 "copyosity: global shortcut registered = {}",
                 app.global_shortcut().is_registered(shortcut)
             );
+
+            // §8 Agent guardrail: docs/architecture/macos-tray-menu.md — lazy create only.
+            // voice_overlay / command_palette: lazy-created on first hotkey (see show_voice_overlay,
+            // toggle_command_palette). Do NOT pre-create here — regresses tray first-click blink.
 
             let settings = db.get_app_settings().expect("Failed to load app settings");
             ollama::set_active_model(&settings.ollama_model);
@@ -625,7 +648,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            frontend_ready,
             commands::get_entries,
             commands::get_overlay_tag_counts,
             commands::delete_entry,
@@ -696,6 +718,12 @@ pub fn run() {
             tauri::RunEvent::ExitRequested { api, .. } => {
                 api.prevent_exit();
             }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::TrayIconEvent(ref tray_event) => {
+                if std::env::var("COPYOSITY_TRAY_DEBUG").is_ok() {
+                    eprintln!("[tray] TrayIconEvent: {tray_event:?}");
+                }
+            }
             tauri::RunEvent::WindowEvent { label, event, .. } => match (label.as_str(), &event) {
                 ("main", tauri::WindowEvent::CloseRequested { api, .. }) => {
                     api.prevent_close();
@@ -704,7 +732,13 @@ pub fn run() {
                 ("main", tauri::WindowEvent::Focused(false)) => {
                     overlay_dismiss::handle_focus_lost(app);
                 }
-                ("settings", tauri::WindowEvent::Destroyed) => {}
+                ("settings", tauri::WindowEvent::Destroyed) => {
+                    #[cfg(target_os = "macos")]
+                    {
+                        // docs/architecture/macos-tray-menu.md §9
+                        activation_macos::maybe_restore_accessory(app);
+                    }
+                }
                 _ => {}
             },
             _ => {}
@@ -717,39 +751,109 @@ pub(crate) fn present_settings_window(window: &tauri::WebviewWindow) {
     let _ = window.set_focus();
 }
 
+/// Clipboard overlay WebviewWindow — created hidden at startup (macOS devUrl path); idempotent.
+/// Agent guardrail: docs/architecture/macos-tray-menu.md §3 — must run in setup before tray,
+/// synchronously on main thread; level 3 via apply_hidden_auxiliary_webview.
+pub(crate) fn ensure_main_overlay_window(
+    app: &tauri::AppHandle,
+) -> Result<tauri::WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window("main") {
+        return Ok(window);
+    }
+
+    let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
+        .title("")
+        .inner_size(900.0, 450.0)
+        .resizable(true)
+        .decorations(false)
+        .transparent(true)
+        .visible(false)
+        .skip_taskbar(true)
+        .build()
+        .map_err(|e| format!("Failed to create main overlay window: {e}"))?;
+    let _ = window.set_always_on_top(false);
+    #[cfg(target_os = "macos")]
+    macos_window::apply_hidden_auxiliary_webview(&window);
+    eprintln!("[tray] main overlay window ready (hidden auxiliary level)");
+    Ok(window)
+}
+
+/// Convert the lazy main WebviewWindow into a floating NSPanel on first show.
+/// Agent guardrail: docs/architecture/macos-tray-menu.md §7 — not at startup.
+/// Must be called on the main thread only (see INVARIANT on `MAIN_OVERLAY_PANEL`).
+///
+/// **Idempotency:** the `AtomicBool` early-return makes repeated calls a no-op after the first
+/// successful conversion. A unit test would require a full Tauri runtime and is therefore
+/// impractical; the correctness guarantee lives in the `debug_assert` (thread guard) and the
+/// `load → early-return → store` ordering that is safe because all callers are main-thread-only.
+#[cfg(target_os = "macos")]
+fn ensure_main_overlay_panel(app: &tauri::AppHandle) -> Result<(), String> {
+    debug_assert!(
+        objc2::MainThreadMarker::new().is_some(),
+        "ensure_main_overlay_panel must run on the main thread"
+    );
+    if MAIN_OVERLAY_PANEL.load(Ordering::Acquire) {
+        return Ok(());
+    }
+
+    use tauri_nspanel::panel::NSWindowStyleMask;
+
+    let window = ensure_main_overlay_window(app)?;
+    let panel = window
+        .to_panel::<CopyosityPanel>()
+        .map_err(|e| format!("Failed to convert window to panel: {e}"))?;
+    panel.set_style_mask(
+        NSWindowStyleMask::Borderless
+            | NSWindowStyleMask::NonactivatingPanel
+            | NSWindowStyleMask::Resizable,
+    );
+    macos_window::configure_hidden_auxiliary_panel(&*panel);
+    let _ = window.set_always_on_top(false);
+    MAIN_OVERLAY_PANEL.store(true, Ordering::Release);
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ensure_main_overlay_panel(app: &tauri::AppHandle) -> Result<(), String> {
+    ensure_main_overlay_window(app).map(|_| ())
+}
+
 fn toggle_window(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
-        if let Ok(panel) = app.get_webview_panel("main") {
-            if panel.is_visible() {
-                animated_hide_panel(app);
-            } else {
-                if let Some(window) = app.get_webview_window("main") {
-                    position_window_bottom(&window, remembered_overlay_height());
+        if ensure_main_overlay_panel(app).is_ok() {
+            if let Ok(panel) = app.get_webview_panel("main") {
+                if panel.is_visible() {
+                    animated_hide_panel(app);
+                } else {
+                    if let Some(window) = app.get_webview_window("main") {
+                        position_window_bottom(&window, remembered_overlay_height());
+                    }
+                    clipboard_macos::remember_paste_target();
+                    PANEL_HIDE_SCHEDULED.store(false, Ordering::Release);
+                    LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
+                    macos_window::configure_fullscreen_auxiliary_panel(&*panel);
+                    panel.show_and_make_key();
+                    overlay_dismiss::set_outside_click_dismiss(app, true);
+                    let _ = app.emit("window-show", ());
                 }
-                clipboard_macos::remember_paste_target();
-                PANEL_HIDE_SCHEDULED.store(false, Ordering::Release);
-                LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
-                panel.set_level(PANEL_LEVEL_ACTIVE);
-                macos_window::configure_fullscreen_auxiliary_panel(&*panel);
-                panel.show_and_make_key();
-                overlay_dismiss::set_outside_click_dismiss(app, true);
-                let _ = app.emit("window-show", ());
+                return;
             }
-            return;
         }
     }
 
-    // Fallback for non-macOS
-    if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
-            animated_hide_panel(app);
-        } else {
-            LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
-            position_window_bottom(&window, remembered_overlay_height());
-            let _ = window.show();
-            let _ = window.set_focus();
-            let _ = app.emit("window-show", ());
+    // Fallback for non-macOS (or before macOS panel conversion)
+    if let Ok(()) = ensure_main_overlay_panel(app) {
+        if let Some(window) = app.get_webview_window("main") {
+            if window.is_visible().unwrap_or(false) {
+                animated_hide_panel(app);
+            } else {
+                LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
+                position_window_bottom(&window, remembered_overlay_height());
+                let _ = window.show();
+                let _ = window.set_focus();
+                let _ = app.emit("window-show", ());
+            }
         }
     }
 }
@@ -763,16 +867,25 @@ pub(crate) fn animated_hide_panel(app: &tauri::AppHandle) {
 }
 
 fn hide_panel(app: &tauri::AppHandle) {
+    let mut hid = false;
+
     #[cfg(target_os = "macos")]
     {
         overlay_dismiss::set_outside_click_dismiss(app, false);
-        if let Ok(panel) = app.get_webview_panel("main") {
-            if panel.is_visible() {
-                panel.hide();
-                panel.set_level(PANEL_LEVEL_IDLE);
-                let _ = app.emit("window-hide", ());
+        if ensure_main_overlay_panel(app).is_ok() {
+            if let Ok(panel) = app.get_webview_panel("main") {
+                if panel.is_visible() {
+                    panel.hide();
+                    macos_window::configure_hidden_auxiliary_panel(&*panel);
+                    let _ = app.emit("window-hide", ());
+                    hid = true;
+                }
+                if hid {
+                    // §9 Agent guardrail: docs/architecture/macos-tray-menu.md
+                    activation_macos::maybe_restore_accessory(app);
+                }
+                return;
             }
-            return;
         }
     }
 
@@ -780,6 +893,8 @@ fn hide_panel(app: &tauri::AppHandle) {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
             let _ = app.emit("window-hide", ());
+            #[cfg(target_os = "macos")]
+            activation_macos::maybe_restore_accessory(app);
         }
     }
 }
@@ -860,10 +975,29 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 }
 
 pub fn refresh_tray_menu(app: &tauri::AppHandle) -> Result<(), String> {
-    let tray = app.state::<tauri::tray::TrayIcon<tauri::Wry>>();
     let menu = build_tray_menu(app).map_err(|e| e.to_string())?;
+    let tray = app.state::<tauri::tray::TrayIcon<tauri::Wry>>();
     tray.set_menu(Some(menu))
         .map_err(|e| format!("Failed to refresh tray menu: {e}"))
+}
+
+fn handle_tray_menu_event(app: &tauri::AppHandle, id: &str) {
+    match id {
+        "search" => toggle_command_palette(app),
+        "overlay" => toggle_window(app),
+        "snippets" => quick_menu::show(app),
+        "settings" => {
+            let _ = commands::open_settings_window(app.clone(), None);
+        }
+        "quit" => {
+            let _ = commands::quit_app(app.clone());
+        }
+        _ => {
+            // "version" and any future info-only items are intentionally no-ops.
+            #[cfg(debug_assertions)]
+            eprintln!("[tray] unhandled menu event id: {id}");
+        }
+    }
 }
 
 /// Run the transcription through the hub polish step when enabled, falling back
@@ -1148,7 +1282,7 @@ fn ensure_voice_overlay(app: &tauri::AppHandle) {
                     NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel,
                 );
                 panel.set_becomes_key_only_if_needed(true);
-                macos_window::configure_fullscreen_auxiliary_panel(&*panel);
+                macos_window::configure_hidden_auxiliary_panel(&*panel);
             }
         }
     }
@@ -1161,6 +1295,7 @@ fn show_voice_overlay(app: &tauri::AppHandle) {
     {
         use tauri_nspanel::ManagerExt;
         if let Ok(panel) = app.get_webview_panel("voice_overlay") {
+            macos_window::configure_fullscreen_auxiliary_panel(&*panel);
             panel.order_front_regardless();
         }
     }
@@ -1179,6 +1314,7 @@ fn hide_voice_overlay(app: &tauri::AppHandle) {
         use tauri_nspanel::ManagerExt;
         if let Ok(panel) = app.get_webview_panel("voice_overlay") {
             panel.hide();
+            macos_window::configure_hidden_auxiliary_panel(&*panel);
         }
     }
 
@@ -1316,6 +1452,7 @@ fn toggle_command_palette(app: &tauri::AppHandle) {
         if let Ok(panel) = app.get_webview_panel("command_palette") {
             if panel.is_visible() {
                 panel.hide();
+                macos_window::configure_hidden_auxiliary_panel(&*panel);
                 return;
             }
             if let Some(pid) = frontmost_app_pid() {
@@ -1371,7 +1508,7 @@ fn ensure_command_palette(app: &tauri::AppHandle) {
                     | NSWindowStyleMask::NonactivatingPanel
                     | NSWindowStyleMask::Resizable,
             );
-            macos_window::configure_fullscreen_auxiliary_panel(&*panel);
+            macos_window::configure_hidden_auxiliary_panel(&*panel);
         } else {
             eprintln!("[palette] failed to convert command_palette to NSPanel");
         }
@@ -1513,6 +1650,7 @@ fn palette_hide(app: tauri::AppHandle) {
         use tauri_nspanel::ManagerExt;
         if let Ok(panel) = app.get_webview_panel("command_palette") {
             panel.hide();
+            macos_window::configure_hidden_auxiliary_panel(&*panel);
         }
     }
     #[cfg(not(target_os = "macos"))]

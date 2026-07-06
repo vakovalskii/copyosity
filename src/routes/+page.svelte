@@ -554,8 +554,6 @@
     void loadLayout();
     loadCollections();
 
-    invoke("frontend_ready");
-
     let reloadTimer: ReturnType<typeof setTimeout>;
     function scheduleReload() {
       if (isRevealing || !visible) {

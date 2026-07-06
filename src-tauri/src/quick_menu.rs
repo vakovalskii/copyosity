@@ -63,13 +63,13 @@ pub fn show(app: &tauri::AppHandle) {
                 return;
             }
         };
-        if let Some(win) = app.get_webview_window("main") {
+        if let Ok(win) = crate::ensure_main_overlay_window(&app) {
             let row_count = menu_row_count(&menu);
             if let Err(e) = popup_menu_smart(&win, &menu, row_count) {
                 eprintln!("[quick_menu] popup failed: {}", e);
             }
         } else {
-            eprintln!("[quick_menu] no main window to anchor the menu");
+            eprintln!("[quick_menu] failed to create main window for menu anchor");
         }
     });
 }
