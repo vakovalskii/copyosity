@@ -64,7 +64,8 @@ pub fn show(app: &tauri::AppHandle) {
             }
         };
         if let Some(win) = app.get_webview_window("main") {
-            if let Err(e) = win.popup_menu(&menu) {
+            let row_count = menu_row_count(&menu);
+            if let Err(e) = popup_menu_smart(&win, &menu, row_count) {
                 eprintln!("[quick_menu] popup failed: {}", e);
             }
         } else {
@@ -242,6 +243,92 @@ fn truncate(s: &str) -> String {
 }
 
 /// Bring Copyosity to the foreground so the native menu can track input.
+#[cfg(target_os = "macos")]
+fn popup_menu_smart(
+    window: &tauri::WebviewWindow,
+    menu: &tauri::menu::Menu<tauri::Wry>,
+    row_count: usize,
+) -> tauri::Result<()> {
+    use objc2_app_kit::NSEvent;
+    use tauri::LogicalPosition;
+
+    use crate::quick_menu_position::{estimated_menu_height, popup_top_y, should_flip_menu_up};
+
+    let mouse = NSEvent::mouseLocation();
+    let menu_height = estimated_menu_height(row_count);
+    let visible = visible_frame_at_point(mouse.x, mouse.y);
+    let visible_bottom = visible.origin.y;
+    let visible_top = visible.origin.y + visible.size.height;
+
+    if !should_flip_menu_up(mouse.y, menu_height, visible_bottom) {
+        return window.popup_menu(menu);
+    }
+
+    let top_y = popup_top_y(mouse.y, menu_height, visible_bottom, visible_top);
+    let Some(position) = screen_point_to_menu_position(window, mouse.x, top_y) else {
+        return window.popup_menu(menu);
+    };
+    window.popup_menu_at(menu, LogicalPosition::new(position.x, position.y))
+}
+
+#[cfg(target_os = "macos")]
+fn menu_row_count(menu: &tauri::menu::Menu<tauri::Wry>) -> usize {
+    menu.items().map(|items| items.len()).unwrap_or(0)
+}
+
+#[cfg(target_os = "macos")]
+fn visible_frame_at_point(x: f64, y: f64) -> objc2_foundation::NSRect {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSScreen;
+    use objc2_foundation::NSPoint;
+
+    let mtm = MainThreadMarker::new().expect("quick menu popup requires main thread");
+    let screens = NSScreen::screens(mtm);
+    for screen in screens.iter() {
+        let frame = screen.visibleFrame();
+        if crate::overlay_dismiss::point_in_screen_rect(
+            x,
+            y,
+            frame.origin.x,
+            frame.origin.y,
+            frame.size.width,
+            frame.size.height,
+        ) {
+            return frame;
+        }
+    }
+
+    NSScreen::mainScreen(mtm)
+        .map(|screen| screen.visibleFrame())
+        .unwrap_or_else(|| objc2_foundation::NSRect {
+            origin: NSPoint::new(0.0, 0.0),
+            size: objc2_foundation::NSSize::new(0.0, 0.0),
+        })
+}
+
+#[cfg(target_os = "macos")]
+fn screen_point_to_menu_position(
+    window: &tauri::WebviewWindow,
+    screen_x: f64,
+    screen_y: f64,
+) -> Option<objc2_foundation::NSPoint> {
+    use objc2_app_kit::NSWindow;
+    use objc2_foundation::NSPoint;
+
+    let raw = window.ns_window().ok()?;
+    unsafe {
+        let ns_window = &*raw.cast::<NSWindow>();
+        let content_view = ns_window.contentView()?;
+        let view_frame = content_view.frame();
+        let window_point = ns_window.convertPointFromScreen(NSPoint::new(screen_x, screen_y));
+        let view_point = content_view.convertPoint_fromView(window_point, None);
+        Some(NSPoint::new(
+            view_point.x,
+            view_frame.size.height - view_point.y,
+        ))
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn activate_app() {
     use objc::runtime::Object;

@@ -17,6 +17,8 @@ mod ollama;
 mod overlay_dismiss;
 mod palette_window;
 mod quick_menu;
+#[cfg(target_os = "macos")]
+mod quick_menu_position;
 mod screen;
 mod tagging;
 mod transcription;
