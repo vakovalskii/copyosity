@@ -75,7 +75,9 @@
 
   function toggleHistory() {
     loadSessions();
-    showHistory = !showHistory;
+    const opening = !showHistory;
+    if (opening) clearStatusNotice();
+    showHistory = opening;
   }
 
   function loadSessions() {
@@ -466,22 +468,20 @@
   </div>
   </div>
 
-  {#if statusNotice}
-    <p
-      class="overlay-status-hint"
-      class:neutral={statusNoticeTone === "neutral"}
-      class:warn={statusNoticeTone === "warn"}
-      class:fail={statusNoticeTone === "fail"}
-      role={statusNoticeTone === "fail" ? "alert" : "status"}
-      aria-live="polite"
-    >
-      {statusNotice}
-    </p>
-  {/if}
-
   {#if showHistory}
     <div class="history">
-      {#if sessions.length === 0}
+      {#if statusNotice}
+        <p
+          class="overlay-status-hint"
+          class:neutral={statusNoticeTone === "neutral"}
+          class:warn={statusNoticeTone === "warn"}
+          class:fail={statusNoticeTone === "fail"}
+          role={statusNoticeTone === "fail" ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {statusNotice}
+        </p>
+      {:else if sessions.length === 0}
         <p class="overlay-status-hint neutral">No history yet — ask a question and it will appear here.</p>
       {:else}
         {#each sessions as s}
@@ -505,6 +505,17 @@
     <div class="progress">
       {#each progress as line}<div class="progress-line">{line}</div>{/each}
     </div>
+  {:else if statusNotice}
+    <p
+      class="overlay-status-hint"
+      class:neutral={statusNoticeTone === "neutral"}
+      class:warn={statusNoticeTone === "warn"}
+      class:fail={statusNoticeTone === "fail"}
+      role={statusNoticeTone === "fail" ? "alert" : "status"}
+      aria-live="polite"
+    >
+      {statusNotice}
+    </p>
   {/if}
 
   {#if !answer}

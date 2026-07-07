@@ -2,6 +2,8 @@
  * WebKit in Tauri often matches :focus-visible on mouse click for text fields.
  * Track last input modality so focus rings appear only after keyboard navigation.
  */
+import { applySelectAllInTextField } from "$lib/text-field-shortcuts";
+
 export function setInputModality(
   modality: "pointer" | "keyboard",
   root: HTMLElement = document.documentElement,
@@ -13,6 +15,8 @@ export function initInputModality(root: HTMLElement = document.documentElement):
   const onPointerDown = () => setInputModality("pointer", root);
 
   const onKeyDown = (e: KeyboardEvent) => {
+    if (applySelectAllInTextField(e)) return;
+
     const target = e.target;
     const typingInField =
       target instanceof HTMLInputElement ||

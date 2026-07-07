@@ -50,6 +50,8 @@ history and saved snippets for two-click paste without opening the overlay:
 
 ## ✨ Features
 
+Shipped capabilities, grouped by area:
+
 ### 📋 Clipboard & overlay
 
 - **Clipboard history** — every copy is captured and stored in a local SQLite
@@ -160,11 +162,11 @@ installs and launches, but most clipboard-manager features are not implemented y
 
 ## Platform support
 
-| Platform | Status | Install / builds |
-| -------- | ------ | ---------------- |
-| 🍎 **macOS** (Apple Silicon & Intel) | ✅ Supported | Signed, notarized DMGs + `*.app.tar.gz` updater bundles on [Releases](https://github.com/vakovalskii/copyosity/releases/latest) |
-| 🪟 **Windows** (x64) | ⚠️ Experimental | `*_x64_en-US.msi` and `*_x64-setup.exe` on the same [Releases](https://github.com/vakovalskii/copyosity/releases/latest) page; built via [windows-build.yml](.github/workflows/windows-build.yml) |
-| 🐧 **Linux** | ❌ Not supported | No CI builds or releases |
+| Platform                             | Status           | Install / builds                                                                                                                                                                                  |
+| ------------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🍎 **macOS** (Apple Silicon & Intel) | ✅ Supported     | Signed, notarized DMGs + `*.app.tar.gz` updater bundles on [Releases](https://github.com/vakovalskii/copyosity/releases/latest)                                                                   |
+| 🪟 **Windows** (x64)                 | ⚠️ Experimental  | `*_x64_en-US.msi` and `*_x64-setup.exe` on the same [Releases](https://github.com/vakovalskii/copyosity/releases/latest) page; built via [windows-build.yml](.github/workflows/windows-build.yml) |
+| 🐧 **Linux**                         | ❌ Not supported | No CI builds or releases                                                                                                                                                                          |
 
 Copyosity is a **macOS-native** app: `NSPanel` overlay, pasteboard monitoring,
 `CGEvent` paste injection, Vision OCR, Apple Events, and menu-bar tray behavior

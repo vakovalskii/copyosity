@@ -18,5 +18,14 @@
     "src-tauri/**",
     "package-lock.json",
     ".vscode/**"
+  ],
+  "overrides": [
+    {
+      "files": ["**/*.md"],
+      "options": {
+        "printWidth": 100,
+        "proseWrap": "preserve"
+      }
+    }
   ]
 }

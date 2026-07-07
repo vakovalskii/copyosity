@@ -21,6 +21,8 @@
     "lint:css:fix": "stylelint --fix \"src/**/*.{css,svelte}\"",
     "format": "oxfmt --check .",
     "format:fix": "oxfmt .",
+    "format:docs": "oxfmt --check '**/*.md' '**/*.json'",
+    "format:docs:fix": "oxfmt --write '**/*.md' '**/*.json'",
     "tauri": "bash scripts/with-tauri.sh",
     "prepare": "lefthook install"
   },
