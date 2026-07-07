@@ -45,6 +45,10 @@ static IGNORE_CAPTURE_AT: AtomicI64 = AtomicI64::new(-1);
 #[cfg(target_os = "macos")]
 pub(crate) static PASTE_TARGET_PID: AtomicI32 = AtomicI32::new(0);
 
+/// Last non-Copyosity app remembered for paste (overlay, voice, tray click, etc.).
+#[cfg(target_os = "macos")]
+static LAST_NON_SELF_FRONTMOST_PID: AtomicI32 = AtomicI32::new(0);
+
 #[cfg(target_os = "macos")]
 pub(crate) static PASTE_TARGET_FOCUS: Mutex<Option<FocusRef>> = Mutex::new(None);
 
@@ -236,6 +240,7 @@ pub fn remember_paste_target_for_pid(pid: i32) {
         return;
     }
     PASTE_TARGET_PID.store(pid, Ordering::SeqCst);
+    LAST_NON_SELF_FRONTMOST_PID.store(pid, Ordering::SeqCst);
     #[cfg(target_os = "macos")]
     {
         crate::app_exclusion::remember_from_pid(pid);
@@ -255,6 +260,59 @@ pub fn remember_paste_target() {
     if let Some(pid) = frontmost_pid_excluding_self() {
         remember_paste_target_for_pid(pid);
     }
+}
+
+/// Track the last non-Copyosity app that became frontmost (lightweight PID only).
+#[cfg(target_os = "macos")]
+pub(crate) fn note_last_non_self_frontmost(pid: i32) {
+    if pid > 0 && pid != std::process::id() as i32 {
+        LAST_NON_SELF_FRONTMOST_PID.store(pid, Ordering::SeqCst);
+    }
+}
+
+/// Last remembered non-Copyosity paste target that is still running.
+#[cfg(target_os = "macos")]
+pub(crate) fn last_remembered_paste_target_pid() -> Option<i32> {
+    let pid = LAST_NON_SELF_FRONTMOST_PID.load(Ordering::SeqCst);
+    if pid > 0 && pid != std::process::id() as i32 && crate::macos_app::is_pid_running(pid) {
+        Some(pid)
+    } else {
+        None
+    }
+}
+
+/// Keep `LAST_NON_SELF_FRONTMOST_PID` fresh when the user switches apps (tray quick-menu fallback).
+#[cfg(target_os = "macos")]
+pub fn install_last_frontmost_observer() {
+    use std::ptr::NonNull;
+    use std::sync::atomic::AtomicBool;
+
+    use block2::RcBlock;
+    use objc2_app_kit::NSWorkspaceDidActivateApplicationNotification;
+    use objc2_foundation::{NSNotification, NSNotificationCenter};
+
+    static INSTALLED: AtomicBool = AtomicBool::new(false);
+    if INSTALLED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+
+    let block = RcBlock::new(|_notification: NonNull<NSNotification>| {
+        if let Some(pid) = frontmost_pid_excluding_self() {
+            note_last_non_self_frontmost(pid);
+        }
+    });
+    let center = NSNotificationCenter::defaultCenter();
+    let observer = unsafe {
+        center.addObserverForName_object_queue_usingBlock(
+            Some(NSWorkspaceDidActivateApplicationNotification),
+            None,
+            None,
+            &block,
+        )
+    };
+    // Intentionally leaked for app lifetime — observer must outlive all activations.
+    std::mem::forget(observer);
+    std::mem::forget(block);
 }
 
 /// Reactivate the app that had focus before Copyosity (call after `hide_panel`, before Cmd+V).
@@ -305,6 +363,9 @@ pub(crate) fn frontmost_pid() -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static CLIPBOARD_TARGET_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     #[cfg(target_os = "macos")]
@@ -321,15 +382,52 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn remember_paste_target_for_pid_ignores_invalid_pids() {
-        let previous = PASTE_TARGET_PID.load(Ordering::SeqCst);
+        let _guard = CLIPBOARD_TARGET_TEST_LOCK.lock().unwrap();
+        let previous_pid = PASTE_TARGET_PID.load(Ordering::SeqCst);
+        let previous_last = LAST_NON_SELF_FRONTMOST_PID.load(Ordering::SeqCst);
         remember_paste_target_for_pid(0);
         remember_paste_target_for_pid(-1);
         remember_paste_target_for_pid(std::process::id() as i32);
-        assert_eq!(PASTE_TARGET_PID.load(Ordering::SeqCst), previous);
+        assert_eq!(PASTE_TARGET_PID.load(Ordering::SeqCst), previous_pid);
 
         remember_paste_target_for_pid(42_001);
         assert_eq!(PASTE_TARGET_PID.load(Ordering::SeqCst), 42_001);
-        PASTE_TARGET_PID.store(previous, Ordering::SeqCst);
+        assert_eq!(LAST_NON_SELF_FRONTMOST_PID.load(Ordering::SeqCst), 42_001);
+        PASTE_TARGET_PID.store(previous_pid, Ordering::SeqCst);
+        LAST_NON_SELF_FRONTMOST_PID.store(previous_last, Ordering::SeqCst);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn note_last_non_self_frontmost_ignores_self_and_invalid() {
+        let _guard = CLIPBOARD_TARGET_TEST_LOCK.lock().unwrap();
+        let previous = LAST_NON_SELF_FRONTMOST_PID.load(Ordering::SeqCst);
+        let self_pid = std::process::id() as i32;
+
+        note_last_non_self_frontmost(0);
+        note_last_non_self_frontmost(-1);
+        note_last_non_self_frontmost(self_pid);
+        assert_eq!(LAST_NON_SELF_FRONTMOST_PID.load(Ordering::SeqCst), previous);
+
+        note_last_non_self_frontmost(999_999);
+        assert_eq!(LAST_NON_SELF_FRONTMOST_PID.load(Ordering::SeqCst), 999_999);
+        assert_eq!(last_remembered_paste_target_pid(), None);
+
+        let workspace = NSWorkspace::sharedWorkspace();
+        let Some(running_pid) = workspace
+            .runningApplications()
+            .iter()
+            .map(|app| app.processIdentifier())
+            .find(|&pid| pid > 0 && pid != self_pid)
+        else {
+            LAST_NON_SELF_FRONTMOST_PID.store(previous, Ordering::SeqCst);
+            return;
+        };
+
+        note_last_non_self_frontmost(running_pid);
+        assert_eq!(last_remembered_paste_target_pid(), Some(running_pid));
+
+        LAST_NON_SELF_FRONTMOST_PID.store(previous, Ordering::SeqCst);
     }
 
     #[test]

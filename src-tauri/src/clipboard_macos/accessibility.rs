@@ -11,7 +11,22 @@ use super::{paste_log, restore_paste_target, FocusRef, PASTE_TARGET_FOCUS, PASTE
 
 /// Bundle IDs where `AXPaste` is unreliable; use synthetic Cmd+V instead.
 #[cfg(any(target_os = "macos", test))]
-pub(crate) const KEYBOARD_PASTE_BUNDLE_IDS: &[&str] = &["com.apple.MobileSMS", "com.apple.iChat"];
+pub(crate) const KEYBOARD_PASTE_BUNDLE_IDS: &[&str] = &[
+    "com.apple.MobileSMS",
+    "com.apple.iChat",
+    // Chromium browsers — AXPaste often reports success without inserting into web fields.
+    "com.brave.Browser",
+    "com.google.Chrome",
+    "org.chromium.Chromium",
+    "com.microsoft.edgemac",
+    "com.operasoftware.Opera",
+    "com.operasoftware.OperaGX",
+    "com.vivaldi.Vivaldi",
+    "company.thebrowser.Browser",
+    "com.kagi.kagimacOS",
+    "com.google.Chrome.canary",
+    "com.brave.Browser.beta",
+];
 
 #[cfg(any(target_os = "macos", test))]
 pub(crate) fn bundle_prefers_keyboard_paste(bundle_id: &str) -> bool {
@@ -580,6 +595,17 @@ mod tests {
         assert!(bundle_prefers_keyboard_paste("com.apple.iChat"));
         assert!(!bundle_prefers_keyboard_paste("com.apple.Notes"));
         assert!(!bundle_prefers_keyboard_paste("com.tinyspeck.slackmacgap"));
+    }
+
+    #[test]
+    fn bundle_prefers_keyboard_paste_matches_chromium_browsers() {
+        assert!(bundle_prefers_keyboard_paste("com.brave.Browser"));
+        assert!(bundle_prefers_keyboard_paste("com.google.Chrome"));
+        assert!(bundle_prefers_keyboard_paste("org.chromium.Chromium"));
+        assert!(bundle_prefers_keyboard_paste("com.microsoft.edgemac"));
+        assert!(bundle_prefers_keyboard_paste("com.operasoftware.OperaGX"));
+        assert!(bundle_prefers_keyboard_paste("com.google.Chrome.canary"));
+        assert!(bundle_prefers_keyboard_paste("com.brave.Browser.beta"));
     }
 
     #[test]

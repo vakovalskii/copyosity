@@ -539,6 +539,8 @@ pub fn run() {
                                 ..
                             } = event
                             {
+                                #[cfg(target_os = "macos")]
+                                clipboard_macos::remember_paste_target();
                                 tray_macos::set_tray_highlight(tray, true);
                                 tray_macos::schedule_tray_menu_popup(tray.clone());
                             }
@@ -557,6 +559,7 @@ pub fn run() {
                 // §5 Warmup — do not replace activateIgnoringOtherApps(true) with activate()
                 tray_macos::warmup_app_for_status_item_menu();
                 overlay_dismiss::install_overlay_dismiss_guards();
+                clipboard_macos::install_last_frontmost_observer();
                 eprintln!("[tray] startup: hidden main + deferred tray popup ready");
             }
             // --- end TRAY STARTUP ---
