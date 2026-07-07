@@ -288,7 +288,7 @@ When `__custom__` — `<label for="custom-ollama-model">` + associated input.
 
 ### ✅ 28. Ollama onboarding `[Settings]`
 
-Status steps match product policy in `CLAUDE.md`. Spinner / checking dots covered by Reduce Motion.
+Status steps match product policy in [docs/product/ollama-onboarding.md](../product/ollama-onboarding.md). Spinner / checking dots covered by Reduce Motion.
 
 ### ✅ 29. Settings selection chrome `[Settings]`
 

@@ -272,7 +272,7 @@ make fix-frontend && make check-frontend
 make fix-backend && make check-backend
 ```
 
-See `CLAUDE.md` and `AGENTS.md` for the full contributor workflow (branching,
+See `AGENTS.md` for the contributor workflow and task-specific docs index (branching,
 commit discipline, and local‑AI onboarding rules).
 
 ### macOS paste pipeline

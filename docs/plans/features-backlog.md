@@ -113,7 +113,7 @@ Clipboard overlay and macOS integration:
 
 Settings and product policy:
 
-- [x] **AI tagging toggle** — off by default; `is_tagging_ready` IPC; Ollama onboarding per `CLAUDE.md`; tag backfill when enabled.
+- [x] **AI tagging toggle** — off by default; `is_tagging_ready` IPC; Ollama onboarding per [docs/product/ollama-onboarding.md](../product/ollama-onboarding.md); tag backfill when enabled.
 
 - [x] **Voice transcription toggle** — off by default; Whisper fields disabled when off.
 
