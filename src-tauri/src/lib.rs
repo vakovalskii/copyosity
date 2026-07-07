@@ -826,6 +826,7 @@ fn toggle_window(app: &tauri::AppHandle) {
                 if panel.is_visible() {
                     animated_hide_panel(app);
                 } else {
+                    hide_command_palette(app);
                     if let Some(window) = app.get_webview_window("main") {
                         position_window_bottom(&window, remembered_overlay_height());
                     }
@@ -848,6 +849,7 @@ fn toggle_window(app: &tauri::AppHandle) {
             if window.is_visible().unwrap_or(false) {
                 animated_hide_panel(app);
             } else {
+                hide_command_palette(app);
                 LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
                 position_window_bottom(&window, remembered_overlay_height());
                 let _ = window.show();
@@ -922,6 +924,39 @@ fn main_panel_visible(app: &tauri::AppHandle) -> bool {
     app.get_webview_window("main")
         .map(|window| window.is_visible().unwrap_or(false))
         .unwrap_or(false)
+}
+
+/// Dismiss the clipboard overlay synchronously when another floating UI takes over.
+pub(crate) fn dismiss_main_panel_if_visible(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    overlay_dismiss::set_outside_click_dismiss(app, false);
+    if main_panel_visible(app) {
+        PANEL_HIDE_SCHEDULED.store(false, Ordering::Release);
+        finalize_panel_hide(app);
+    }
+}
+
+/// Dismiss floating auxiliary UIs before the native quick menu opens its modal loop.
+/// Tray clicks and open overlay/agent panels race with `popup_menu` and make snippets blink.
+#[cfg(target_os = "macos")]
+pub(crate) fn prepare_for_quick_menu(app: &tauri::AppHandle) {
+    dismiss_main_panel_if_visible(app);
+    hide_command_palette(app);
+}
+
+pub(crate) fn hide_command_palette(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::ManagerExt;
+        if let Ok(panel) = app.get_webview_panel("command_palette") {
+            panel.hide();
+            macos_window::configure_hidden_auxiliary_panel(&*panel);
+            return;
+        }
+    }
+    if let Some(win) = app.get_webview_window("command_palette") {
+        let _ = win.hide();
+    }
 }
 
 fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -1455,6 +1490,7 @@ fn toggle_command_palette(app: &tauri::AppHandle) {
                 macos_window::configure_hidden_auxiliary_panel(&*panel);
                 return;
             }
+            dismiss_main_panel_if_visible(app);
             if let Some(pid) = frontmost_app_pid() {
                 if pid != std::process::id() as i32 {
                     PALETTE_TARGET_PID.store(pid, Ordering::Relaxed);
@@ -1470,6 +1506,7 @@ fn toggle_command_palette(app: &tauri::AppHandle) {
                 let _ = window.hide();
                 return;
             }
+            dismiss_main_panel_if_visible(app);
             macos_window::present_fullscreen_auxiliary_webview(&window);
             let _ = app.emit("palette-show", ());
         }
@@ -1645,20 +1682,7 @@ fn palette_is_dot_mode(app: tauri::AppHandle) -> Result<bool, String> {
 /// Hide the command palette.
 #[tauri::command]
 fn palette_hide(app: tauri::AppHandle) {
-    #[cfg(target_os = "macos")]
-    {
-        use tauri_nspanel::ManagerExt;
-        if let Ok(panel) = app.get_webview_panel("command_palette") {
-            panel.hide();
-            macos_window::configure_hidden_auxiliary_panel(&*panel);
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        if let Some(win) = app.get_webview_window("command_palette") {
-            let _ = win.hide();
-        }
-    }
+    hide_command_palette(&app);
 }
 
 /// Hide the palette and paste `text` into the app that was frontmost when it opened.

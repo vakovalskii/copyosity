@@ -55,6 +55,9 @@ pub fn show(app: &tauri::AppHandle) {
     let app = app.clone();
     // Build and present on the main thread; the popup runs a modal loop there.
     let _ = app.clone().run_on_main_thread(move || {
+        // popup_menu blocks the main thread; open overlay/agent panels race it and blink closed.
+        crate::prepare_for_quick_menu(&app);
+
         activate_app();
         let menu = match build_menu(&app, &entries, &folders, &snippets) {
             Ok(m) => m,
