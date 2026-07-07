@@ -6,6 +6,8 @@ import {
   MAX_RECONCILE_ADJUSTMENT_DEPTH,
   shouldBackfillEntriesAfterShrink,
   shouldRefetchTagCounts,
+  shouldRefreshUnfilteredDisplayFromCatalog,
+  shouldSyncDisplayFromCatalog,
 } from "./overlay-entries-logic.ts";
 
 describe("isReconcileDepthExhausted", () => {
@@ -50,6 +52,29 @@ describe("isReconcileDepthExhausted", () => {
       ),
       false,
     );
+  });
+});
+
+describe("shouldRefreshUnfilteredDisplayFromCatalog", () => {
+  it("refreshes when the catalog has rows and no filter is active", () => {
+    assert.equal(shouldRefreshUnfilteredDisplayFromCatalog(12, false), true);
+  });
+
+  it("does not refresh filtered lists or an empty catalog", () => {
+    assert.equal(shouldRefreshUnfilteredDisplayFromCatalog(12, true), false);
+    assert.equal(shouldRefreshUnfilteredDisplayFromCatalog(0, false), false);
+  });
+});
+
+describe("shouldSyncDisplayFromCatalog", () => {
+  it("syncs when the grid is empty but the warm catalog has rows", () => {
+    assert.equal(shouldSyncDisplayFromCatalog(0, 12, false), true);
+  });
+
+  it("does not sync filtered lists or non-empty grids", () => {
+    assert.equal(shouldSyncDisplayFromCatalog(0, 12, true), false);
+    assert.equal(shouldSyncDisplayFromCatalog(5, 12, false), false);
+    assert.equal(shouldSyncDisplayFromCatalog(0, 0, false), false);
   });
 });
 

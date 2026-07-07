@@ -370,6 +370,7 @@
     pendingReload = false;
     // Scroll/focus after open animation so horizontal scroll does not fight panel motion.
     void (async () => {
+      overlay.syncDisplayFromCatalog();
       if (reload) await overlay.loadEntries(true, false);
       scrollToSelected();
     })();
@@ -470,9 +471,16 @@
         await afterLayoutFlush();
         if (seq !== revealSeq) return;
         visible = true;
+        overlay.syncDisplayFromCatalog();
         searchBar?.blur();
         await afterLayoutFlush();
         if (seq !== revealSeq) return;
+        if (gridEl) {
+          // Nudge layout after monitor / window moves (WKWebView can skip painting the grid).
+          gridEl.scrollLeft = 0;
+          gridEl.scrollTop = 0;
+          void gridEl.offsetHeight;
+        }
         if (hadPendingReload) {
           void overlay.loadEntries(true, false);
         }

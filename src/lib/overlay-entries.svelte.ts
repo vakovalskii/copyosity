@@ -17,6 +17,8 @@ import {
   isReconcileDepthExhausted,
   shouldBackfillEntriesAfterShrink,
   shouldRefetchTagCounts,
+  shouldRefreshUnfilteredDisplayFromCatalog,
+  shouldSyncDisplayFromCatalog,
 } from "$lib/overlay-entries-logic";
 import {
   type ContentKind,
@@ -135,6 +137,42 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
     );
   }
 
+  /** Copy warm catalog rows into an empty unfiltered grid (tags can still show counts). */
+  function syncDisplayFromCatalog(): boolean {
+    if (
+      !shouldSyncDisplayFromCatalog(
+        entries.length,
+        catalogEntries.length,
+        usesFilteredDisplayList(),
+      )
+    ) {
+      return false;
+    }
+    entries = catalogEntries;
+    entriesHasMore = catalogHasMore;
+    searchPageReady = true;
+    displayFetchFailed = false;
+    searchTagCounts = null;
+    searchTagCountsQueryKey = "";
+    return true;
+  }
+
+  /** Point the unfiltered grid at the warm catalog (e.g. after clearing a tag filter). */
+  function refreshUnfilteredDisplayFromCatalog(): boolean {
+    if (
+      !shouldRefreshUnfilteredDisplayFromCatalog(catalogEntries.length, usesFilteredDisplayList())
+    ) {
+      return false;
+    }
+    entries = catalogEntries;
+    entriesHasMore = catalogHasMore;
+    searchPageReady = true;
+    displayFetchFailed = false;
+    searchTagCounts = null;
+    searchTagCountsQueryKey = "";
+    return true;
+  }
+
   function displayListQuery() {
     const tag = activeTag;
     let tagVariants: string[] | null = null;
@@ -202,15 +240,11 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
       if (isDisplayFetchStale(expectedGen, genKind)) return false;
       if (currentDisplayQueryKey() !== queryKeyAtStart) return false;
 
-      // Fast path only when the grid already has rows; never copy catalog into an empty grid
-      // (avoids stale empty display after hide + local mutations / failed backfill).
-      if (catalogEntries.length > 0 && entries.length > 0) {
-        searchPageReady = true;
-        displayFetchFailed = false;
-        searchTagCounts = null;
-        searchTagCountsQueryKey = "";
-        entries = catalogEntries;
-        entriesHasMore = catalogHasMore;
+      if (syncDisplayFromCatalog()) {
+        return true;
+      }
+
+      if (refreshUnfilteredDisplayFromCatalog()) {
         return true;
       }
 
@@ -507,10 +541,7 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
             return;
           }
         } else if (!(await applyDisplayPage0(gen, "data"))) {
-          if (entries.length === 0 && catalogEntries.length > 0) {
-            entries = catalogEntries;
-            entriesHasMore = catalogHasMore;
-          }
+          refreshUnfilteredDisplayFromCatalog();
           return;
         }
       } else if (!(await applyDisplayPage0(gen, "data"))) {
@@ -814,7 +845,10 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
     const { reload = true, immediate = false } = options;
     searchQuery = q;
     clearTimeout(debounceTimer);
-    if (!reload) return;
+    if (!reload) {
+      if (q === "") syncDisplayFromCatalog();
+      return;
+    }
     searchPageReady = q === "";
     displayFetchFailed = false;
 
@@ -895,6 +929,13 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
     } else {
       suppressReconcileEffect = false;
     }
+  });
+
+  $effect(() => {
+    if (!deps.getVisible() || deps.getIsRevealing() || displayListPending || displayFetchFailed) {
+      return;
+    }
+    syncDisplayFromCatalog();
   });
 
   function dispose() {
@@ -989,6 +1030,7 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
     handleTagReset,
     retryDisplayFetch,
     retryLoadMore,
+    syncDisplayFromCatalog,
     dispose,
   };
 }

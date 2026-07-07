@@ -38,3 +38,20 @@ export function shouldBackfillEntriesAfterShrink(
 ): boolean {
   return entryCount === 0 && entriesHasMore;
 }
+
+/** Repopulate an empty unfiltered grid from the warm catalog (no network). */
+export function shouldSyncDisplayFromCatalog(
+  entryCount: number,
+  catalogCount: number,
+  filteredDisplay: boolean,
+): boolean {
+  return !filteredDisplay && entryCount === 0 && catalogCount > 0;
+}
+
+/** Refresh an unfiltered grid from the warm catalog (e.g. after clearing a tag filter). */
+export function shouldRefreshUnfilteredDisplayFromCatalog(
+  catalogCount: number,
+  filteredDisplay: boolean,
+): boolean {
+  return !filteredDisplay && catalogCount > 0;
+}
