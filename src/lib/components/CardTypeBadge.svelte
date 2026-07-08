@@ -33,7 +33,7 @@
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    stroke-width="1.75"
+    stroke-width={iconKind === "image" ? "2" : "1.75"}
     stroke-linecap="round"
     stroke-linejoin="round"
     aria-hidden="true"
@@ -44,9 +44,9 @@
       <path d="M8 13h8" />
       <path d="M8 17h6" />
     {:else if iconKind === "image"}
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <circle cx="8.5" cy="10.5" r="1.5" fill="currentColor" stroke="none" />
-      <path d="m3 17 5.5-5.5 4 4L15 9l6 6" />
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <polyline points="21 15 16 10 5 21" />
     {:else}
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <path d="M14 2v6h6" />

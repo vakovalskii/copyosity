@@ -105,13 +105,20 @@
   border-color: var(--border-default);
   color: var(--color-text-muted);
   font-family: var(--font-family-mono);
-  text-transform: lowercase;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .filter-chip-format:hover:not(:disabled, [aria-busy="true"]) {
   background: var(--surface-7);
   border-color: var(--border-strong);
   color: var(--color-text-body);
+}
+
+.filter-chip-format .format-icon {
+  width: var(--icon-size-chip);
+  height: var(--icon-size-chip);
+  opacity: 0.85;
 }
 
 .filter-chip-format.active .format-icon {
