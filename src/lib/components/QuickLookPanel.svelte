@@ -17,6 +17,7 @@
     resolveFullImagePayload,
     shouldApplyFullImageResult,
   } from "$lib/quick-look-image-fetch";
+  import SegmentControl from "$lib/components/SegmentControl.svelte";
 
   const {
     entry,
@@ -261,35 +262,19 @@
       <div class="quicklook-header-row">
         <CardTypeBadge contentType={entry.content_type} formatLabel={imageFormatBadge} />
         {#if showTabs}
-          <div
-            class="segment-track quicklook-mode-segment"
-            class:quicklook-mode-segment--compact={compact}
-            role="tablist"
-            aria-label="Preview mode"
-          >
-            <button
-              bind:this={imageTabEl}
-              type="button"
-              role="tab"
-              class="segment-item"
-              aria-selected={activeTab === "image"}
-              title="Image preview"
-              onclick={() => (activeTab = "image")}
-            >
-              {compact ? "IMG" : "Image"}
-            </button>
-            <button
-              bind:this={textTabEl}
-              type="button"
-              role="tab"
-              class="segment-item"
-              aria-selected={activeTab === "text"}
-              title="Recognised text"
-              onclick={() => (activeTab = "text")}
-            >
-              {compact ? "OCR" : "Recognised text"}
-            </button>
-          </div>
+          <SegmentControl
+            ariaLabel="Preview mode"
+            ariaKind="selected"
+            rootClass={compact ? "quicklook-mode-segment quicklook-mode-segment--compact" : "quicklook-mode-segment"}
+            items={[
+              { id: "image", label: compact ? "IMG" : "Image", title: "Image preview" },
+              { id: "text", label: compact ? "OCR" : "Recognised text", title: "Recognised text" },
+            ]}
+            value={activeTab}
+            compact={compact}
+            onSelect={(id) => (activeTab = id === "image" ? "image" : "text")}
+            onButtonMount={(id, el) => (id === "image" ? (imageTabEl = el) : (textTabEl = el))}
+          />
         {:else}
           <div
             class="quicklook-mode-segment-spacer"
@@ -440,7 +425,7 @@
     justify-self: start;
   }
 
-  .quicklook-header-row > .quicklook-mode-segment {
+  .quicklook-header-row > :global(.quicklook-mode-segment) {
     grid-column: 2;
     justify-self: center;
   }
@@ -451,36 +436,15 @@
   }
 
   /* Fixed two-column grid so "Image" / "Recognised text" never resize the track. */
-  .quicklook-mode-segment {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: stretch;
+  :global(.quicklook-mode-segment) {
     width: 15.75rem;
     flex-shrink: 0;
   }
 
-  .quicklook-mode-segment .segment-item {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 0;
-    width: 100%;
-    height: auto;
-    min-height: 0;
-    align-self: stretch;
-    padding-inline: 10px;
-  }
-
   /* Vertical board dialog is docked-narrow (~360px) — the full-width English labels
      ("Image" / "Recognised text") never fit next to the type chip and close button. */
-  .quicklook-mode-segment--compact {
+  :global(.quicklook-mode-segment--compact) {
     width: 6.5rem;
-  }
-
-  .quicklook-mode-segment--compact .segment-item {
-    padding-inline: 6px;
-    font-size: var(--font-size-xs);
-    letter-spacing: 0.02em;
   }
 
   /* Reserve segment track space when OCR tabs are absent so header level-1 height stays stable. */

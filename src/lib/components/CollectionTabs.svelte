@@ -6,6 +6,7 @@
     isCustomCollectionActive,
     isHistoryCollectionActive,
   } from "$lib/collection-tabs";
+  import SegmentControl from "$lib/components/SegmentControl.svelte";
 
   const {
     collections = [],
@@ -26,6 +27,9 @@
 
   const historySelected = $derived(isHistoryCollectionActive(activeId, activePinned));
   const collectionsScrollable = $derived(isCollectionsScrollable(collections.length, showAdd));
+  const clipboardViewSegmentValue = $derived<string | null>(
+    historySelected ? "history" : activePinned ? "starred" : null,
+  );
 
   async function handleAdd() {
     if (!newName.trim()) return;
@@ -45,27 +49,17 @@
 
 <!-- TEST-NOTE: Svelte markup/a11y not covered here; see collection-tabs.test.ts for scroll/selection helpers. -->
 <div class="tabs-container">
-  <div role="tablist" aria-label="Clipboard view" class="view-tablist">
-    <div class="segment-track" role="presentation">
-      <button
-        type="button"
-        class="segment-item app-btn"
-        role="tab"
-        aria-selected={historySelected}
-        onclick={() => onselect?.(null)}
-      >
-        History
-      </button>
-      <button
-        type="button"
-        class="segment-item app-btn"
-        role="tab"
-        aria-selected={activePinned}
-        onclick={() => onselect?.(-1)}
-      >
-        Starred
-      </button>
-    </div>
+  <div class="view-tablist">
+    <SegmentControl
+      ariaLabel="Clipboard view"
+      ariaKind="selected"
+      items={[
+        { id: "history", label: "History" },
+        { id: "starred", label: "Starred" },
+      ]}
+      value={clipboardViewSegmentValue}
+      onSelect={(id) => (id === "starred" ? onselect?.(-1) : onselect?.(null))}
+    />
   </div>
 
   <div
