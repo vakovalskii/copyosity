@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "npm run typecheck && npm run test && npm run lint",
-    "test": "node --test \"src/**/*.test.ts\"",
+    "test": "bash scripts/with-npm.sh node --localstorage-file=.test-localstorage --test \"src/**/*.test.ts\"",
     "check:watch": "npm run typecheck:watch",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "typecheck:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",

@@ -31,9 +31,9 @@ pre-commit:
       group:
         piped: true
         jobs:
-          - run: npx --no-install oxlint --fix {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install oxlint --fix {staged_files}
             stage_fixed: true
-          - run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
             stage_fixed: true
 
     - name: svelte
@@ -43,11 +43,11 @@ pre-commit:
       group:
         piped: true
         jobs:
-          - run: npx --no-install oxlint --fix {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install oxlint --fix {staged_files}
             stage_fixed: true
-          - run: npx --no-install stylelint --fix {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install stylelint --fix {staged_files}
             stage_fixed: true
-          - run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
             stage_fixed: true
 
     - name: css
@@ -57,9 +57,9 @@ pre-commit:
       group:
         piped: true
         jobs:
-          - run: npx --no-install stylelint --fix {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install stylelint --fix {staged_files}
             stage_fixed: true
-          - run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
             stage_fixed: true
 
     - name: docs
@@ -68,7 +68,7 @@ pre-commit:
         - "**/*.json"
         - "*.md"
         - "**/*.md"
-      run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+      run: bash scripts/with-npm.sh npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
 
     - name: rust
@@ -105,10 +105,10 @@ pre-push:
         - "**/*.ts"
         - "*.svelte"
         - "**/*.svelte"
-      run: npm run typecheck
+      run: bash scripts/with-npm.sh npm run typecheck
 
     - name: test
       glob:
         - "*.ts"
         - "**/*.ts"
-      run: npm run test
+      run: bash scripts/with-npm.sh node --localstorage-file=.test-localstorage --test "src/**/*.test.ts"

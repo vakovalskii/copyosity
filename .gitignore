@@ -16,7 +16,7 @@ node_modules
 /dist
 /.svelte-kit
 /package
-vite.config.js.timestamp-*
+.test-localstorage
 vite.config.ts.timestamp-*
 
 # --- Tauri / Rust ---

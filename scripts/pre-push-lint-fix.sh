@@ -30,14 +30,14 @@ for f in "${existing[@]}"; do
 done
 
 if [ "${#js_ts_svelte[@]}" -gt 0 ]; then
-	npx --no-install oxlint --fix "${js_ts_svelte[@]}"
+	bash scripts/with-npm.sh npx --no-install oxlint --fix "${js_ts_svelte[@]}"
 fi
 
 if [ "${#css_svelte[@]}" -gt 0 ]; then
-	npx --no-install stylelint --fix "${css_svelte[@]}"
+	bash scripts/with-npm.sh npx --no-install stylelint --fix "${css_svelte[@]}"
 fi
 
-npx --no-install oxfmt --write --no-error-on-unmatched-pattern "${existing[@]}"
+bash scripts/with-npm.sh npx --no-install oxfmt --write --no-error-on-unmatched-pattern "${existing[@]}"
 
 if ! git diff --quiet -- "${existing[@]}"; then
 	printf '%s\n' \

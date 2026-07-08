@@ -29,11 +29,5 @@
   },
   "oxc.enable": true,
   "oxc.fmt.configPath": ".oxfmtrc.json",
-  "oxc.lint.configPath": ".oxlintrc.json",
-  "terminal.integrated.env.osx": {
-    "npm_config_devdir": ""
-  },
-  "terminal.integrated.env.linux": {
-    "npm_config_devdir": ""
-  }
+  "oxc.lint.configPath": ".oxlintrc.json"
 }

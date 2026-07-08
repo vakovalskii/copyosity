@@ -1,3 +1,5 @@
+<script lang="ts"></script>
+
 <svg class="chevron-down" viewBox="0 0 16 16" aria-hidden="true">
   <path
     fill="currentColor"

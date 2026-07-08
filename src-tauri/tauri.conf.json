@@ -4,9 +4,9 @@
   "version": "0.6.2",
   "identifier": "com.vkovalskii.copyosity",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "bash scripts/with-npm.sh npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "bash scripts/with-npm.sh npm run build",
     "frontendDist": "../build"
   },
   "app": {
