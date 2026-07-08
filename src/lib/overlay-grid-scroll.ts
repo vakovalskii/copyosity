@@ -193,7 +193,8 @@ export function verticalScrollDeltaForKeyboardNav(
  * Product rule (not a bug): anchor only when selection is unset, missing, or fully off-screen.
  * Do NOT anchor when leading ≠ selected but the selected card is still visible — that breaks
  * rapid key repeat (each keypress would reset to leading, then +1, so the index sticks).
- * Trackpad scroll uses `selectLeadingVisibleCard` separately; arrows advance `selectedIndex` only.
+ * Trackpad scroll only clears a stale selection (see overlay-browse-sync.ts); it never
+ * auto-selects a card. Arrows advance `selectedIndex` only.
  *
  * Vertical board: do not anchor to the topmost visible row when moving ↓ past a row below the
  * fold (or ↑ past a row above) — that snaps selection back to the first visible card and loops.
@@ -228,6 +229,7 @@ export function nextIndexAfterKeyboardArrow(options: {
   verticalPosition?: VerticalCardViewportPosition;
 }): number {
   let index = options.selectedIndex;
+  const hadNoSelection = index < 0;
   if (
     shouldAnchorKeyboardSelectionBeforeArrow({
       selectedIndex: index,
@@ -240,6 +242,11 @@ export function nextIndexAfterKeyboardArrow(options: {
     options.leadingIndex >= 0
   ) {
     index = options.leadingIndex;
+    // Nothing was selected yet and we're moving forward: land on the anchor
+    // itself so the first → / ↓ press selects the leading card, instead of
+    // skipping straight past it. A leading ← / ↑ press still pages backward
+    // from the anchor to the previous card.
+    if (hadNoSelection && options.direction === "right") return index;
   }
   if (options.direction === "right") {
     return Math.min(index + 1, options.entryCount - 1);

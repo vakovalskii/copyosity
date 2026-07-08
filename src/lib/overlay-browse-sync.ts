@@ -3,10 +3,10 @@ export interface ShouldSyncLeadingCardOptions {
   now: number;
 }
 
-/** Whether trackpad idle / scrollend should select the leading visible card. */
+/** Whether trackpad idle / scrollend should clear a stale selection. */
 export function shouldSyncLeadingCardAfterScroll(options: ShouldSyncLeadingCardOptions): boolean {
-  // Time guard only — not a persistent browse mode. After expiry, trackpad may sync leading again
-  // even if selection still reflects pre-arrow state (product tradeoff; do not re-anchor on leading≠selected).
+  // Time guard only — not a persistent browse mode. After expiry, trackpad may clear the
+  // selection again even if it still reflects pre-arrow state.
   if (options.now < options.keyboardBrowseUntil) return false;
   return true;
 }
@@ -38,7 +38,7 @@ export interface ScrollEndBrowseSyncResult {
   shouldSyncLeading: boolean;
 }
 
-/** Shared by scrollend and idle debounce — drains suppress, then maybe syncs leading. */
+/** Shared by scrollend and idle debounce — drains suppress, then maybe clears the selection. */
 export function handleScrollEndBrowseSync(options: {
   suppressSelectionSyncCount: number;
   keyboardBrowseUntil: number;
@@ -56,16 +56,6 @@ export function handleScrollEndBrowseSync(options: {
     nextSuppressCount: 0,
     shouldSyncLeading: shouldSyncLeadingCardAfterScroll(options),
   };
-}
-
-/** Any programmatic scroll that moves the viewport blocks one leading sync on scrollend. */
-export function shouldIncrementSuppressOnProgrammaticScroll(options: {
-  didScroll: boolean;
-  /** False only for trackpad leading-card follow-up (`selectLeadingVisibleCard`). Default true. */
-  suppressLeadingSync?: boolean;
-}): boolean {
-  const suppressLeadingSync = options.suppressLeadingSync ?? true;
-  return options.didScroll && suppressLeadingSync;
 }
 
 /** Stale-async guard for coalesced scrollToSelected (see +page scrollToSelectedGeneration). */

@@ -71,7 +71,6 @@
   import {
     handleScrollEndBrowseSync,
     shouldClearStuckSuppressOnUserScroll,
-    shouldIncrementSuppressOnProgrammaticScroll,
     shouldRunScrollToSelectedGeneration,
     shouldScheduleTrackpadLeadingSync,
   } from "$lib/overlay-browse-sync";
@@ -166,9 +165,9 @@
   const overlay = createOverlayEntriesStore({
     getVisible: () => visible,
     getIsRevealing: () => isRevealing,
-    onSelectionRequested: (_selectFirst, scrollToFirst) => {
-      selectedIndex = filteredEntries.length > 0 ? 0 : -1;
-      if (scrollToFirst) scrollToSelected();
+    onSelectionRequested: () => {
+      // No card is preselected on open/reload — the first arrow press selects card 0.
+      selectedIndex = -1;
     },
     onClampSelection: () => {
       if (selectedIndex >= overlay.entries.length) {
@@ -973,15 +972,6 @@
     return indexOfLeadingVisibleCard(viewport, padLeft, padRight, cardRects);
   }
 
-  /** Select leading visible card and scroll/focus like overlay open. */
-  function selectLeadingVisibleCard() {
-    const index = leadingVisibleCardIndex();
-    if (index < 0 || index === selectedIndex) return;
-    selectedIndex = index;
-    if (boardVertical) return;
-    scrollToSelected({ keyboardScroll: false, suppressLeadingSync: false });
-  }
-
   function handleGridScroll(event: Event) {
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return;
@@ -1034,7 +1024,11 @@
     }, SCROLL_IDLE_SYNC_MS);
   }
 
-  /** Shared by scrollend (primary) and idle debounce when scrollend is late — one leading-sync path. */
+  /**
+   * Shared by scrollend (primary) and idle debounce when scrollend is late.
+   * Mouse/trackpad scrolling never auto-selects a card — it only clears a stale
+   * selection so the next arrow press re-anchors on whatever is now on screen.
+   */
   function finishIdleScrollSync() {
     const result = handleScrollEndBrowseSync({
       suppressSelectionSyncCount,
@@ -1042,7 +1036,7 @@
       now: performance.now(),
     });
     suppressSelectionSyncCount = result.nextSuppressCount;
-    if (result.shouldSyncLeading) selectLeadingVisibleCard();
+    if (result.shouldSyncLeading && selectedIndex >= 0) selectedIndex = -1;
   }
 
   function keyboardArrowScrollContext(): {
@@ -1172,8 +1166,6 @@
   type ScrollToSelectedOptions = {
     behavior?: ScrollBehavior;
     keyboardScroll?: boolean;
-    /** Blocks one leading-card sync on scrollend when the scroll moves the viewport. Default true. */
-    suppressLeadingSync?: boolean;
     /** Vertical keyboard ↑/↓ alignment (list browse). */
     verticalNavDirection?: "up" | "down";
   };
@@ -1183,7 +1175,6 @@
       typeof options === "string" ? { behavior: options } : (options ?? {});
     const behaviorOverride = resolved.behavior;
     const keyboardScroll = resolved.keyboardScroll ?? false;
-    const suppressLeadingSync = resolved.suppressLeadingSync ?? true;
     const verticalNavDirection = resolved.verticalNavDirection;
     const generation = ++scrollToSelectedGeneration;
     const targetIndex = selectedIndex;
@@ -1203,9 +1194,8 @@
       const didScroll = boardVertical
         ? snapCardIntoPaddedViewportVertical(card, gridEl, behavior, verticalNavDirection)
         : snapCardIntoPaddedViewport(card, gridEl, behavior);
-      if (shouldIncrementSuppressOnProgrammaticScroll({ didScroll, suppressLeadingSync })) {
-        suppressSelectionSyncCount += 1;
-      }
+      // Blocks one leading-sync clear on scrollend for this programmatic scroll.
+      if (didScroll) suppressSelectionSyncCount += 1;
 
       if (boardVertical && keyboardScroll && gridEl) {
         if (
@@ -1709,6 +1699,10 @@
     padding-inline: var(--overlay-grid-pad-x);
     scroll-padding-inline: 0;
     scroll-padding-block: var(--overlay-grid-pad-y);
+    /* Base rule snaps the x axis (horizontal board) — vertical board snaps y instead so the
+       top card always sits flush against the top edge instead of scrolling to an arbitrary
+       partial position. */
+    scroll-snap-type: y mandatory;
     min-height: 0;
     scrollbar-gutter: stable;
   }
