@@ -160,6 +160,22 @@ pub fn resize_main_window(
 }
 
 #[tauri::command]
+pub fn reset_overlay_board_sizes(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    db.clear_overlay_board_sizes().map_err(|e| e.to_string())?;
+    crate::reset_remembered_overlay_height();
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            crate::position_window_bottom(&window, crate::OVERLAY_HEIGHT_COMPACT);
+        }
+    }
+    let _ = app.emit("overlay-board-sizes-reset", ());
+    Ok(())
+}
+
+#[tauri::command]
 pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
     // Frontend played close motion; hide native panel on the main thread.
     crate::finalize_panel_hide(&app);

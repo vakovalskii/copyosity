@@ -7,7 +7,7 @@ OLLAMA_DEBUG ?= 1
 TAURI_DIR := $(APP_DIR)/src-tauri
 RUST_RUN = bash "$(APP_DIR)/scripts/run-rust.sh"
 
-.PHONY: help dev build install \
+.PHONY: help dev build install preview-readme \
 	check check-frontend check-backend \
 	lint lint-frontend lint-backend \
 	fix fix-frontend fix-backend \
@@ -24,6 +24,7 @@ help:
 	@echo "  make dev              Run the Tauri development app"
 	@echo "  make build            Build the Tauri app"
 	@echo "  make install          Install npm dependencies"
+	@echo "  make preview-readme   GitHub-style README preview (grip, http://localhost:6419)"
 	@echo ""
 	@echo "Validation:"
 	@echo "  make fix              Auto-fix frontend and backend issues"
@@ -56,6 +57,9 @@ build:
 
 install:
 	cd $(APP_DIR) && $(NPM) install
+
+preview-readme:
+	cd $(APP_DIR) && grip README.md
 
 # --- Validation workflows ---
 

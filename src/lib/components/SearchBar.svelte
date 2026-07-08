@@ -2,9 +2,11 @@
   const {
     value = "",
     onchange,
+    onfocus,
   }: {
     value?: string;
     onchange?: (v: string) => void;
+    onfocus?: () => void;
   } = $props();
 
   let inputEl: HTMLInputElement | undefined = $state();
@@ -59,6 +61,7 @@
     oninput={handleInput}
     onfocus={() => {
       focused = true;
+      onfocus?.();
     }}
     onblur={() => {
       focused = false;

@@ -294,6 +294,10 @@ export async function quitApp(): Promise<void> {
   return invoke("quit_app");
 }
 
+export async function resetOverlayBoardSizes(): Promise<void> {
+  return invoke("reset_overlay_board_sizes");
+}
+
 /** @deprecated Use activateEntry for paste-into-target behavior. */
 export async function pasteEntry(text: string): Promise<void> {
   return invoke("paste_entry", { text });

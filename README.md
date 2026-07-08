@@ -18,6 +18,20 @@ of your way until you need it.
 
 Built with Tauri 2, Svelte 5, Rust, and SQLite.
 
+## 📑 Contents
+
+- [Screenshots](#screenshots)
+- [Features](#features)
+- [Platform support](#platform-support)
+- [Install](#install)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Privacy](#privacy)
+- [Build from source](#build-from-source)
+- [NeuralDeep hub (optional)](#neuraldeep-hub)
+- [Development workflow](#development-workflow)
+
+<a id="screenshots"></a>
+
 ## 📸 Screenshots
 
 Clipboard history with search, History / Starred tabs, tag and format filters,
@@ -25,11 +39,45 @@ and image cards with OCR previews:
 
 <img src="docs/screenshots/overlay-horizontal.png" alt="Clipboard overlay with History tab, search, and tag filters" width="720">
 
-Command / agent palette — web search and a streaming research agent when
-NeuralDeep Hub is enabled (`⌘⇧Space`, tray menu, or the sparkles button in the
-overlay):
+<details>
+<summary><strong>More screenshots</strong> — overlay layouts, Quick Look, command palette, settings</summary>
+
+### Overlay
+
+Starred tab — pinned entries only, same search and filter bar:
+
+<img src="docs/screenshots/overlay-horizontal-starred.png" alt="Clipboard overlay Starred tab with pinned entries" width="720">
+
+Vertical board layout — a single scrolling column instead of the horizontal grid:
+
+<img src="docs/screenshots/overlay-vertical.png" alt="Clipboard overlay in vertical board layout" width="480">
+
+### Quick Look preview
+
+`Space` or `⌘Y` on a selected card opens a larger, scrollable preview instead of pasting immediately:
+
+<img src="docs/screenshots/quick-look-img.png" alt="Quick Look preview of an image clipboard entry" width="640">
+
+Image entries with recognised text get an **Image / Recognised text** toggle:
+
+<img src="docs/screenshots/quick-look-ocr.png" alt="Quick Look preview showing recognised OCR text" width="640">
+
+### Command / agent palette
+
+Web search and a streaming research agent when NeuralDeep Hub is enabled
+(`⌘⇧Space`, tray menu, or the sparkles button in the overlay):
 
 <img src="docs/screenshots/command-palette-agent.png" alt="Command palette in Agent mode" width="640">
+
+Web mode — quick lookups without leaving the palette:
+
+<img src="docs/screenshots/command-palette-web.png" alt="Command palette in Web search mode" width="640">
+
+Minimize-to-dot — drag the palette out of the way without closing the session:
+
+<img src="docs/screenshots/command-palette-dot.png" alt="Command palette minimized to a draggable dot" width="240">
+
+### Settings
 
 NeuralDeep Hub settings — one master switch for tagging, transcription, web
 search, and voice polishing; optional fallback to local Ollama for tagging:
@@ -48,6 +96,38 @@ history and saved snippets for two-click paste without opening the overlay:
 
 <img src="docs/screenshots/settings-quick-menu.png" alt="Quick Menu settings with hotkey and snippets editor" width="640">
 
+Local AI settings — step-by-step Ollama onboarding (install / start server /
+download model / ready):
+
+<img src="docs/screenshots/settings-local-ai.png" alt="Local AI settings with Ollama onboarding steps" width="640">
+
+History settings — resizable overlay size, and clear-history controls with a
+confirmation dialog:
+
+<img src="docs/screenshots/setting-history.png" alt="History settings pane" width="640">
+<img src="docs/screenshots/setting-history-dialogue.png" alt="History settings clear confirmation dialog" width="480">
+<img src="docs/screenshots/setting-history-clear-unpinned.png" alt="Clear unpinned history confirmation" width="480">
+<img src="docs/screenshots/setting-history-clear-all.png" alt="Clear all history confirmation" width="480">
+
+App permissions overview — Accessibility, Microphone, and Automation status
+at a glance:
+
+<img src="docs/screenshots/settings-permissions.png" alt="Settings permissions status pane" width="640">
+
+Updates — check for and install new releases from within the app:
+
+<img src="docs/screenshots/settings-updates.png" alt="Settings updates pane" width="640">
+
+### Menu bar
+
+Tray icon and menu — quick access without opening the overlay:
+
+<img src="docs/screenshots/tray.png" alt="Menu-bar tray icon and menu" width="320">
+
+</details>
+
+<a id="features"></a>
+
 ## ✨ Features
 
 Shipped capabilities, grouped by area:
@@ -65,11 +145,9 @@ Shipped capabilities, grouped by area:
 - **Image clipboard** — PNG, JPG, and GIF from the pasteboard or Finder (~20 MB);
   animated GIFs; format badges; dimensions and file size on cards; OCR preview
   under thumbnails.
-- **Smart paste actions** — accent **Paste** button on cards; single click
-  copies; `↵`, double-click, or the paste button pastes into the app
-  that was frontmost when the overlay opened; `Space` or `⌘Y` opens Quick Look
-  preview on the selected card (`⌘Y` works from search); hover the type chip
-  for an eye overlay or right-click → **Preview** on the card.
+- **Smart paste actions** — copy, paste into the frontmost app, and open a
+  Quick Look preview without leaving the keyboard or reaching for the mouse
+  — see [Keyboard shortcuts](#keyboard-shortcuts) for the full list.
 
 ### 🖼 On-device intelligence
 
@@ -123,44 +201,6 @@ Shipped capabilities, grouped by area:
   `aria-live` baseline, and support for reduced motion, transparency, and
   contrast preferences.
 
-## ⬇️ Install
-
-Downloads are on the [latest release](https://github.com/vakovalskii/copyosity/releases/latest) page. See [CHANGELOG.md](CHANGELOG.md) for release notes.
-
-### 🍎 macOS
-
-Requires **macOS 12+** on **Apple Silicon** (M1 and later) or **Intel** (x86_64).
-
-| Your Mac                      | Download                  |
-| ----------------------------- | ------------------------- |
-| Apple Silicon (M1, M2, M3, …) | `Copyosity_*_aarch64.dmg` |
-| Intel                         | `Copyosity_*_x64.dmg`     |
-
-1. Pick the DMG for your architecture (for example `Copyosity_0.6.1_aarch64.dmg` or `Copyosity_0.6.1_x64.dmg`).
-2. Open the DMG and drag **Copyosity** into **Applications**.
-3. Launch it. On first run macOS will ask for **Accessibility** permission
-   (needed to paste into other apps) and, depending on the features you use,
-   **Microphone**, **Automation** (Notes/Reminders/Calendar), and screen access.
-
-The build is signed with a Developer ID certificate and notarized + stapled by
-Apple, so Gatekeeper opens it without warnings (and offline).
-
-macOS will also ask for:
-
-- ⚠️ **Accessibility** — needed for paste automation (Cmd+V simulation) and global shortcuts. After rebuilding or reinstalling the app, remove Copyosity from the list and add it again if double-click paste stops working.
-- **Input Monitoring** — may be required for reliable hotkey detection
-
-### 🪟 Windows (experimental)
-
-| Format | Download                    |
-| ------ | --------------------------- |
-| MSI    | `Copyosity_*_x64_en-US.msi` |
-| Setup  | `Copyosity_*_x64-setup.exe` |
-
-⚠️ Windows builds ship on the same release page but are **experimental** — see
-[Platform support](#platform-support) below. Expect a hollow shell: the app
-installs and launches, but most clipboard-manager features are not implemented yet.
-
 ## Platform support
 
 | Platform                             | Status           | Install / builds                                                                                                                                                                                  |
@@ -192,6 +232,48 @@ For automatic clipboard tagging when the hub is off or unavailable:
 
 Expected onboarding states: `Ollama not installed` → `Ollama installed, server not running` → `Model not installed` → `Local AI ready`.
 
+<a id="install"></a>
+
+## ⬇️ Install
+
+Downloads are on the [latest release](https://github.com/vakovalskii/copyosity/releases/latest) page. See [CHANGELOG.md](CHANGELOG.md) for release notes.
+
+### 🍎 macOS
+
+Requires **macOS 12+** on **Apple Silicon** (M1 and later) or **Intel** (x86_64).
+
+| Your Mac                      | Download                  |
+| ----------------------------- | ------------------------- |
+| Apple Silicon (M1, M2, M3, …) | `Copyosity_*_aarch64.dmg` |
+| Intel                         | `Copyosity_*_x64.dmg`     |
+
+1. Pick the DMG for your architecture (for example `Copyosity_<version>_aarch64.dmg` or `Copyosity_<version>_x64.dmg`, where `<version>` is the latest release version).
+2. Open the DMG and drag **Copyosity** into **Applications**.
+3. Launch it. On first run macOS will ask for **Accessibility** permission
+   (needed to paste into other apps) and, depending on the features you use,
+   **Microphone**, **Automation** (Notes/Reminders/Calendar), and screen access.
+
+The build is signed with a Developer ID certificate and notarized + stapled by
+Apple, so Gatekeeper opens it without warnings (and offline).
+
+macOS will also ask for:
+
+- ⚠️ **Accessibility** — needed for paste automation (Cmd+V simulation) and global shortcuts. After rebuilding or reinstalling the app, remove Copyosity from the list and add it again if double-click paste stops working.
+- **Input Monitoring** — may be required for reliable hotkey detection
+
+### 🪟 Windows (experimental)
+
+| Format | Download                    |
+| ------ | --------------------------- |
+| MSI    | `Copyosity_*_x64_en-US.msi` |
+| Setup  | `Copyosity_*_x64-setup.exe` |
+
+⚠️ Windows builds ship on the same release page but are **experimental** — see
+[Platform support](#platform-support) above. Expect a hollow shell: the app
+installs and launches, but most clipboard-manager features are not implemented yet.
+
+<a id="keyboard-shortcuts"></a>
+
 ## ⌨️ Keyboard shortcuts
 
 |     | Action                  | What it does                                                   |
@@ -215,12 +297,16 @@ Expected onboarding states: `Ollama not installed` → `Ollama installed, server
 | ✨  | Click sparkles button   | Open command / agent palette                                   |
 | ⚙️  | Click gear icon         | Open Settings                                                  |
 
+<a id="privacy"></a>
+
 ## 🔒 Privacy
 
 - All data stored locally in `~/Library/Application Support/com.vkovalskii.copyosity/`
 - AI tagging runs on `127.0.0.1` via Ollama — nothing leaves your machine when the hub is off
 - Exclude sensitive apps in Settings → Privacy, or from the overlay when that app is frontmost
 - Clear unpinned or all history anytime from Settings → History
+
+<a id="build-from-source"></a>
 
 ## 🛠 Build from source
 
@@ -245,6 +331,8 @@ npm run tauri build
 The Tauri config (`src-tauri/tauri.conf.json`) drives the bundle. The frontend
 is SvelteKit (static adapter); the backend is Rust via Tauri 2.
 
+<a id="neuraldeep-hub"></a>
+
 ## ☁️ NeuralDeep hub (optional)
 
 Several cloud‑assisted features — model‑based tagging, web search, the research
@@ -265,6 +353,8 @@ you don't configure a hub, the app falls back to local behavior (e.g. local
 tagging via Ollama and on‑device OCR) where available.
 
 > 🔒 **Privacy note:** Never commit your hub URL or token to a repository or share it publicly.
+
+<a id="development-workflow"></a>
 
 ## 🔧 Development workflow
 
@@ -296,4 +386,4 @@ make release-macos       # Signed + notarized, native arch
 make notarize-info       # Check notarization status
 ```
 
-Artifacts for local testing land in `dist/macos/` (for example `Copyosity_0.6.0_x86_64.dmg`).
+Artifacts for local testing land in `dist/macos/` (for example `Copyosity_<version>_x86_64.dmg`, where `<version>` is the current `package.json` version).

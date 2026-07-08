@@ -2,6 +2,7 @@
   import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { parseEntryOcrEvent, parseEntryTaggedEvent, type Collection, type ExcludableAppCandidate } from "$lib/types";
   import {
     getCollections,
@@ -121,6 +122,12 @@
   let excludeNoticeTone = $state<"neutral" | "warn">("neutral");
   let excludeBusy = $state(false);
   let searchBar: SearchBar | undefined = $state();
+  // During reveal, macOS can grab first-responder focus for the search input from a
+  // separate process (WKWebView) with unpredictable IPC latency relative to our own
+  // `searchBar?.blur()` call below — it can land either before or after it. Rather than
+  // relying on winning that timing race, treat any focus gained while this is true as
+  // unwanted and immediately reverse it; explicit shortcuts (Cmd+F, `/`) clear it first.
+  let suppressAutoSearchFocus = false;
   let lastLayoutHeight = $state<number | null>(null);
   let collections: Collection[] = $state([]);
   let activating = $state(false);
@@ -574,6 +581,7 @@
 
     panelMotionMode = "instant";
     visible = false;
+    suppressAutoSearchFocus = true;
     void (async () => {
       let revealed = false;
       try {
@@ -581,25 +589,25 @@
           await finalizePendingNativeHide();
           if (seq !== revealSeq) return;
         }
-        await loadLayout();
-        if (seq !== revealSeq) return;
-        const ready = await prepareOverlayLayout(seq);
+        // Layout settings and catalog data are independent — load concurrently
+        // instead of chaining two IPC round-trips before the panel can animate in.
+        const [, ready] = await Promise.all([loadLayout(), prepareOverlayLayout(seq)]);
         if (!ready || seq !== revealSeq) return;
         await afterLayoutFlush();
         if (seq !== revealSeq) return;
         panelMotionMode = "animate";
-        await afterLayoutFlush();
-        if (seq !== revealSeq) return;
-        visible = true;
-        overlay.syncDisplayFromCatalog();
-        searchBar?.blur();
-        await afterLayoutFlush();
-        if (seq !== revealSeq) return;
+        // Reset scroll and force the WebKit repaint while still invisible (opacity 0)
+        // so the reflow lands before the transition starts, not mid-animation.
         if (gridEl) {
           gridEl.scrollLeft = 0;
           gridEl.scrollTop = 0;
           forceWebviewRepaint(gridEl);
         }
+        await afterLayoutFlush();
+        if (seq !== revealSeq) return;
+        visible = true;
+        overlay.syncDisplayFromCatalog();
+        searchBar?.blur();
         if (hadPendingReload) {
           void overlay.loadEntries(true, false);
         }
@@ -607,12 +615,21 @@
         void loadExcludeCandidate();
         revealed = true;
       } finally {
+        suppressAutoSearchFocus = false;
         if (!revealed) {
           panelMotionMode = "animate";
           if (seq === revealSeq) isRevealing = false;
         }
       }
     })();
+  }
+
+  /** Reverse a focus grab that lands on the search input during reveal (see
+   * `suppressAutoSearchFocus`). Real Cmd+F/`/` shortcuts clear the flag first. */
+  function handleSearchBarFocusGained() {
+    if (suppressAutoSearchFocus) {
+      searchBar?.blur();
+    }
   }
 
   function startVisualHide() {
@@ -623,6 +640,7 @@
     visible = false;
     quickLookOpen = false;
     quickLookReturnFocus = null;
+    suppressAutoSearchFocus = false;
     overlay.resetDisplayStateOnHide();
   }
 
@@ -633,6 +651,17 @@
 
   function forceHideWindow() {
     animateOut();
+  }
+
+  // Drag bottom-right corner to resize the native panel (borderless NSPanel has no
+  // obvious OS resize edge). Horizontal board locks vertical size natively (Rust
+  // min==max height), so this drag is effectively width-only there. Vertical board
+  // allows height drag too, but only width is persisted (see `apply_overlay_size_limits`
+  // in lib.rs) — height always resets to the preferred value on next reveal.
+  function startOverlayResize(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    void getCurrentWindow().startResizeDragging(boardVertical ? "SouthWest" : "SouthEast");
   }
 
   async function loadExcludeCandidate() {
@@ -743,6 +772,16 @@
       openSettingsWindow();
     });
 
+    const unlistenSizesReset = listen("overlay-board-sizes-reset", () => {
+      void (async () => {
+        const height = overlayHeightForLayout({
+          showShortcutHints: overlay.overlayShortcutHintsEnabled,
+        });
+        await applyOverlayHeight(height, false);
+        lastLayoutHeight = height;
+      })();
+    });
+
     const handleKeydown = (e: KeyboardEvent) => {
       if (!visible) return;
 
@@ -794,6 +833,7 @@
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         e.stopPropagation();
+        suppressAutoSearchFocus = false;
         searchBar?.focus();
         return;
       }
@@ -807,6 +847,7 @@
         !e.altKey
       ) {
         e.preventDefault();
+        suppressAutoSearchFocus = false;
         searchBar?.focus();
         return;
       }
@@ -919,6 +960,7 @@
       unlistenHideRequest.then((fn) => fn());
       unlistenHide.then((fn) => fn());
       unlistenOpenSettings.then((fn) => fn());
+      unlistenSizesReset.then((fn) => fn());
       window.removeEventListener("keydown", handleKeydown, true);
     };
   });
@@ -1228,7 +1270,12 @@
   bind:this={appEl}
 >
   <header class="header overlay-header">
-    <SearchBar bind:this={searchBar} value={overlay.searchQuery} onchange={overlay.debouncedSearch} />
+    <SearchBar
+      bind:this={searchBar}
+      value={overlay.searchQuery}
+      onchange={overlay.debouncedSearch}
+      onfocus={handleSearchBarFocusGained}
+    />
     {#if boardVertical}
       <div class="header-actions">
         {#if platformIsMacOS() && hubEnabled}
@@ -1490,6 +1537,15 @@
       onclose={closeQuickLook}
     />
   {/if}
+  <button
+    class="resize-grip"
+    class:vertical={boardVertical}
+    type="button"
+    tabindex="-1"
+    aria-label="Resize"
+    title="Drag to resize"
+    onmousedown={startOverlayResize}
+  ></button>
 </div>
 
 <style>
@@ -1524,6 +1580,26 @@
     opacity: 0;
     will-change: transform, opacity;
     transition: none;
+  }
+
+  .resize-grip {
+    position: fixed;
+    right: var(--space-segment-inset);
+    bottom: var(--space-segment-inset);
+    width: var(--size-resize-grip);
+    height: var(--size-resize-grip);
+    padding: 0;
+    border: none;
+    cursor: nwse-resize;
+    background: var(--gradient-resize-grip);
+    z-index: 10;
+  }
+
+  .resize-grip.vertical {
+    right: auto;
+    left: var(--space-segment-inset);
+    cursor: nesw-resize;
+    transform: scaleX(-1);
   }
 
   .app[data-panel-motion="animate"] {

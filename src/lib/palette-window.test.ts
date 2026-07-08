@@ -54,4 +54,16 @@ describe("palette restore size persistence", () => {
     savePaletteRestoreSize({ w: 200, h: 100 });
     assert.deepEqual(loadPaletteRestoreSize(), { w: 640, h: 460 });
   });
+
+  it("rejects sizes below the current minimum but above the old one", () => {
+    // Guards the 380x160 -> 480x220 minimum bump: this size was valid under the
+    // old minimum and must now be rejected.
+    savePaletteRestoreSize({ w: 400, h: 180 });
+    assert.deepEqual(loadPaletteRestoreSize(), { w: 640, h: 460 });
+  });
+
+  it("accepts a size exactly at the current minimum", () => {
+    savePaletteRestoreSize({ w: 480, h: 220 });
+    assert.deepEqual(loadPaletteRestoreSize(), { w: 480, h: 220 });
+  });
 });

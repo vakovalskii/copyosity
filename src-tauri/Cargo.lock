@@ -725,7 +725,7 @@ dependencies = [
 
 [[package]]
 name = "copyosity"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "arboard",
  "base64 0.22.1",

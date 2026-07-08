@@ -28,7 +28,7 @@ mod tray_macos; // docs/architecture/macos-tray-menu.md §4–§5
 mod whisper;
 
 use db::Database;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
@@ -665,6 +665,7 @@ pub fn run() {
             commands::get_history_counts,
             commands::hide_main_window,
             commands::resize_main_window,
+            commands::reset_overlay_board_sizes,
             commands::open_settings_window,
             commands::quit_app,
             commands::get_app_settings,
@@ -736,6 +737,9 @@ pub fn run() {
                 ("main", tauri::WindowEvent::Focused(false)) => {
                     overlay_dismiss::handle_focus_lost(app);
                 }
+                ("main", tauri::WindowEvent::Resized(_)) => {
+                    persist_main_window_user_resize(app);
+                }
                 ("settings", tauri::WindowEvent::Destroyed) => {
                     #[cfg(target_os = "macos")]
                     {
@@ -775,7 +779,8 @@ pub(crate) fn ensure_main_overlay_window(
 
     let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
         .title("")
-        .inner_size(900.0, 450.0)
+        .inner_size(OVERLAY_WIDTH_MIN, OVERLAY_HEIGHT_COMPACT)
+        .min_inner_size(OVERLAY_WIDTH_MIN, OVERLAY_HEIGHT_MIN)
         .resizable(true)
         .decorations(false)
         .transparent(true)
@@ -1539,7 +1544,10 @@ fn ensure_command_palette(app: &tauri::AppHandle) {
     )
     .title("")
     .inner_size(640.0, 460.0)
-    .min_inner_size(380.0, 160.0)
+    .min_inner_size(
+        palette_window::PALETTE_MIN_WIDTH,
+        palette_window::PALETTE_MIN_HEIGHT,
+    )
     .resizable(true)
     .decorations(false)
     .transparent(true)
@@ -1839,7 +1847,25 @@ pub const OVERLAY_HEIGHT_COMPACT: f64 = 450.0;
 pub const OVERLAY_HEIGHT_MIN: f64 = 360.0;
 pub const OVERLAY_HEIGHT_MAX: f64 = 560.0;
 
+/// Horizontal board: minimum width (logical px); user resize cannot go below this.
+pub(crate) const OVERLAY_WIDTH_MIN: f64 = 900.0;
+pub(crate) const OVERLAY_WIDTH_PREFERRED: f64 = 1200.0;
+
+/// Vertical board: minimum width (logical px); user resize cannot go below this.
+pub(crate) const OVERLAY_WIDTH_MIN_VERTICAL: f64 = 360.0;
+/// Vertical board: default width used until the user resizes it.
+pub(crate) const OVERLAY_WIDTH_PREFERRED_VERTICAL: f64 = OVERLAY_WIDTH_MIN_VERTICAL;
+/// Vertical board: maximum width (logical px).
+pub(crate) const OVERLAY_WIDTH_MAX_VERTICAL: f64 = 720.0;
+const OVERLAY_HEIGHT_PREFERRED_VERTICAL: f64 = 820.0;
+const OVERLAY_HEIGHT_MIN_VERTICAL: f64 = 520.0;
+
 static LAST_OVERLAY_HEIGHT_BITS: AtomicU64 = AtomicU64::new(0);
+/// Physical size `position_window_bottom` last applied to the main window, used by
+/// `persist_main_window_user_resize` to tell an echoed `Resized` event (our own
+/// `set_size` call) apart from an actual user drag on the resize grip.
+static LAST_PROGRAMMATIC_WIDTH: AtomicU32 = AtomicU32::new(0);
+static LAST_PROGRAMMATIC_HEIGHT: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) fn remember_overlay_height(height: f64) {
     let clamped = height.clamp(OVERLAY_HEIGHT_MIN, OVERLAY_HEIGHT_MAX);
@@ -1856,9 +1882,116 @@ pub(crate) fn remembered_overlay_height() -> f64 {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn reset_remembered_overlay_height_for_tests() {
+pub(crate) fn reset_remembered_overlay_height() {
     LAST_OVERLAY_HEIGHT_BITS.store(0, Ordering::Relaxed);
+}
+
+/// Horizontal board: clamp a logical width to the allowed range (no upper bound
+/// other than the active monitor's work area, applied separately).
+fn clamp_horizontal_width(width: f64) -> f64 {
+    width.max(OVERLAY_WIDTH_MIN)
+}
+
+/// Vertical board: clamp a logical width to the allowed range.
+fn clamp_vertical_width(width: f64) -> f64 {
+    width.clamp(OVERLAY_WIDTH_MIN_VERTICAL, OVERLAY_WIDTH_MAX_VERTICAL)
+}
+
+/// Resolve the physical width to apply for the horizontal board, given the
+/// preferred logical width and the active monitor's physical work-area width.
+fn resolve_horizontal_win_width(preferred_logical: f64, scale: f64, work_area_width: u32) -> u32 {
+    let min_width = (OVERLAY_WIDTH_MIN * scale) as u32;
+    let preferred_width = (clamp_horizontal_width(preferred_logical) * scale) as u32;
+    preferred_width.min(work_area_width).max(min_width)
+}
+
+/// Resolve the physical width to apply for the vertical board, given the
+/// preferred logical width and the active monitor's physical work-area width.
+fn resolve_vertical_win_width(preferred_logical: f64, scale: f64, work_area_width: u32) -> u32 {
+    let min_w = (OVERLAY_WIDTH_MIN_VERTICAL * scale) as u32;
+    let max_w = (OVERLAY_WIDTH_MAX_VERTICAL * scale) as u32;
+    let w = (clamp_vertical_width(preferred_logical) * scale) as u32;
+    w.min(work_area_width).max(min_w).min(max_w)
+}
+
+fn overlay_horizontal_width_from_db(window: &tauri::WebviewWindow) -> f64 {
+    window
+        .app_handle()
+        .try_state::<Arc<db::Database>>()
+        .and_then(|db| db.overlay_horizontal_width().ok().flatten())
+        .map(clamp_horizontal_width)
+        .unwrap_or(OVERLAY_WIDTH_PREFERRED)
+}
+
+fn overlay_vertical_width_from_db(window: &tauri::WebviewWindow) -> f64 {
+    window
+        .app_handle()
+        .try_state::<Arc<db::Database>>()
+        .and_then(|db| db.overlay_vertical_width().ok().flatten())
+        .map(clamp_vertical_width)
+        .unwrap_or(OVERLAY_WIDTH_PREFERRED_VERTICAL)
+}
+
+fn apply_overlay_size_limits(
+    window: &tauri::WebviewWindow,
+    vertical: bool,
+    horizontal_height: f64,
+) {
+    use tauri::LogicalSize;
+
+    if vertical {
+        let _ = window.set_min_size(Some(LogicalSize::new(
+            OVERLAY_WIDTH_MIN_VERTICAL,
+            OVERLAY_HEIGHT_MIN_VERTICAL,
+        )));
+        let _ = window.set_max_size(Some(LogicalSize::new(OVERLAY_WIDTH_MAX_VERTICAL, 10_000.0)));
+    } else {
+        // Cards are fixed-height, so vertical drag-resize is locked entirely (min == max);
+        // only the width edges remain draggable. See docs/architecture — horizontal board.
+        // Vertical-board *height* resize (see the `vertical` branch above) is intentionally
+        // never persisted — only width is saved to disk — so it resets to the preferred
+        // height on next reveal.
+        let _ = window.set_min_size(Some(LogicalSize::new(OVERLAY_WIDTH_MIN, horizontal_height)));
+        let _ = window.set_max_size(Some(LogicalSize::new(100_000.0, horizontal_height)));
+    }
+}
+
+/// User dragged the native resize edge/grip; persist the resulting logical width so the next
+/// `position_window_bottom` restores it. Ignores resizes while the panel is hidden (creation,
+/// pre-show `position_window_bottom` calls), and ignores resizes that merely echo the size
+/// `position_window_bottom` itself just applied (e.g. `resize_main_window` height animations),
+/// since neither is a user-driven width change.
+fn persist_main_window_user_resize(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if !window.is_visible().unwrap_or(false) {
+        return;
+    }
+    let Ok(size) = window.inner_size() else {
+        return;
+    };
+    if size.width == LAST_PROGRAMMATIC_WIDTH.load(Ordering::Relaxed)
+        && size.height == LAST_PROGRAMMATIC_HEIGHT.load(Ordering::Relaxed)
+    {
+        return;
+    }
+    let Ok(scale) = window.scale_factor() else {
+        return;
+    };
+    let logical_width = size.width as f64 / scale;
+    let Some(db) = app.try_state::<Arc<db::Database>>() else {
+        return;
+    };
+    let vertical = db
+        .get_app_settings()
+        .map(|s| s.board_vertical)
+        .unwrap_or(false);
+    if vertical {
+        let _ = db.set_overlay_vertical_width(clamp_vertical_width(logical_width));
+    } else {
+        let _ = db.set_overlay_horizontal_width(clamp_horizontal_width(logical_width));
+    }
 }
 
 pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow, height_px: f64) {
@@ -1880,10 +2013,13 @@ pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow, height_px: f
 
     let (win_width, win_height, x, y) = if vertical {
         // Tall narrow panel docked to the right edge of the active screen.
-        let min_h = (520.0 * scale) as u32;
-        let preferred_h = (820.0 * scale) as u32;
-        let w = (360.0 * scale) as u32;
-        let win_width = w.min(work_area.size.width);
+        let min_h = (OVERLAY_HEIGHT_MIN_VERTICAL * scale) as u32;
+        let preferred_h = (OVERLAY_HEIGHT_PREFERRED_VERTICAL * scale) as u32;
+        let win_width = resolve_vertical_win_width(
+            overlay_vertical_width_from_db(window),
+            scale,
+            work_area.size.width,
+        );
         let win_height = preferred_h
             .min(work_area.size.height.saturating_sub(pad as u32 * 2))
             .max(min_h.min(work_area.size.height));
@@ -1892,15 +2028,29 @@ pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow, height_px: f
         (win_width, win_height, x, y)
     } else {
         // Wide bar docked to the bottom-centre of the active screen.
-        let min_width = (900.0 * scale) as u32;
-        let preferred_width = (1180.0 * scale) as u32;
+        let win_width = resolve_horizontal_win_width(
+            overlay_horizontal_width_from_db(window),
+            scale,
+            work_area.size.width,
+        );
         let win_height = (height_px * scale) as u32;
-        let win_width = preferred_width.min(work_area.size.width).max(min_width);
         let x = work_area.position.x + ((work_area.size.width as i32 - win_width as i32) / 2);
         let y = work_area.position.y + work_area.size.height as i32 - win_height as i32 - pad;
         (win_width, win_height, x, y)
     };
 
+    // Record the size we're about to apply *before* calling `set_size`: on macOS,
+    // `setFrame` invokes the `windowDidResize` delegate (our `Resized` handler)
+    // synchronously, before `set_size` returns. Storing these first means that
+    // reentrant handler sees a matching size immediately and skips straight past
+    // the DB lookup, instead of doing a synchronous SQLite round-trip on every
+    // frame of a height-animation loop (`animateOverlayResize`), which caused
+    // visible animation jank.
+    LAST_PROGRAMMATIC_WIDTH.store(win_width, Ordering::Relaxed);
+    LAST_PROGRAMMATIC_HEIGHT.store(win_height, Ordering::Relaxed);
+    // Apply the target min/max constraints before resizing so the OS never clamps
+    // `set_size` against a stale limit left over from the previous call.
+    apply_overlay_size_limits(window, vertical, height_px);
     let _ = window.set_size(PhysicalSize::new(win_width, win_height));
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }
@@ -1915,27 +2065,65 @@ mod overlay_height_tests {
     #[test]
     fn remembered_height_defaults_to_compact() {
         let _guard = TEST_LOCK.lock().unwrap();
-        reset_remembered_overlay_height_for_tests();
+        reset_remembered_overlay_height();
         assert_eq!(remembered_overlay_height(), OVERLAY_HEIGHT_COMPACT);
     }
 
     #[test]
     fn remember_overlay_height_round_trips() {
         let _guard = TEST_LOCK.lock().unwrap();
-        reset_remembered_overlay_height_for_tests();
+        reset_remembered_overlay_height();
         remember_overlay_height(508.0);
         assert_eq!(remembered_overlay_height(), 508.0);
-        reset_remembered_overlay_height_for_tests();
+        reset_remembered_overlay_height();
     }
 
     #[test]
     fn remember_overlay_height_clamps_out_of_range_values() {
         let _guard = TEST_LOCK.lock().unwrap();
-        reset_remembered_overlay_height_for_tests();
+        reset_remembered_overlay_height();
         remember_overlay_height(999.0);
         assert_eq!(remembered_overlay_height(), OVERLAY_HEIGHT_MAX);
         remember_overlay_height(100.0);
         assert_eq!(remembered_overlay_height(), OVERLAY_HEIGHT_MIN);
-        reset_remembered_overlay_height_for_tests();
+        reset_remembered_overlay_height();
+    }
+}
+
+#[cfg(test)]
+mod overlay_width_tests {
+    use super::*;
+
+    #[test]
+    fn clamp_horizontal_width_enforces_min_only() {
+        assert_eq!(clamp_horizontal_width(400.0), OVERLAY_WIDTH_MIN);
+        assert_eq!(clamp_horizontal_width(OVERLAY_WIDTH_MIN), OVERLAY_WIDTH_MIN);
+        assert_eq!(clamp_horizontal_width(2000.0), 2000.0);
+    }
+
+    #[test]
+    fn clamp_vertical_width_enforces_min_and_max() {
+        assert_eq!(clamp_vertical_width(100.0), OVERLAY_WIDTH_MIN_VERTICAL);
+        assert_eq!(clamp_vertical_width(5000.0), OVERLAY_WIDTH_MAX_VERTICAL);
+        assert_eq!(clamp_vertical_width(500.0), 500.0);
+    }
+
+    #[test]
+    fn resolve_horizontal_win_width_clamps_to_work_area() {
+        // Preferred width fits comfortably within a large work area.
+        assert_eq!(resolve_horizontal_win_width(1200.0, 1.0, 2560), 1200);
+        // Work area narrower than preferred width caps the result, but never below min.
+        assert_eq!(resolve_horizontal_win_width(1200.0, 1.0, 1000), 1000);
+        // Below-minimum preferred widths are raised to the minimum.
+        assert_eq!(resolve_horizontal_win_width(100.0, 1.0, 2560), 900);
+    }
+
+    #[test]
+    fn resolve_vertical_win_width_clamps_to_range_and_work_area() {
+        assert_eq!(resolve_vertical_win_width(360.0, 1.0, 2560), 360);
+        // Above-maximum preferred widths are capped.
+        assert_eq!(resolve_vertical_win_width(5000.0, 1.0, 2560), 720);
+        // A narrow work area wins over the preferred width but not below the minimum.
+        assert_eq!(resolve_vertical_win_width(600.0, 1.0, 200), 360);
     }
 }

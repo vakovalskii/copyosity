@@ -5,6 +5,7 @@
   "windows": ["main"],
   "permissions": [
     "core:event:default",
+    "core:window:allow-start-resize-dragging",
     "main-window-commands"
   ]
 }
