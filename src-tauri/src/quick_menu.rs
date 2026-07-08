@@ -3,7 +3,9 @@
 //! A global hotkey pops up a native macOS menu (built with Tauri's cross-platform
 //! menu API, which renders as an `NSMenu` on macOS) listing recent clipboard
 //! history and saved snippets. Selecting an item pastes it straight into the app
-//! that was frontmost when the menu opened — two clicks, no overlay browsing.
+//! that should receive the paste — two clicks, no overlay browsing. When opened
+//! from the tray menu Copyosity is already frontmost, so the target falls back to
+//! the last remembered non-Copyosity app (`LAST_NON_SELF_FRONTMOST_PID`).
 
 /// How many recent history entries the quick menu surfaces at most.
 pub const QUICK_MENU_HISTORY_LIMIT: usize = 100;
@@ -20,21 +22,34 @@ const RANGE_SIZE: usize = 20;
 #[cfg(target_os = "macos")]
 const LABEL_MAX_CHARS: usize = 52;
 
-/// Build and pop up the quick menu at the mouse cursor. No-op off macOS.
+/// Resolve the app that should receive a quick-menu paste.
 #[cfg(target_os = "macos")]
-pub fn show(app: &tauri::AppHandle) {
+fn resolve_quick_menu_target() -> i32 {
     use std::sync::atomic::Ordering;
-    use tauri::Manager;
 
-    // Capture the currently-frontmost app *before* we activate ourselves, so the
-    // eventual paste lands back in it.
-    let target = crate::frontmost_app_pid().unwrap_or(0);
-    if target > 0 && target != std::process::id() as i32 {
+    let self_pid = std::process::id() as i32;
+    let target = crate::frontmost_app_pid()
+        .filter(|&pid| pid > 0 && pid != self_pid)
+        .or_else(crate::clipboard_macos::last_remembered_paste_target_pid)
+        .unwrap_or(0);
+
+    if target > 0 {
         crate::QUICK_MENU_TARGET_PID.store(target, Ordering::Relaxed);
         crate::clipboard_macos::remember_paste_target_for_pid(target);
     } else {
         crate::QUICK_MENU_TARGET_PID.store(0, Ordering::Relaxed);
     }
+    target
+}
+
+/// Build and pop up the quick menu at the mouse cursor. No-op off macOS.
+#[cfg(target_os = "macos")]
+pub fn show(app: &tauri::AppHandle) {
+    use tauri::Manager;
+
+    // Capture the app that should receive the paste. When opened from the tray menu
+    // Copyosity is already frontmost, so fall back to the last remembered target.
+    let _target = resolve_quick_menu_target();
 
     let db = app.state::<std::sync::Arc<crate::db::Database>>();
     let entries = db

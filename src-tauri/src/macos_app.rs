@@ -54,6 +54,13 @@ pub fn app_identity_for_pid(pid: i32) -> Option<AppIdentity> {
 }
 
 #[cfg(target_os = "macos")]
+pub fn is_pid_running(pid: i32) -> bool {
+    use objc2_app_kit::NSRunningApplication;
+
+    NSRunningApplication::runningApplicationWithProcessIdentifier(pid).is_some()
+}
+
+#[cfg(target_os = "macos")]
 pub fn app_identity_from_app_bundle_path(path: &Path) -> Option<AppIdentity> {
     use objc2_foundation::{NSBundle, NSString};
 
