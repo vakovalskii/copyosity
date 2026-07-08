@@ -8,13 +8,13 @@ Global UI audit of Copyosity against [Apple Human Interface Guidelines](https://
 
 **Scope labels:** `[Overlay]` clipboard panel · `[Settings]` settings window · `[Voice]` voice HUD capsule · `[Palette]` command palette · `[Shared]` tokens / form-controls / button-interaction / motion helper
 
-| Surface           | Files                                                                                                                                                                                                                                                                                                                                       |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Clipboard overlay | `[+page.svelte](../../src/routes/+page.svelte)`, `[ClipboardCard.svelte](../../src/lib/components/ClipboardCard.svelte)`, `[TagFilterBar.svelte](../../src/lib/components/TagFilterBar.svelte)`, `[SearchBar.svelte](../../src/lib/components/SearchBar.svelte)`, `[CollectionTabs.svelte](../../src/lib/components/CollectionTabs.svelte)` |
-| Voice HUD         | `[overlay/+page.svelte](../../src/routes/overlay/+page.svelte)` — recording capsule (pulse dot, scrolling waveform, duration)                                                                                                                                                                                                               |
-| Command palette   | `[palette/+page.svelte](../../src/routes/palette/+page.svelte)`                                                                                                                                                                                                                                                                             |
-| Settings          | `[settings/+page.svelte](../../src/routes/settings/+page.svelte)`, `[SectionIcon.svelte](../../src/lib/components/SectionIcon.svelte)` — sidebar panes: NeuralDeep, Voice, Local AI, History, Permissions                                                                                                                                   |
-| Shared            | `[tokens.css](../../src/lib/styles/tokens.css)`, `[form-controls.css](../../src/lib/styles/form-controls.css)`, `[button-interaction.css](../../src/lib/styles/button-interaction.css)`, `[ChevronDown.svelte](../../src/lib/components/ChevronDown.svelte)`, `[motion.ts](../../src/lib/motion.ts)`                                        |
+| Surface           | Files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Clipboard overlay | `[+page.svelte](../../src/routes/+page.svelte)`, `[ClipboardCard.svelte](../../src/lib/components/ClipboardCard.svelte)`, `[QuickLookPanel.svelte](../../src/lib/components/QuickLookPanel.svelte)`, `[CardTypeBadge.svelte](../../src/lib/components/CardTypeBadge.svelte)`, `[TagFilterBar.svelte](../../src/lib/components/TagFilterBar.svelte)`, `[SearchBar.svelte](../../src/lib/components/SearchBar.svelte)`, `[CollectionTabs.svelte](../../src/lib/components/CollectionTabs.svelte)` |
+| Voice HUD         | `[overlay/+page.svelte](../../src/routes/overlay/+page.svelte)` — recording capsule (pulse dot, scrolling waveform, duration)                                                                                                                                                                                                                                                                                                                                                                   |
+| Command palette   | `[palette/+page.svelte](../../src/routes/palette/+page.svelte)`                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Settings          | `[settings/+page.svelte](../../src/routes/settings/+page.svelte)`, `[SectionIcon.svelte](../../src/lib/components/SectionIcon.svelte)` — sidebar panes: NeuralDeep, Voice, Local AI, History, Permissions                                                                                                                                                                                                                                                                                       |
+| Shared            | `[tokens.css](../../src/lib/styles/tokens.css)`, `[form-controls.css](../../src/lib/styles/form-controls.css)`, `[button-interaction.css](../../src/lib/styles/button-interaction.css)`, `[ChevronDown.svelte](../../src/lib/components/ChevronDown.svelte)`, `[motion.ts](../../src/lib/motion.ts)`                                                                                                                                                                                            |
 
 ```mermaid
 flowchart TB
@@ -51,7 +51,7 @@ flowchart TB
 
 - [x] `[Overlay]` Search input in Tab order; focus ring via `:focus-within` on `.search-bar` (item 4)
 - [x] `[Overlay]` remove global `outline: none`; `focus-visible` on cards and non-button tabs (item 1)
-- [x] `[Overlay]` Paste button on card — primary action instead of duplicate Copy; `Space` on card `role="button"`; `aria-busy` on activate (items 2, 19 partial)
+- [x] `[Overlay]` Paste button on card — primary action instead of duplicate Copy; `Space` opens Quick Look (not paste); `aria-busy` on activate (items 2, 19)
 - [x] `[Overlay]` hit target 28px+ — search clear only (28px); card actions 24px — intentional trade-off (item 3)
 - [x] `[Overlay]` Search field — slightly less transparent background and placeholder for readability on vibrancy (item 3)
 - [x] `[Shared]` Contrast `--color-text-subtle` / `--color-text-faint`; `prefers-contrast: more` (item 5)
@@ -120,7 +120,7 @@ Removed global `outline: none` in `+page.svelte`; `focus-visible` ring on cards 
 
 `.card-actions` shown on hover and on keyboard focus (`:focus-within` + `data-input-modality="keyboard"`); on pinned cards — star always visible. `selected` alone does not reveal toolbar (mouse pin does not stick).
 
-Redundant Copy replaced with primary **Paste** (`activateEntry`, accent styling, `aria-busy` on activate); card click still copies; paste also via double-click, Enter, Space on card `role="button"`, and Paste toolbar button.
+Redundant Copy replaced with primary **Paste** (`activateEntry`, accent styling, `aria-busy` on activate); card click still copies; paste via double-click, Enter, and Paste toolbar button. `Space` on the card no longer pastes — it opens **Quick Look** when handled at overlay level (see item 19).
 
 ### ✅ 3. Hit targets and search readability `[Overlay]`
 
@@ -196,9 +196,7 @@ Selected — light accent fill (`--surface-card-selected`, ~5–7% opacity), rin
 
 ### ✅ 14. Native tooltip on card `[Overlay]`
 
-**Done:** removed `title={entry.text_content}` from card.
-
-**Future:** Quick Look preview on `Space` — [feature-quick-look-preview.md](feature-quick-look-preview.md).
+**Done:** removed `title={entry.text_content}` from card. Replaced by **Quick Look preview on `Space`** — [feature-quick-look-preview.md](feature-quick-look-preview.md).
 
 ### ✅ 16. Search field styling `[Overlay]`
 
@@ -216,12 +214,16 @@ Contextual messages for search / tag filter; `role="status"`.
 
 Paste button on card — explicit mouse affordance for paste without double-click. Footer shortcut strip in `+page.svelte` (`KeyboardHints.svelte`); optional via **Settings → History → Keyboard shortcuts** (default on). Overlay height +35 px when hints are on (`OVERLAY_HINTS_EXTRA_HEIGHT`; base **415** px).
 
-| Layout     | Hint                                                                                          |
-| ---------- | --------------------------------------------------------------------------------------------- |
-| Horizontal | `Click copy` · `↵ paste` · `Double-click paste` · `← → browse` · `Esc clear search / dismiss` |
-| Vertical   | `Click copy` · `↵ paste` · `2× click paste` · `↑ ↓ browse` · `Esc dismiss`                    |
+`Space` / `⌘Y` open and close **Quick Look** ([feature-quick-look-preview.md](feature-quick-look-preview.md)) instead of pasting. **Mouse:** type-chip eye on hover (pill collapses via `clip-path` to reveal the eye); secondary-click → **Preview** ([Alfred](https://www.alfredapp.com/help/features/universal-actions/) Clipboard History / Universal Actions pattern).
 
-Do not duplicate Paste toolbar button verbatim in footer — “↵ paste” / “Double-click paste” is enough, since the button is visible on hover/selection.
+`Esc` priority: dismiss card context menu → close Quick Look → clear search → dismiss overlay. Footer hints still show the terminal actions (`clear search / dismiss` or `dismiss`) — Quick Look and context-menu dismiss are implicit first steps.
+
+| Layout     | Hint                                                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Horizontal | `Click copy` · `Space preview` · `⌘Y preview` · `↵ paste` · `Double-click paste` · `← → browse` · `Esc clear search / dismiss` |
+| Vertical   | `Click copy` · `Space preview` · `⌘Y preview` · `↵ paste` · `2× click paste` · `↑ ↓ browse` · `Esc dismiss`                    |
+
+Do not duplicate Paste toolbar button verbatim in footer — “↵ paste” / “Double-click paste” is enough, since the button is visible on hover/selection. Secondary-click **Preview** is not listed in the footer strip.
 
 ### ✅ 20. Filter chip vs metadata badge — role conflict `[Overlay]` `[Shared]`
 
@@ -328,7 +330,7 @@ Reduce Motion: mic without pulse; bars — uniform height by level, no wobble/st
 
 ### ❌ 35. VoiceOver listbox / `aria-label` on cards `[Overlay]` — product decision
 
-Cards in horizontal list without listbox semantics; no `aria-label` at entry level for SR. Affects **VoiceOver / screen reader only** — no impact on visual UI, mouse, or current keyboard navigation (`←/→`, Enter, Space, Paste). At this stage we do not plan such changes: overlay already covers P1 a11y (focus, actions, search); listbox is SR depth without behavior change for other users.
+Cards in horizontal list without listbox semantics; no `aria-label` at entry level for SR. Affects **VoiceOver / screen reader only** — no impact on visual UI, mouse, or current keyboard navigation (`←/→`, Enter, `Space`/`⌘Y` preview, Paste). At this stage we do not plan such changes: overlay already covers P1 a11y (focus, actions, search); listbox is SR depth without behavior change for other users.
 
 **Deferred scope (for clarity, what we’re declining):**
 

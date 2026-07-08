@@ -49,6 +49,14 @@ pub fn get_entries(
     .map_err(|e| e.to_string())
 }
 
+/// Full entry payload (including full-resolution `image_data`) for Quick Look.
+/// `get_entries` deliberately omits `image_data` for list-fetch cost; this is the
+/// on-demand fetch used only when a single entry's Quick Look preview is opened.
+#[tauri::command]
+pub fn get_entry(db: State<'_, Arc<Database>>, id: i64) -> Result<Option<ClipboardEntry>, String> {
+    db.get_entry_by_id(id).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn get_overlay_tag_counts(
     db: State<'_, Arc<Database>>,

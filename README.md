@@ -66,9 +66,10 @@ Shipped capabilities, grouped by area:
   animated GIFs; format badges; dimensions and file size on cards; OCR preview
   under thumbnails.
 - **Smart paste actions** — accent **Paste** button on cards; single click
-  copies; Enter, Space, double click, or the paste button pastes into the app
-  that was frontmost when the overlay opened; improved paste into Messages,
-  Electron, and other native targets.
+  copies; `↵`, double-click, or the paste button pastes into the app
+  that was frontmost when the overlay opened; `Space` or `⌘Y` opens Quick Look
+  preview on the selected card (`⌘Y` works from search); hover the type chip
+  for an eye overlay or right-click → **Preview** on the card.
 
 ### 🖼 On-device intelligence
 
@@ -193,22 +194,26 @@ Expected onboarding states: `Ollama not installed` → `Ollama installed, server
 
 ## ⌨️ Keyboard shortcuts
 
-|     | Action                     | What it does                                   |
-| --- | -------------------------- | ---------------------------------------------- |
-| 📂  | `Cmd + Shift + V`          | Open / close clipboard history                 |
-| ⚡  | `Cmd + Shift + C`          | Open quick menu at cursor (history + snippets) |
-| ✨  | `Cmd + Shift + Space`      | Open command / agent palette (when hub is on)  |
-| 🔍  | `Cmd + F` or `/`           | Focus search in the overlay                    |
-| 🎙  | Hold voice shortcut        | Record voice (default `Option + Space`)        |
-| 📋  | Single click on card       | Copy to clipboard                              |
-| 📤  | Double click on card       | Paste into active cursor                       |
-| 📤  | `Enter` or `Space` on card | Paste selected entry                           |
-| ✖️  | `Escape`                   | Clear search, then hide overlay                |
-| ⬅️  | Arrow keys                 | Navigate cards                                 |
-| 📤  | Click paste button         | Paste into active cursor                       |
-| ⭐  | Click ★ button             | Star / unstar                                  |
-| ✨  | Click sparkles button      | Open command / agent palette                   |
-| ⚙️  | Click gear icon            | Open Settings                                  |
+|     | Action                  | What it does                                                   |
+| --- | ----------------------- | -------------------------------------------------------------- |
+| 📂  | `Cmd + Shift + V`       | Open / close clipboard history                                 |
+| ⚡  | `Cmd + Shift + C`       | Open quick menu at cursor (history + snippets)                 |
+| ✨  | `Cmd + Shift + Space`   | Open command / agent palette (when hub is on)                  |
+| 🔍  | `Cmd + F` or `/`        | Focus search in the overlay                                    |
+| 👁  | `Space` or `⌘Y` on card | Quick Look preview (toggle); `⌘Y` from search                  |
+| 👁  | Hover type chip · eye   | Open Quick Look preview                                        |
+| 👁  | Right-click card        | Context menu → Preview (Alfred-style)                          |
+| 🎙  | Hold voice shortcut     | Record voice (default `Option + Space`)                        |
+| 📋  | Single click on card    | Copy to clipboard                                              |
+| 📤  | Double click on card    | Paste into active cursor                                       |
+| 📤  | `Enter` on card         | Paste selected entry                                           |
+| ✖️  | `Escape`                | Close Quick Look if open, then clear search, then hide overlay |
+| ⬇️  | `↓` from search         | Leave search and select first visible card                     |
+| ⬅️  | Arrow keys              | Navigate cards                                                 |
+| 📤  | Click paste button      | Paste into active cursor                                       |
+| ⭐  | Click ★ button          | Star / unstar                                                  |
+| ✨  | Click sparkles button   | Open command / agent palette                                   |
+| ⚙️  | Click gear icon         | Open Settings                                                  |
 
 ## 🔒 Privacy
 
@@ -272,7 +277,7 @@ make fix-frontend && make check-frontend
 make fix-backend && make check-backend
 ```
 
-See `AGENTS.md` for the contributor workflow and task-specific docs index (branching,
+See `CLAUDE.md` and `AGENTS.md` for the full contributor workflow (branching,
 commit discipline, and local‑AI onboarding rules).
 
 ### macOS paste pipeline

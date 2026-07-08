@@ -41,6 +41,11 @@ export async function getEntries(opts?: {
   });
 }
 
+/** Full entry payload (including full-resolution image data) for Quick Look. */
+export async function getEntry(id: number): Promise<ClipboardEntry | null> {
+  return invoke("get_entry", { id });
+}
+
 export async function getOverlayTagCounts(opts?: {
   collection_id?: number | null;
   pinned_only?: boolean;

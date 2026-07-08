@@ -66,6 +66,25 @@ pub fn apply_hidden_auxiliary_webview(window: &tauri::WebviewWindow) {
     }
 }
 
+/// For regular (non-floating) windows like Settings: relocate to whichever Space the user is
+/// currently on when the window is made key, instead of forcing macOS to switch *away* from a
+/// fullscreen Space to reveal the window on its own Space. Unlike `CanJoinAllSpaces`, this does
+/// **not** pin the window to every Space — after the move it behaves like a normal single-Space
+/// window again, so it stays put if the user later switches to a different screen/Space.
+/// `CanJoinAllSpaces` and `MoveToActiveSpace` are mutually exclusive (Apple docs); do not combine.
+#[cfg(target_os = "macos")]
+pub fn apply_move_to_active_space_behavior(window: &tauri::WebviewWindow) {
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+
+    let Ok(raw) = window.ns_window() else {
+        return;
+    };
+    unsafe {
+        let ns_window = &*raw.cast::<NSWindow>();
+        ns_window.setCollectionBehavior(NSWindowCollectionBehavior::MoveToActiveSpace);
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub fn apply_fullscreen_auxiliary_webview(window: &tauri::WebviewWindow) {
     use objc2_app_kit::NSWindow;

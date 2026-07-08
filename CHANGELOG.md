@@ -5,6 +5,17 @@ All notable changes to Copyosity are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - [Unreleased]
+
+### Added
+
+- **Quick Look preview** — press `Space` or `⌘Y` on a selected overlay card to open a larger, scrollable preview (full text or image with dimensions/OCR); same shortcuts or `Esc` close it; `←/→`/`↑/↓` keep browsing while it's open. `⌘Y` works from the search field (unlike `Space`, which still types a space there). `↓` (or `→` on the horizontal board) from search blurs the field and selects the first visible card. Trackpad scroll on the **horizontal** board syncs selection to the leading visible card (vertical: use `↑`/`↓` after scrolling). **Mouse:** hover the type chip (PNG / Text) for an eye overlay, or right-click the card → **Preview** (Alfred-style contextual action). Card click still copies. `Space` no longer pastes (use `↵`, double-click, or the Paste button). Images load at full resolution (not the small list thumbnail) and animated GIFs now play; images with recognised text get an **Image / Recognised text** toggle instead of a cramped combined view.
+
+### Fixed
+
+- **Vertical board** — arrow-down keyboard browsing no longer loops back to the top instead of loading the full list; removed a per-card `backdrop-filter` and an always-running spinner animation that made the vertical board laggy; cards no longer render blank on reopening the overlay (stale WKWebView compositing layer forced to repaint).
+- **Settings window** no longer forces a macOS Space switch when opened from the tray while another app owns a fullscreen Space, and no longer follows you to other screens/Spaces afterward — it relocates once, then stays put like a normal window.
+
 ## [0.6.1] - 2026-07-05
 
 ### Added

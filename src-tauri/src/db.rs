@@ -2156,6 +2156,23 @@ mod tests {
     }
 
     #[test]
+    fn get_entries_omits_image_data_but_keeps_thumb() {
+        let db = test_db();
+        let entry = make_image_entry("img_hash_list", "PNG");
+        let (id, _) = db.insert_entry(&entry).unwrap();
+
+        let list = db
+            .get_entries(10, 0, None, false, None, None, None, None)
+            .unwrap();
+        let found = list.iter().find(|e| e.id == id).unwrap();
+        assert!(found.image_data.is_none());
+        assert!(found.image_thumb.is_some());
+
+        let full = db.get_entry_by_id(id).unwrap().unwrap();
+        assert!(full.image_data.is_some());
+    }
+
+    #[test]
     fn image_format_round_trips_on_insert_and_fetch() {
         let db = test_db();
         let entry = make_image_entry("img_hash_1", "PNG");

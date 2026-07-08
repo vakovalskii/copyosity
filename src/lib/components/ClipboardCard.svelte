@@ -9,7 +9,19 @@
     formatCardTagLabel,
   } from "$lib/card-tag-label";
   import { cardDisplayTags } from "$lib/overlay-filters";
-  import { imageOcrPreviewText, resolveImageFooterMetaParts, resolveImageFormatBadge } from "$lib/image-meta";
+  import {
+    imageDataUrl,
+    imageOcrPreviewText,
+    resolveImageFooterMetaParts,
+    resolveImageFormatBadge,
+  } from "$lib/image-meta";
+  import CardTypeBadge from "$lib/components/CardTypeBadge.svelte";
+  import { detectTextKind, usesMonoPreview } from "$lib/text-kind";
+  import {
+    notifyCardContextMenuClosed,
+    notifyCardContextMenuOpened,
+    OVERLAY_CLOSE_CARD_CONTEXT_MENUS,
+  } from "$lib/overlay-card-context-menu";
 
   const {
     entry,
@@ -18,6 +30,7 @@
     onpinned,
     onretagged,
     onselect,
+    onpreview,
     retagAvailable = false,
     aiTaggingEnabled = false,
     compactVertical = false,
@@ -28,6 +41,7 @@
     onpinned?: () => void;
     onretagged?: (tags: string[]) => void;
     onselect?: () => void;
+    onpreview?: () => void;
     retagAvailable?: boolean;
     aiTaggingEnabled?: boolean;
     compactVertical?: boolean;
@@ -51,43 +65,12 @@
     return new Date(dateStr).toLocaleDateString();
   }
 
-  /** GIF thumbs are stored as raw GIF bytes; PNG/JPEG thumbs use image/png. */
-  function imageThumbSrc(b64: string): string {
-    const mime = b64.startsWith("R0lGOD") ? "image/gif" : "image/png";
-    return `data:${mime};base64,${b64}`;
-  }
-
-  function detectTextKind(text: string | null): string {
-    if (!text) return "Text";
-
-    const sample = text.trim();
-    const lower = sample.toLowerCase();
-
-    if (/^(https?:\/\/|www\.)/.test(lower)) return "URL";
-    if (sample.length < 10000 && ((sample.startsWith("{") && sample.endsWith("}")) || (sample.startsWith("[") && sample.endsWith("]")))) {
-      try {
-        JSON.parse(sample);
-        return "JSON";
-      } catch {
-        // fall through
-      }
-    }
-    if (/^#!\/.*\b(bash|sh|zsh)\b/.test(lower)) return "Shell";
-    if (/^(\$|#)\s+\S+/.test(sample) || /\b(curl|git|npm|pnpm|yarn|brew|ssh|docker|kubectl)\b/.test(lower)) {
-      return "Bash";
-    }
-    if (/(^|\n)\s*(select|insert|update|delete|create table|alter table)\b/.test(lower)) return "SQL";
-    if (/<[a-z][\s\S]*>/.test(lower)) return "HTML";
-    if (/\b(function|const|let|import|export|=>)\b/.test(lower)) return "JavaScript";
-    if (/\b(interface|type\s+\w+|implements|enum)\b/.test(lower)) return "TypeScript";
-    if (/(^|\n)\s*(def |class |import |from .+ import )/.test(sample)) return "Python";
-    if (/(^|\n)\s*(fn |let mut |impl |pub struct )/.test(sample)) return "Rust";
-
-    return "Text";
-  }
-
   let copied = $state(false);
   let pasting = $state(false);
+  /** Measured natural width of the type pill, in px. Lets the collapse clip-path use a
+   * pure-px calc() instead of mixing % with px, which keeps the transition on the
+   * compositor thread (no per-frame layout query) and avoids WebKit stutter. */
+  let typeWrapWidth = $state(0);
   let copyAnnouncement = $state("");
   let clickTimer: ReturnType<typeof setTimeout> | undefined;
   let copiedResetTimer: ReturnType<typeof setTimeout> | undefined;
@@ -113,6 +96,33 @@
         copyAnnouncementTimer = undefined;
       }
     };
+  });
+
+  $effect(() => {
+    if (!contextMenuOpen) return;
+
+    const armTimer = window.setTimeout(() => {
+      contextMenuDismissArmed = true;
+    }, 0);
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (!contextMenuDismissArmed) return;
+      const target = e.target;
+      if (target instanceof Node && contextMenuEl?.contains(target)) return;
+      closeContextMenu();
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.clearTimeout(armTimer);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  });
+
+  $effect(() => {
+    const onCloseAll = () => closeContextMenu();
+    window.addEventListener(OVERLAY_CLOSE_CARD_CONTEXT_MENUS, onCloseAll);
+    return () => window.removeEventListener(OVERLAY_CLOSE_CARD_CONTEXT_MENUS, onCloseAll);
   });
 
   function clearCopyAnnouncementSoon() {
@@ -180,6 +190,63 @@
       if (!mounted) return;
       copied = false;
     }, COPY_FEEDBACK_MS);
+  }
+
+  function cancelPendingCardClick() {
+    if (clickTimer !== undefined) {
+      clearTimeout(clickTimer);
+      clickTimer = undefined;
+    }
+  }
+
+  function activatePreview() {
+    cancelPendingCardClick();
+    onselect?.();
+    onpreview?.();
+  }
+
+  function handlePreviewClick(e: MouseEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    activatePreview();
+    releaseMouseActionFocus();
+  }
+
+  function openContextMenu(clientX: number, clientY: number) {
+    if (!canPreview) return;
+    onselect?.();
+    contextMenuPos = { x: clientX, y: clientY };
+    if (!contextMenuOpen) notifyCardContextMenuOpened();
+    contextMenuOpen = true;
+    contextMenuDismissArmed = false;
+  }
+
+  function closeContextMenu() {
+    if (!contextMenuOpen) return;
+    contextMenuOpen = false;
+    contextMenuDismissArmed = false;
+    notifyCardContextMenuClosed();
+  }
+
+  function handleCardContextMenu(e: MouseEvent) {
+    if (!canPreview) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openContextMenu(e.clientX, e.clientY);
+  }
+
+  /** WKWebView/Tauri often skips `contextmenu`; secondary click still sends pointerdown. */
+  function handleCardPointerDown(e: PointerEvent) {
+    if (e.button !== 2 || !canPreview) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openContextMenu(e.clientX, e.clientY);
+  }
+
+  function handleContextMenuPreview() {
+    closeContextMenu();
+    activatePreview();
+    releaseMouseActionFocus();
   }
 
   function handleClick() {
@@ -256,8 +323,9 @@
     }
   }
 
+  /** Space is reserved for Quick Look (handled at the overlay level); only Enter pastes here. */
   function handleCardKeydown(e: KeyboardEvent) {
-    if (e.key !== "Enter" && e.key !== " ") return;
+    if (e.key !== "Enter") return;
     e.preventDefault();
     void handleDoubleClick();
   }
@@ -295,23 +363,8 @@
     }
   }
 
-  const MONO_TEXT_KINDS = new Set([
-    "JSON",
-    "Shell",
-    "Bash",
-    "SQL",
-    "HTML",
-    "JavaScript",
-    "TypeScript",
-    "Python",
-    "Rust",
-  ]);
-
   const textKind = $derived(detectTextKind(entry.text_content));
-  const usesMonoPreview = $derived(MONO_TEXT_KINDS.has(textKind));
-  const typeLabel = $derived(
-    entry.content_type === "text" ? "Text" : entry.content_type === "image" ? "Image" : "File",
-  );
+  const isMonoPreview = $derived(usesMonoPreview(textKind));
   const charLabel = $derived(entry.char_count ? `${entry.char_count.toLocaleString()} characters` : "");
   const tags = $derived(cardDisplayTags(entry, aiTaggingEnabled));
   const visibleTags = $derived(tags.slice(0, 3));
@@ -341,32 +394,66 @@
       ? resolveImageFooterMetaParts(entry.image_width, entry.image_height, entry.image_byte_size)
       : null,
   );
+  const canPreview = $derived(entry.content_type === "text" || entry.content_type === "image");
 
   let cardEl = $state<HTMLDivElement | null>(null);
+  let contextMenuEl = $state<HTMLDivElement | null>(null);
+  let contextMenuOpen = $state(false);
+  let contextMenuPos = $state({ x: 0, y: 0 });
+  let contextMenuDismissArmed = $state(false);
 </script>
 
-<div
-  class="card"
-  bind:this={cardEl}
-  class:selected
-  class:pinned={entry.is_pinned}
-  class:copied
-  class:compact-vertical={compactVertical}
-  onclick={handleClick}
-  onkeydown={handleCardKeydown}
-  role="button"
-  tabindex={selected ? 0 : -1}
->
+<div class="clipboard-card-host">
+  <div
+    class="card"
+    bind:this={cardEl}
+    class:selected
+    class:pinned={entry.is_pinned}
+    class:copied
+    class:compact-vertical={compactVertical}
+    onclick={handleClick}
+    onpointerdown={handleCardPointerDown}
+    oncontextmenu={handleCardContextMenu}
+    onkeydown={handleCardKeydown}
+    role="button"
+    tabindex={selected ? 0 : -1}
+  >
   <span class="sr-only" role="status" aria-live="polite">{copyAnnouncement}</span>
   <div class="card-header">
     <div class="card-type">
-      <span class="type-label" class:type-label--image={entry.content_type === "image"}>
-        {#if entry.content_type === "image" && imageFormatBadge}
-          <span class="format-badge">{imageFormatBadge}</span>
-        {:else}
-          <span>{typeLabel}</span>
-        {/if}
-      </span>
+      {#if canPreview}
+        <span
+          class="type-label-wrap"
+          style={typeWrapWidth ? `--type-wrap-w: ${typeWrapWidth}px` : undefined}
+          bind:clientWidth={typeWrapWidth}
+        >
+          <CardTypeBadge contentType={entry.content_type} formatLabel={imageFormatBadge} />
+          <button
+            class="type-preview-btn app-btn"
+            type="button"
+            aria-label="Open preview"
+            title="Preview · Space or ⌘Y"
+            onclick={handlePreviewClick}
+            onmousedown={(e) => e.stopPropagation()}
+          >
+            <svg
+              class="type-preview-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+        </span>
+      {:else}
+        <CardTypeBadge contentType={entry.content_type} formatLabel={imageFormatBadge} />
+      {/if}
       <span class="time">{timeAgo(entry.created_at)}</span>
     </div>
     <div class="card-actions">
@@ -436,12 +523,12 @@
   <div class="card-body">
     {#if entry.content_type === "text"}
       <div class="text-preview">
-        <div class="text-content" class:mono={usesMonoPreview}>{previewText}</div>
+        <div class="text-content" class:mono={isMonoPreview}>{previewText}</div>
       </div>
     {:else if entry.content_type === "image"}
       <div class="image-preview" class:has-ocr={ocrPreview.length > 0}>
         {#if entry.image_thumb}
-          <img src={imageThumbSrc(entry.image_thumb)} alt="Copied content" loading="lazy" decoding="async" />
+          <img src={imageDataUrl(entry.image_thumb)} alt="Copied content" loading="lazy" decoding="async" />
         {:else}
           <div class="image-placeholder">Image</div>
         {/if}
@@ -498,9 +585,35 @@
       <span>Copied</span>
     </div>
   {/if}
+  </div>
+
+  {#if contextMenuOpen}
+    <div
+      bind:this={contextMenuEl}
+      class="card-context-menu"
+      role="menu"
+      aria-label="Card actions"
+      style:left="{contextMenuPos.x}px"
+      style:top="{contextMenuPos.y}px"
+    >
+      <button
+        class="card-context-item app-btn"
+        type="button"
+        role="menuitem"
+        onpointerdown={(e) => e.stopPropagation()}
+        onclick={handleContextMenuPreview}
+      >
+        Preview
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>
+  .clipboard-card-host {
+    display: contents;
+  }
+
   .card {
     position: relative;
     width: var(--card-width);
@@ -646,6 +759,7 @@
   }
 
   .card-header {
+    position: relative;
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -660,42 +774,156 @@
     gap: var(--space-segment-inset);
     min-width: 0;
     flex: 1 1 auto;
+    padding-right: 0;
   }
 
-  .type-label {
+  .type-label-wrap {
+    position: relative;
+    display: inline-flex;
+    align-self: flex-start;
+    width: fit-content;
+    vertical-align: top;
+    max-width: var(--card-type-expand-max);
+    height: var(--size-card-action-hit);
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+    clip-path: inset(0 0 0 0 round var(--radius-pill));
+    transition: clip-path var(--duration-card-type-collapse) ease-in-out;
+    will-change: clip-path;
+  }
+
+  .type-label-wrap > :global(.card-type-badge) {
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+    /* Decorative only — never intercept the eye button underneath once the
+       icon fades out and the pill collapses over it. */
+    pointer-events: none;
+  }
+
+  /* Only the icon crossfades with the eye (they share the same 40px slot).
+     The label never fades — clip-path alone crops it away, so the visible
+     sliver of text shrinks cleanly instead of also blinking out. */
+  .type-label-wrap > :global(.card-type-badge) :global(.card-type-badge-icon) {
+    opacity: 0.92;
+    transition: opacity var(--duration-card-type-collapse) ease-in-out;
+    will-change: opacity;
+  }
+
+  /* The label sits right after the icon (~26px in), well inside the 40px
+     preview slot — clip it away in lockstep with the pill so no sliver of
+     text peeks out once collapsed, regardless of where it starts. */
+  .type-label-wrap > :global(.card-type-badge) :global(.card-type-badge-label) {
+    display: inline-block;
+    clip-path: inset(0 0 0 0);
+    transition: clip-path var(--duration-card-type-collapse) ease-in-out;
+    will-change: clip-path;
+  }
+
+  .card:hover .type-label-wrap > :global(.card-type-badge) :global(.card-type-badge-icon),
+  .type-label-wrap:focus-within > :global(.card-type-badge) :global(.card-type-badge-icon),
+  :global([data-input-modality="keyboard"])
+    .card.selected:focus-within
+    .type-label-wrap
+    > :global(.card-type-badge)
+    :global(.card-type-badge-icon) {
+    opacity: 0;
+  }
+
+  .card:hover .type-label-wrap > :global(.card-type-badge) :global(.card-type-badge-label),
+  .type-label-wrap:focus-within > :global(.card-type-badge) :global(.card-type-badge-label),
+  :global([data-input-modality="keyboard"])
+    .card.selected:focus-within
+    .type-label-wrap
+    > :global(.card-type-badge)
+    :global(.card-type-badge-label) {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  .type-preview-btn {
+    position: absolute;
+    inset: 0 auto auto 0;
+    z-index: 0;
     display: inline-flex;
     align-items: center;
-    gap: var(--card-type-gap);
-    max-width: 100%;
-    width: fit-content;
-    padding: var(--card-type-pad);
-    border-radius: var(--radius-pill);
-    background: var(--surface-7);
-    font-weight: 600;
-    font-size: var(--font-size-sm);
-    letter-spacing: 0.02em;
+    justify-content: center;
+    box-sizing: border-box;
+    width: var(--card-type-preview-width);
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: inherit;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: none;
+    transition:
+      opacity var(--duration-card-type-collapse) ease-in-out,
+      background var(--duration-fast) var(--ease-interactive),
+      color var(--duration-fast) var(--ease-interactive),
+      border-color var(--duration-fast) var(--ease-interactive),
+      filter var(--duration-micro) var(--ease-interactive),
+      box-shadow var(--duration-micro) var(--ease-interactive);
+  }
+
+  .type-preview-icon {
+    display: block;
+    width: var(--icon-size-card-action);
+    height: var(--icon-size-card-action);
+    flex-shrink: 0;
+  }
+
+  .card:hover .type-label-wrap,
+  .type-label-wrap:focus-within,
+  :global([data-input-modality="keyboard"]) .card.selected:focus-within .type-label-wrap {
+    /* Pure px calc() (no %) keeps this on the compositor thread instead of
+       triggering a layout read every frame. */
+    clip-path: inset(
+      0 calc(var(--type-wrap-w, 100%) - var(--card-type-preview-width)) 0 0 round
+        var(--radius-pill)
+    );
+  }
+
+  .card:hover .type-preview-btn,
+  .type-label-wrap:focus-within .type-preview-btn,
+  :global([data-input-modality="keyboard"]) .card.selected:focus-within .type-preview-btn {
+    opacity: 1;
+    pointer-events: auto;
+    background: var(--surface-8);
+    border-color: var(--border-soft);
     color: var(--color-text-body);
   }
 
-  .type-label > span:first-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
+  .type-preview-btn:hover:not(:disabled) {
+    color: var(--color-text-bright);
+    background: var(--surface-15);
+    border-color: rgb(var(--rgb-white) / 20%);
   }
 
-  .type-label--image {
-    letter-spacing: 0.06em;
-    color: var(--color-text-label-muted);
+  .type-preview-btn:active:not(:disabled) {
+    filter: brightness(0.88);
+    background: var(--surface-12);
+    box-shadow: var(--shadow-inset-press);
+    transition-duration: var(--duration-micro);
   }
 
-  .format-badge {
-    flex-shrink: 0;
-    font-weight: 600;
-    font-size: var(--font-size-sm);
-    letter-spacing: 0.06em;
-    color: inherit;
-    text-transform: uppercase;
+  .type-preview-btn:hover:active:not(:disabled) {
+    filter: brightness(0.85);
+    background: var(--surface-10);
+  }
+
+  .type-preview-btn:focus-visible,
+  :global([data-input-modality="keyboard"]) .type-preview-btn:focus:not(:disabled) {
+    outline: none;
+    box-shadow: var(--ring-accent-input);
+  }
+
+  .type-preview-btn:focus-visible:active:not(:disabled),
+  :global([data-input-modality="keyboard"]) .type-preview-btn:focus:active:not(:disabled) {
+    box-shadow: var(--shadow-inset-press), var(--ring-accent-input);
   }
 
   .time {
@@ -704,11 +932,21 @@
   }
 
   .card-actions {
+    position: absolute;
+    top: 0;
+    right: 0;
     display: flex;
     gap: var(--space-segment-inset);
     flex: 0 0 auto;
     flex-wrap: nowrap;
     align-items: center;
+    pointer-events: none;
+  }
+
+  .card:hover .card-actions,
+  .card.pinned .card-actions,
+  :global([data-input-modality="keyboard"]) .card.selected:focus-within .card-actions {
+    pointer-events: auto;
   }
 
   .card-actions .action-btn {
@@ -1071,5 +1309,40 @@
     to {
       opacity: 1;
     }
+  }
+
+  .card-context-menu {
+    position: fixed;
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    min-width: 9rem;
+    padding: 0.25rem;
+    background: var(--surface-menu);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-control);
+    box-shadow: var(--shadow-elevated);
+    pointer-events: auto;
+  }
+
+  .card-context-item {
+    justify-content: flex-start;
+    width: 100%;
+    padding: 0.4375rem 0.625rem;
+    background: transparent;
+    border: none;
+    border-radius: calc(var(--radius-control) - 2px);
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .card-context-item:hover:not(:disabled),
+  .card-context-item:focus-visible {
+    background: var(--surface-menu-hover);
+    outline: none;
   }
 </style>

@@ -1644,7 +1644,7 @@
               </span>
               <span class="form-checkbox-label ui-selectable-text">
                 <span class="form-pref-label">Keyboard shortcuts</span>
-                <span class="form-pref-hint">Show hint strip along the bottom of the clipboard panel.</span>
+                <span class="form-pref-hint">Show hint strips along the bottom of the clipboard panel and Quick Look preview.</span>
               </span>
             </label>
           </div>

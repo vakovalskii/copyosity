@@ -13,6 +13,15 @@ skip_in_ci: true
 pre-commit:
   parallel: true
   jobs:
+    - name: no-untracked-src
+      run: |
+        untracked=$(git ls-files --others --exclude-standard src src-tauri)
+        if [ -n "$untracked" ]; then
+          echo "Untracked source files — git add before commit:"
+          echo "$untracked"
+          exit 1
+        fi
+
     - name: js-ts
       glob:
         - "*.js"

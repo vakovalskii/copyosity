@@ -6,10 +6,27 @@ import {
   formatImageDimensions,
   formatImageFooterLabel,
   formatImageFormatBadge,
+  imageDataUrl,
   imageOcrPreviewText,
   resolveImageFooterMetaParts,
   resolveImageFormatBadge,
 } from "./image-meta.ts";
+
+describe("imageDataUrl", () => {
+  it("uses GIF mime for animated payloads", () => {
+    assert.equal(
+      imageDataUrl("R0lGODlhAQABAIAAAAAAAP"),
+      "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP",
+    );
+  });
+
+  it("uses PNG mime for non-GIF payloads", () => {
+    assert.equal(
+      imageDataUrl("iVBORw0KGgoAAAANSUhEUg"),
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg",
+    );
+  });
+});
 
 describe("imageOcrPreviewText", () => {
   it("returns trimmed OCR for image entries", () => {

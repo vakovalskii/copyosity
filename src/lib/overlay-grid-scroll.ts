@@ -118,6 +118,75 @@ export function isCardOffScreenVertical(
   return card.bottom <= visibleTop || card.top >= visibleBottom;
 }
 
+export type VerticalCardViewportPosition = "inside" | "above" | "below";
+
+/** Where a card sits relative to the padded vertical viewport. */
+export function verticalCardViewportPosition(
+  viewport: VerticalRect,
+  padTop: number,
+  padBottom: number,
+  card: VerticalRect,
+  slack = 2,
+): VerticalCardViewportPosition {
+  const visibleTop = viewport.top + padTop;
+  const visibleBottom = viewport.bottom - padBottom;
+  if (card.bottom <= visibleTop - slack) return "above";
+  if (card.top >= visibleBottom + slack) return "below";
+  return "inside";
+}
+
+/**
+ * Pixels to add to `container.scrollTop` so the card fits the padded vertical viewport.
+ * Returns 0 when the card already intersects the padded area (no scroll needed).
+ */
+export function verticalScrollDeltaToSnapCard(
+  viewport: VerticalRect,
+  padTop: number,
+  padBottom: number,
+  card: VerticalRect,
+  slack = 2,
+): number {
+  const visibleTop = viewport.top + padTop;
+  const visibleBottom = viewport.bottom - padBottom;
+
+  if (card.top >= visibleTop - slack && card.bottom <= visibleBottom + slack) {
+    return 0;
+  }
+
+  if (card.bottom > visibleBottom + slack) {
+    return card.bottom - visibleBottom;
+  }
+  if (card.top < visibleTop - slack) {
+    return card.top - visibleTop;
+  }
+  return 0;
+}
+
+/**
+ * Vertical keyboard ↑/↓ scroll: align the row top when moving down and the row bottom when
+ * moving up so selection advances through the full list instead of sticking on the bottom edge.
+ */
+export function verticalScrollDeltaForKeyboardNav(
+  viewport: VerticalRect,
+  padTop: number,
+  padBottom: number,
+  card: VerticalRect,
+  direction: "up" | "down",
+  slack = 2,
+): number {
+  const visibleTop = viewport.top + padTop;
+  const visibleBottom = viewport.bottom - padBottom;
+
+  if (card.top >= visibleTop - slack && card.bottom <= visibleBottom + slack) {
+    return 0;
+  }
+
+  if (direction === "down") {
+    return card.top - visibleTop;
+  }
+  return card.bottom - visibleBottom;
+}
+
 /**
  * Whether keyboard ←/→ should re-anchor to the leading visible card before moving.
  *
@@ -125,15 +194,26 @@ export function isCardOffScreenVertical(
  * Do NOT anchor when leading ≠ selected but the selected card is still visible — that breaks
  * rapid key repeat (each keypress would reset to leading, then +1, so the index sticks).
  * Trackpad scroll uses `selectLeadingVisibleCard` separately; arrows advance `selectedIndex` only.
+ *
+ * Vertical board: do not anchor to the topmost visible row when moving ↓ past a row below the
+ * fold (or ↑ past a row above) — that snaps selection back to the first visible card and loops.
  */
 export function shouldAnchorKeyboardSelectionBeforeArrow(options: {
   selectedIndex: number;
   selectedOffScreen: boolean;
   wrapperMissing?: boolean;
+  boardVertical?: boolean;
+  direction?: "left" | "right";
+  verticalPosition?: VerticalCardViewportPosition;
 }): boolean {
   if (options.selectedIndex < 0) return true;
   if (options.wrapperMissing) return true;
-  return options.selectedOffScreen;
+  if (!options.selectedOffScreen) return false;
+  if (options.boardVertical && options.verticalPosition && options.direction) {
+    if (options.direction === "right" && options.verticalPosition === "below") return false;
+    if (options.direction === "left" && options.verticalPosition === "above") return false;
+  }
+  return true;
 }
 
 /** One keyboard arrow step: optional anchor to leading, then move (mirrors +page arrow handler). */
@@ -144,6 +224,8 @@ export function nextIndexAfterKeyboardArrow(options: {
   selectedOffScreen: boolean;
   entryCount: number;
   wrapperMissing?: boolean;
+  boardVertical?: boolean;
+  verticalPosition?: VerticalCardViewportPosition;
 }): number {
   let index = options.selectedIndex;
   if (
@@ -151,6 +233,9 @@ export function nextIndexAfterKeyboardArrow(options: {
       selectedIndex: index,
       selectedOffScreen: options.selectedOffScreen,
       wrapperMissing: options.wrapperMissing,
+      boardVertical: options.boardVertical,
+      direction: options.direction,
+      verticalPosition: options.verticalPosition,
     }) &&
     options.leadingIndex >= 0
   ) {

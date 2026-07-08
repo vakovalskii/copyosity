@@ -20,6 +20,7 @@
     invokeErrorMessage,
   } from "$lib/exclusion-label";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
+  import QuickLookPanel from "$lib/components/QuickLookPanel.svelte";
   import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
   import CollectionTabs from "$lib/components/CollectionTabs.svelte";
@@ -34,7 +35,15 @@
     type TagChip,
   } from "$lib/overlay-filters";
   import { createOverlayEntriesStore } from "$lib/overlay-entries.svelte";
-  import { overlayEscapeAction } from "$lib/overlay-search";
+  import { closeAllCardContextMenus, isCardContextMenuOpen } from "$lib/overlay-card-context-menu";
+  import {
+    canToggleQuickLook,
+    resolveOverlayEscapeAction,
+    shouldBlockOverlayActionWhileQuickLookOpen,
+    shouldExitSearchToGrid,
+    shouldHandleQuickLookCmdY,
+    shouldHandleQuickLookSpace,
+  } from "$lib/quick-look-keyboard";
   import { setInputModality } from "$lib/input-modality";
   import { overlayHeightForLayout } from "$lib/overlay-layout";
   import {
@@ -55,6 +64,9 @@
     isCardOffScreen,
     isCardOffScreenVertical,
     nextIndexAfterKeyboardArrow,
+    verticalCardViewportPosition,
+    verticalScrollDeltaForKeyboardNav,
+    verticalScrollDeltaToSnapCard,
   } from "$lib/overlay-grid-scroll";
   import {
     handleScrollEndBrowseSync,
@@ -67,6 +79,8 @@
 
   const overlayShortcutHints: KeyboardHint[] = [
     { prefix: "Click", action: "copy" },
+    { keys: "Space", action: "preview" },
+    { keys: "⌘Y", action: "preview" },
     { keys: "↵", action: "paste" },
     { prefix: "Double-click", action: "paste" },
     { keys: ["←", "→"], action: "browse" },
@@ -75,6 +89,8 @@
 
   const overlayVerticalShortcutHints: KeyboardHint[] = [
     { prefix: "Click", action: "copy" },
+    { keys: "Space", action: "preview" },
+    { keys: "⌘Y", action: "preview" },
     { keys: "↵", action: "paste" },
     { prefix: "2× click", action: "paste" },
     { keys: ["↑", "↓"], action: "browse" },
@@ -88,6 +104,8 @@
     boardVertical ? overlayVerticalShortcutHints : overlayShortcutHints,
   );
   let selectedIndex = $state(-1);
+  let quickLookOpen = $state(false);
+  let quickLookReturnFocus: HTMLElement | null = null;
   let gridEl: HTMLDivElement | undefined = $state();
   let appEl: HTMLDivElement | undefined = $state();
   let visible = $state(false);
@@ -188,6 +206,13 @@
 
   const filteredEntries = $derived(overlay.entries);
 
+  /** Quick Look always mirrors the current selection — arrow keys refresh it while open. */
+  const quickLookEntry = $derived(
+    quickLookOpen && selectedIndex >= 0 && selectedIndex < filteredEntries.length
+      ? filteredEntries[selectedIndex]
+      : null,
+  );
+
   $effect(() => {
     if (selectedIndex < 0) return;
     if (selectedIndex < filteredEntries.length) return;
@@ -197,6 +222,10 @@
 
   $effect(() => {
     if (overlay.displayListPending) selectedIndex = -1;
+  });
+
+  $effect(() => {
+    if (quickLookOpen && !quickLookEntry) closeQuickLook();
   });
 
   $effect(() => {
@@ -222,6 +251,72 @@
     } finally {
       activating = false;
     }
+  }
+
+  function openQuickLook() {
+    if (quickLookOpen) return;
+    closeAllCardContextMenus();
+    quickLookReturnFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    quickLookOpen = true;
+  }
+
+  function closeQuickLook() {
+    if (!quickLookOpen) return;
+    quickLookOpen = false;
+    const focusEl = quickLookReturnFocus;
+    quickLookReturnFocus = null;
+    if (focusEl?.isConnected) {
+      requestAnimationFrame(() => focusEl.focus({ preventScroll: true }));
+    } else {
+      scrollToSelected();
+    }
+  }
+
+  function toggleQuickLook() {
+    if (quickLookOpen) {
+      closeQuickLook();
+    } else {
+      openQuickLook();
+    }
+  }
+
+  function handleQuickLookShortcut(e: KeyboardEvent): boolean {
+    const toggleCtx = {
+      displayListPending: overlay.displayListPending,
+      displayFetchFailed: overlay.displayFetchFailed,
+      selectedIndex,
+      entryCount: filteredEntries.length,
+    };
+    if (!canToggleQuickLook(toggleCtx)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleQuickLook();
+    return true;
+  }
+
+  /** Blur search and anchor selection on the first visible card (↓ or → from search). */
+  function tryExitSearchToGrid(e: KeyboardEvent): boolean {
+    if (
+      !shouldExitSearchToGrid(e.key, { metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey }, {
+        boardVertical,
+        searchFocused: searchBar?.isFocused() ?? false,
+      })
+    ) {
+      return false;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    searchBar?.blur();
+    if (overlay.displayListPending || overlay.displayFetchFailed) return true;
+    if (filteredEntries.length === 0) return true;
+
+    const leading = leadingVisibleCardIndex();
+    selectedIndex = leading >= 0 ? leading : 0;
+    setInputModality("keyboard");
+    scrollToSelected({ behavior: "auto", keyboardScroll: true });
+    return true;
   }
 
   function emptyStateCopy(): { title: string; hint?: string } {
@@ -363,6 +458,29 @@
     collections = await getCollections();
   }
 
+  /**
+   * AGENT NOTE — WKWebView-only workaround, not reproducible in Chromium/Playwright:
+   *
+   * WKWebView occasionally leaves the grid's compositing layer stale after a hide/show cycle
+   * (window moves screens, or a card's on-demand `backdrop-filter` layer — see
+   * `.type-preview-btn` in ClipboardCard.svelte — gets added/removed while hidden), painting
+   * the reopened panel blank/see-through until something forces a new layout+paint pass. A
+   * plain reflow read (`offsetHeight`) isn't always enough; briefly toggling `display` forces
+   * WebKit to rebuild the layer tree from scratch. Vertical board's higher on-screen card count
+   * makes stale layers far more likely to be visible, hence noticeable there first.
+   *
+   * This is a WebKit compositor quirk that Chromium (and therefore Playwright) does not exhibit,
+   * so this fix cannot be verified by browser automation — only by manually hiding/reshowing the
+   * real macOS overlay (`make dev` + tray toggle) and confirming vertical cards still paint.
+   * Do not remove this call believing it's dead code just because Playwright runs don't need it.
+   */
+  function forceWebviewRepaint(el: HTMLElement) {
+    const previousDisplay = el.style.display;
+    el.style.display = "none";
+    void el.offsetHeight;
+    el.style.display = previousDisplay;
+  }
+
   function finishReveal() {
     isRevealing = false;
     revealTimer = undefined;
@@ -373,6 +491,7 @@
       overlay.syncDisplayFromCatalog();
       if (reload) await overlay.loadEntries(true, false);
       scrollToSelected();
+      if (gridEl) forceWebviewRepaint(gridEl);
     })();
   }
 
@@ -404,6 +523,8 @@
     clearRevealTimer();
     isRevealing = false;
     visible = false;
+    quickLookOpen = false;
+    quickLookReturnFocus = null;
     overlay.resetDisplayStateOnHide();
     overlay.clearSearch({ reload: false });
     overlay.resetOverlayFilters();
@@ -476,10 +597,9 @@
         await afterLayoutFlush();
         if (seq !== revealSeq) return;
         if (gridEl) {
-          // Nudge layout after monitor / window moves (WKWebView can skip painting the grid).
           gridEl.scrollLeft = 0;
           gridEl.scrollTop = 0;
-          void gridEl.offsetHeight;
+          forceWebviewRepaint(gridEl);
         }
         if (hadPendingReload) {
           void overlay.loadEntries(true, false);
@@ -502,6 +622,8 @@
     isRevealing = false;
     panelMotionMode = "animate";
     visible = false;
+    quickLookOpen = false;
+    quickLookReturnFocus = null;
     overlay.resetDisplayStateOnHide();
   }
 
@@ -633,13 +755,41 @@
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        if (overlayEscapeAction(overlay.searchQuery.length > 0) === "clear-search") {
+        const escapeAction = resolveOverlayEscapeAction({
+          cardContextMenuOpen: isCardContextMenuOpen(),
+          quickLookOpen,
+          hasSearchQuery: overlay.searchQuery.length > 0,
+        });
+        if (escapeAction === "close-context-menu") {
+          closeAllCardContextMenus();
+          return;
+        }
+        if (escapeAction === "close-quick-look") {
+          closeQuickLook();
+          return;
+        }
+        if (escapeAction === "clear-search") {
           overlay.clearSearch({ immediate: true });
           searchBar?.blur();
           return;
         }
         forceHideWindow();
         return;
+      }
+
+      if (shouldBlockOverlayActionWhileQuickLookOpen(quickLookOpen)) {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") return;
+        if (
+          e.key === "/" &&
+          !searchFocused &&
+          !typingInField &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey
+        ) {
+          return;
+        }
+        if (e.key === "Enter") return;
       }
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
@@ -662,7 +812,27 @@
         return;
       }
 
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "y") {
+        if (
+          shouldHandleQuickLookCmdY(
+            e.key,
+            { altKey: e.altKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey },
+            target,
+            {
+              displayListPending: overlay.displayListPending,
+              displayFetchFailed: overlay.displayFetchFailed,
+              selectedIndex,
+              entryCount: filteredEntries.length,
+            },
+          )
+        ) {
+          handleQuickLookShortcut(e);
+        }
+        return;
+      }
+
       if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (tryExitSearchToGrid(e)) return;
         if (typingInField && !searchFocused) return;
         if (overlay.displayListPending || overlay.displayFetchFailed) return;
         e.preventDefault();
@@ -680,15 +850,46 @@
           selectedOffScreen: scrollCtx.selectedOffScreen,
           wrapperMissing: scrollCtx.wrapperMissing,
           entryCount: filteredEntries.length,
+          boardVertical,
+          verticalPosition: scrollCtx.verticalPosition,
         });
         if (direction === "right" && selectedIndex === filteredEntries.length - 1) {
           void overlay.loadNextEntryPage();
         }
-        scrollToSelected({ behavior: "auto", keyboardScroll: true });
+        scrollToSelected({
+          behavior: "auto",
+          keyboardScroll: true,
+          verticalNavDirection:
+            boardVertical && (e.key === "ArrowDown" || e.key === "ArrowUp")
+              ? e.key === "ArrowDown"
+                ? "down"
+                : "up"
+              : undefined,
+        });
+        return;
+      }
+
+      if (
+        shouldHandleQuickLookSpace(
+          e.key,
+          { altKey: e.altKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey },
+          target,
+          {
+            displayListPending: overlay.displayListPending,
+            displayFetchFailed: overlay.displayFetchFailed,
+            selectedIndex,
+            entryCount: filteredEntries.length,
+            searchFocused,
+            typingInField,
+          },
+        )
+      ) {
+        handleQuickLookShortcut(e);
         return;
       }
 
       if (e.key === "Enter") {
+        if (quickLookOpen) return;
         if (overlay.displayListPending || overlay.displayFetchFailed) return;
         if (selectedIndex < 0 || selectedIndex >= filteredEntries.length) return;
         if (typingInField && !searchFocused) return;
@@ -725,6 +926,13 @@
 
   function handleCardSelect(index: number) {
     selectedIndex = index;
+  }
+
+  function handleCardPreview(index: number) {
+    selectedIndex = index;
+    if (!quickLookOpen) {
+      openQuickLook();
+    }
   }
 
   function getGridVerticalScrollInsets(container: HTMLElement) {
@@ -768,7 +976,7 @@
   /** Select leading visible card and scroll/focus like overlay open. */
   function selectLeadingVisibleCard() {
     const index = leadingVisibleCardIndex();
-    if (index < 0) return;
+    if (index < 0 || index === selectedIndex) return;
     selectedIndex = index;
     if (boardVertical) return;
     scrollToSelected({ keyboardScroll: false, suppressLeadingSync: false });
@@ -810,7 +1018,10 @@
       void overlay.loadNextEntryPage();
     }
 
-    if (!boardVertical && shouldScheduleTrackpadLeadingSync({ keyboardBrowseUntil, now })) {
+    if (
+      !boardVertical &&
+      shouldScheduleTrackpadLeadingSync({ keyboardBrowseUntil, now })
+    ) {
       scheduleTrackpadScrollSync();
     }
   }
@@ -838,6 +1049,7 @@
     leadingIndex: number;
     selectedOffScreen: boolean;
     wrapperMissing: boolean;
+    verticalPosition?: ReturnType<typeof verticalCardViewportPosition>;
   } {
     const leadingIndex = leadingVisibleCardIndex();
     if (!gridEl || filteredEntries.length === 0) {
@@ -849,19 +1061,21 @@
     const wrapperMissing = selectedIndex >= 0 && !(wrapper instanceof HTMLElement);
 
     let selectedOffScreen = false;
+    let verticalPosition: ReturnType<typeof verticalCardViewportPosition> | undefined;
     if (wrapper instanceof HTMLElement) {
       const viewport = gridEl.getBoundingClientRect();
       const rect = wrapper.getBoundingClientRect();
       if (boardVertical) {
         const { top: padTop, bottom: padBottom } = getGridVerticalScrollInsets(gridEl);
         selectedOffScreen = isCardOffScreenVertical(viewport, padTop, padBottom, rect);
+        verticalPosition = verticalCardViewportPosition(viewport, padTop, padBottom, rect);
       } else {
         const { left: padLeft, right: padRight } = getGridScrollInsets(gridEl);
         selectedOffScreen = isCardOffScreen(viewport, padLeft, padRight, rect);
       }
     }
 
-    return { leadingIndex, selectedOffScreen, wrapperMissing };
+    return { leadingIndex, selectedOffScreen, wrapperMissing, verticalPosition };
   }
 
   function touchKeyboardBrowseScroll() {
@@ -885,8 +1099,14 @@
     };
   }
 
+  /**
+   * `.card`'s DOM parent is `ClipboardCard`'s `display: contents` host (kept so the card
+   * context menu can render as an unclipped sibling) — it has no box, so
+   * `getBoundingClientRect()` on it returns an empty rect at (0,0). Walk up to the real
+   * `.card-wrapper` (the scroll/snap unit) instead of trusting `parentElement`.
+   */
   function scrollMeasureEl(card: HTMLElement): HTMLElement {
-    const wrapper = card.parentElement;
+    const wrapper = card.closest(".card-wrapper");
     return wrapper instanceof HTMLElement ? wrapper : card;
   }
 
@@ -919,6 +1139,25 @@
     return true;
   }
 
+  function snapCardIntoPaddedViewportVertical(
+    card: HTMLElement,
+    container: HTMLElement,
+    behavior: ScrollBehavior,
+    navDirection?: "up" | "down",
+  ): boolean {
+    const measureEl = scrollMeasureEl(card);
+    const { top: padTop, bottom: padBottom } = getGridVerticalScrollInsets(container);
+    const containerRect = container.getBoundingClientRect();
+    const cardRect = measureEl.getBoundingClientRect();
+    const delta = navDirection
+      ? verticalScrollDeltaForKeyboardNav(containerRect, padTop, padBottom, cardRect, navDirection)
+      : verticalScrollDeltaToSnapCard(containerRect, padTop, padBottom, cardRect);
+    if (delta === 0) return false;
+
+    container.scrollTo({ top: container.scrollTop + delta, behavior });
+    return true;
+  }
+
   function blurDeselectedCards(cards: NodeListOf<Element>, keepIndex: number) {
     cards.forEach((c, i) => {
       if (i === keepIndex || !(c instanceof HTMLElement)) return;
@@ -935,6 +1174,8 @@
     keyboardScroll?: boolean;
     /** Blocks one leading-card sync on scrollend when the scroll moves the viewport. Default true. */
     suppressLeadingSync?: boolean;
+    /** Vertical keyboard ↑/↓ alignment (list browse). */
+    verticalNavDirection?: "up" | "down";
   };
 
   function scrollToSelected(options?: ScrollBehavior | ScrollToSelectedOptions) {
@@ -943,6 +1184,7 @@
     const behaviorOverride = resolved.behavior;
     const keyboardScroll = resolved.keyboardScroll ?? false;
     const suppressLeadingSync = resolved.suppressLeadingSync ?? true;
+    const verticalNavDirection = resolved.verticalNavDirection;
     const generation = ++scrollToSelectedGeneration;
     const targetIndex = selectedIndex;
 
@@ -958,17 +1200,24 @@
       blurDeselectedCards(cards, targetIndex);
 
       const behavior = behaviorOverride ?? scrollBehavior();
-      if (boardVertical) {
-        const measureEl = scrollMeasureEl(card);
-        measureEl.scrollIntoView({
-          behavior,
-          block: "nearest",
-          inline: "nearest",
-        });
-      } else {
-        const didScroll = snapCardIntoPaddedViewport(card, gridEl, behavior);
-        if (shouldIncrementSuppressOnProgrammaticScroll({ didScroll, suppressLeadingSync })) {
-          suppressSelectionSyncCount += 1;
+      const didScroll = boardVertical
+        ? snapCardIntoPaddedViewportVertical(card, gridEl, behavior, verticalNavDirection)
+        : snapCardIntoPaddedViewport(card, gridEl, behavior);
+      if (shouldIncrementSuppressOnProgrammaticScroll({ didScroll, suppressLeadingSync })) {
+        suppressSelectionSyncCount += 1;
+      }
+
+      if (boardVertical && keyboardScroll && gridEl) {
+        if (
+          shouldLoadNextEntryPage({
+            scrollLeft: gridEl.scrollTop,
+            clientWidth: gridEl.clientHeight,
+            scrollWidth: gridEl.scrollHeight,
+            hasMore: overlay.entriesHasMore && !overlay.displayFetchFailed,
+            loading: overlay.loadingMoreEntries || overlay.displayListPending,
+          })
+        ) {
+          void overlay.loadNextEntryPage();
         }
       }
 
@@ -1220,6 +1469,7 @@
             aiTaggingEnabled={overlay.aiTaggingEnabled}
             selected={i === selectedIndex}
             onselect={() => handleCardSelect(i)}
+            onpreview={() => handleCardPreview(i)}
             ondeleted={() => overlay.removeEntry(entry.id)}
             onpinned={() => overlay.handlePinned(entry.id, !entry.is_pinned)}
             onretagged={(tags) => overlay.applyEntryTags(entry.id, tags)}
@@ -1240,6 +1490,15 @@
     <footer class="overlay-shortcuts overlay-footer-strip" class:vertical={boardVertical}>
       <KeyboardHints hints={activeOverlayShortcutHints} />
     </footer>
+  {/if}
+  {#if quickLookEntry}
+    <QuickLookPanel
+      entry={quickLookEntry}
+      aiTaggingEnabled={overlay.aiTaggingEnabled}
+      compact={boardVertical}
+      showHints={overlay.overlayShortcutHintsEnabled}
+      onclose={closeQuickLook}
+    />
   {/if}
 </div>
 
@@ -1446,17 +1705,16 @@
   .grid-container.vertical {
     flex-direction: column;
     overflow: hidden auto;
-    scroll-snap-type: y proximity;
     align-items: stretch;
     padding-inline: var(--overlay-grid-pad-x);
     scroll-padding-inline: 0;
+    scroll-padding-block: var(--overlay-grid-pad-y);
     min-height: 0;
     scrollbar-gutter: stable;
   }
 
   .grid-container.vertical .card-wrapper {
     width: 100%;
-    scroll-snap-align: center;
   }
 
   /* Compact vertical rows (upstream max-height); preview area shrinks so footer fits. */

@@ -5,6 +5,8 @@ identifier = "main-window-commands"
 description = "Clipboard panel: entries, copy, activate, hide, open settings"
 commands.allow = [
   "get_entries",
+  # Full image_data fetch for a single entry; used by Quick Look only (list omits it).
+  "get_entry",
   "get_overlay_tag_counts",
   "delete_entry",
   "pin_entry",

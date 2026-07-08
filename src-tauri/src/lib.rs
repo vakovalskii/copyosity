@@ -649,6 +649,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_entries,
+            commands::get_entry,
             commands::get_overlay_tag_counts,
             commands::delete_entry,
             commands::pin_entry,
@@ -746,6 +747,14 @@ pub fn run() {
 }
 
 pub(crate) fn present_settings_window(window: &tauri::WebviewWindow) {
+    // `MoveToActiveSpace` (not `CanJoinAllSpaces` — that's for the always-floating overlay/palette
+    // panels, see macos_window.rs) — without it, focusing Settings while another app (e.g. a
+    // fullscreen IDE) owns the active Space forces macOS to switch the user off that Space to
+    // reveal the window. This relocates Settings to wherever the user currently is *once*, then
+    // leaves it a normal single-Space window again, so it does not keep following the user to
+    // other screens/Spaces afterward.
+    #[cfg(target_os = "macos")]
+    macos_window::apply_move_to_active_space_behavior(window);
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
