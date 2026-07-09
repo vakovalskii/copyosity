@@ -51,3 +51,7 @@ docs/image_2026-07-02_14-00-57.png
 docs/screenshot-app.png
 # --- Local verification artifacts ---
 /outputs/
+
+# stray session artifacts at repo root
+/latest.json
+/settings-*.png
