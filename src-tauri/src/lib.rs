@@ -705,7 +705,14 @@ pub fn run() {
                 ("main", tauri::WindowEvent::Focused(false)) => {
                     overlay_dismiss::handle_focus_lost(app);
                 }
-                ("settings", tauri::WindowEvent::Destroyed) => {}
+                ("settings", tauri::WindowEvent::Destroyed) => {
+                    // Settings closed: drop back to a menu-bar-only (Accessory) app so
+                    // there is no lingering Dock icon once the window is gone.
+                    #[cfg(target_os = "macos")]
+                    {
+                        let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                    }
+                }
                 _ => {}
             },
             _ => {}
@@ -713,6 +720,15 @@ pub fn run() {
 }
 
 pub(crate) fn present_settings_window(window: &tauri::WebviewWindow) {
+    // Settings is a real, focusable window. As an Accessory (menu-bar) app it would
+    // have no Dock icon and could vanish behind other apps on focus change, so switch
+    // to Regular while it is open. Reverted to Accessory on the window's Destroyed event.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = window
+            .app_handle()
+            .set_activation_policy(tauri::ActivationPolicy::Regular);
+    }
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
@@ -1147,7 +1163,13 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                             let _ = app.emit("voice-error", e);
                         }
                     }
-                    hide_voice_overlay(&app);
+                    // hide_voice_overlay touches AppKit (NSPanel); this closure runs on a
+                    // worker thread, so hop to the main thread — calling NSPanel.hide() off
+                    // the main thread crashes the app after every transcription.
+                    let hide_app = app.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        hide_voice_overlay(&hide_app);
+                    });
                 });
             }
         }
