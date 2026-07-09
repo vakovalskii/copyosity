@@ -186,6 +186,53 @@ fn entry_content_hash(base: &str) -> String {
     base.to_owned()
 }
 
+/// Record an externally-produced text (e.g. a VoiceMod transcript) directly in
+/// history. Copyosity's own clipboard writes are marked and skipped by the
+/// monitor, so a transcript we place on the pasteboard would otherwise never be
+/// retrievable — this inserts it explicitly so it always lands in history.
+/// Returns the entry id on success.
+pub fn record_text_entry(
+    app: &AppHandle,
+    db: &Arc<Database>,
+    text: &str,
+    source_app: Option<String>,
+) -> Option<i64> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    let content_hash = entry_content_hash(&hash_bytes(text.as_bytes()));
+    let entry = ClipboardEntry {
+        id: 0,
+        content_type: "text".to_owned(),
+        text_content: Some(text.to_owned()),
+        image_data: None,
+        image_thumb: None,
+        source_app,
+        source_app_icon: None,
+        content_hash,
+        char_count: Some(text.len() as i64),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        is_pinned: false,
+        collection_id: None,
+        tags: Vec::new(),
+        ocr_text: None,
+        image_format: None,
+        image_width: None,
+        image_height: None,
+        image_byte_size: None,
+    };
+    match db.insert_entry(&entry) {
+        Ok((id, _)) => {
+            let _ = app.emit("history-changed", ());
+            Some(id)
+        }
+        Err(e) => {
+            eprintln!("[voice] failed to record transcript in history: {e}");
+            None
+        }
+    }
+}
+
 /// Content fingerprint for dedup when pasteboard changeCount bumps but payload is unchanged.
 pub fn probe_clipboard_hash(clipboard: &mut Clipboard) -> Option<String> {
     // Keep the same priority order as `try_capture_from_clipboard`.

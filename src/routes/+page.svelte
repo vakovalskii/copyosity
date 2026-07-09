@@ -19,6 +19,7 @@
     excludeFromHistoryLabel,
     invokeErrorMessage,
   } from "$lib/exclusion-label";
+  import { autoUpdateOnLaunch } from "$lib/updater";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
   import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
@@ -556,6 +557,9 @@
 
     invoke("frontend_ready");
 
+    // Background: check for updates on launch, auto-install, and notify.
+    void autoUpdateOnLaunch();
+
     let reloadTimer: ReturnType<typeof setTimeout>;
     function scheduleReload() {
       if (isRevealing || !visible) {
@@ -632,6 +636,15 @@
           searchBar?.blur();
           return;
         }
+        forceHideWindow();
+        return;
+      }
+
+      // Cmd+↑ hides the overlay (matches the native global monitor for when the
+      // panel is not the key window).
+      if (e.metaKey && e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
         forceHideWindow();
         return;
       }

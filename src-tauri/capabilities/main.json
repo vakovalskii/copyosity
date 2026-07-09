@@ -5,6 +5,8 @@
   "windows": ["main"],
   "permissions": [
     "core:event:default",
-    "main-window-commands"
+    "main-window-commands",
+    "updater:default",
+    "notification:default"
   ]
 }

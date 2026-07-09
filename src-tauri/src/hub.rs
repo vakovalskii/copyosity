@@ -118,6 +118,17 @@ struct TagResponse {
     tags: Vec<String>,
 }
 
+/// Qwen3 soft-switch to disable chain-of-thought ("no reasoning"). Appended to
+/// the system prompt for Qwen models where snappy, non-thinking output is wanted
+/// (voice polish, tagging). Harmless plain text for non-Qwen models.
+fn no_think_suffix(model: &str) -> &'static str {
+    if model.trim().to_lowercase().starts_with("qwen") {
+        "\n\n/no_think"
+    } else {
+        ""
+    }
+}
+
 const TAG_SYSTEM_PROMPT: &str = "You classify clipboard text. Return strict JSON only in the shape {\"tags\":[\"tag1\",\"tag2\"]}. Use 2 to 5 short lowercase tags. Prefer practical tags like bash, ssh, docker, sql, json, url, ai, meeting, credentials, error, python, rust, javascript, html, api. If the text is just an opaque token, otp, code, short id, password, or random identifier with no semantic meaning, return {\"tags\":[]}. Do not explain.";
 
 /// Tag clipboard text via the hub chat API. Returns `None` on any failure so the
@@ -141,7 +152,7 @@ pub fn tag_text(base_url: &str, token: &str, model: &str, text: &str) -> Option<
         messages: vec![
             ChatMessage {
                 role: "system",
-                content: TAG_SYSTEM_PROMPT.to_string(),
+                content: format!("{}{}", TAG_SYSTEM_PROMPT, no_think_suffix(model)),
             },
             ChatMessage {
                 role: "user",
@@ -502,13 +513,17 @@ pub fn polish_text(
 
     let has_selected = selected_text.map(|s| !s.trim().is_empty()).unwrap_or(false);
     let has_screenshot = screenshot_b64.map(|s| !s.is_empty()).unwrap_or(false);
-    let system = build_polish_prompt(
-        app_kind,
-        dictionary,
-        custom_prompt,
-        translate_lang,
-        has_selected,
-        has_screenshot,
+    let system = format!(
+        "{}{}",
+        build_polish_prompt(
+            app_kind,
+            dictionary,
+            custom_prompt,
+            translate_lang,
+            has_selected,
+            has_screenshot,
+        ),
+        no_think_suffix(model)
     );
 
     let mut user_text = String::new();

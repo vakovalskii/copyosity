@@ -47,7 +47,8 @@ mod imp {
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
     use objc2_app_kit::{
-        NSEvent, NSEventMask, NSWindow, NSWorkspaceActiveSpaceDidChangeNotification,
+        NSEvent, NSEventMask, NSEventModifierFlags, NSWindow,
+        NSWorkspaceActiveSpaceDidChangeNotification,
     };
     use objc2_foundation::{NSNotification, NSNotificationCenter, NSPoint, NSRect};
     use tauri::{AppHandle, Manager};
@@ -64,6 +65,44 @@ mod imp {
     static MOUSE_MONITOR_PTR: AtomicPtr<AnyObject> = AtomicPtr::new(ptr::null_mut());
     static MOUSE_MONITOR_ACTIVE: AtomicBool = AtomicBool::new(false);
     static SPACE_GUARD_INSTALLED: AtomicBool = AtomicBool::new(false);
+    static CMD_UP_GUARD_INSTALLED: AtomicBool = AtomicBool::new(false);
+
+    /// macOS virtual key code for the Up arrow.
+    const KEY_CODE_UP_ARROW: u16 = 126;
+
+    /// Install a persistent global key monitor: pressing Cmd+↑ while the overlay
+    /// is visible hides it. Global monitors observe events sent to *other* apps
+    /// (when the panel is not key); the frontend handles Cmd+↑ when it is key.
+    /// The event is not consumed, so Cmd+↑ still does its normal thing.
+    pub fn install_cmd_up_dismiss(app: AppHandle) {
+        if CMD_UP_GUARD_INSTALLED.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let block = RcBlock::new(move |event: NonNull<NSEvent>| {
+            let event = unsafe { event.as_ref() };
+            if event.keyCode() != KEY_CODE_UP_ARROW {
+                return;
+            }
+            if !event
+                .modifierFlags()
+                .contains(NSEventModifierFlags::Command)
+            {
+                return;
+            }
+            if main_panel_visible(&app) {
+                animated_hide_panel(&app);
+            }
+        });
+        if let Some(monitor) =
+            NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block)
+        {
+            // Intentionally leaked for app lifetime.
+            std::mem::forget(monitor);
+        } else {
+            eprintln!("[overlay] Cmd+Up global key monitor unavailable (needs Accessibility)");
+        }
+        std::mem::forget(block);
+    }
 
     pub fn install_overlay_dismiss_guards() {
         if SPACE_GUARD_INSTALLED.swap(true, Ordering::AcqRel) {
@@ -210,6 +249,9 @@ pub use imp::*;
 
 #[cfg(not(target_os = "macos"))]
 pub fn handle_focus_lost(_app: &tauri::AppHandle) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn install_cmd_up_dismiss(_app: tauri::AppHandle) {}
 
 #[cfg(test)]
 mod tests {
