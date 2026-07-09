@@ -5,6 +5,26 @@ All notable changes to Copyosity are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-07-09
+
+### Added
+
+- **Voice transcripts land in history + clipboard** — every VoiceMod transcription is recorded in clipboard history and written to the pasteboard with retries, so it's never lost even if the paste into the target app fails.
+- **Transcribing indicator** — the voice capsule now shows a spinner + "Transcribing…" while the transcript is being produced.
+- **Auto-update on launch** — Copyosity checks for updates at startup, installs them in the background, and posts a native notification (applied on next launch).
+- **Cmd+↑ hides the overlay** — press Cmd+↑ to dismiss the clipboard board (works whether or not the board has focus).
+- **Hub transcription toggle in Voice settings** — "Transcribe with NeuralDeep Hub" now sits next to the voice activation toggle.
+
+### Changed
+
+- Default hub model is now **qwen3.6-35b-a3b** with reasoning disabled (`/no_think`) for snappy voice polishing and tagging.
+- Faster board scrolling — pages are prefetched ~2 viewports ahead so fast scrolling no longer stutters at the edge.
+
+### Fixed
+
+- **Microphone entitlement** — release builds are signed with the microphone (and Apple Events) entitlements so voice recording works under the hardened runtime.
+- **Hub rate limits (429)** — a clear "raise your tariff" message (honoring `Retry-After`) instead of a bare HTTP code; voice transcription failures now surface as a native notification.
+
 ## [0.6.1] - 2026-07-05
 
 ### Added
