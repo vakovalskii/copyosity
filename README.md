@@ -1,5 +1,7 @@
 # Copyosity
 
+**Website: [vakovalskii.github.io/copyosity](https://vakovalskii.github.io/copyosity/)** · [Download the latest release](https://github.com/vakovalskii/copyosity/releases/latest)
+
 A fast, native macOS clipboard manager with on-device intelligence.
 
 Copyosity keeps a searchable history of everything you copy, reads text out of
