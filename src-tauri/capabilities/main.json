@@ -8,6 +8,7 @@
     "core:app:default",
     "main-window-commands",
     "updater:default",
-    "notification:default"
+    "notification:default",
+    "process:default"
   ]
 }
