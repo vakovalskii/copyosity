@@ -369,7 +369,9 @@ mod tests {
 
     #[test]
     fn hidden_auxiliary_level_stays_below_status_bar_menus() {
-        assert!(HIDDEN_AUXILIARY_LEVEL < FULLSCREEN_AUXILIARY_LEVEL);
+        const {
+            assert!(HIDDEN_AUXILIARY_LEVEL < FULLSCREEN_AUXILIARY_LEVEL);
+        };
         assert_eq!(HIDDEN_AUXILIARY_LEVEL, 3);
     }
 

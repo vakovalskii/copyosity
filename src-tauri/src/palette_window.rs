@@ -1,7 +1,7 @@
 //! Command palette window sizing and pure geometry helpers.
 
 pub const PALETTE_DOT_SIZE: f64 = 72.0;
-pub const PALETTE_MIN_WIDTH: f64 = 480.0;
+pub const PALETTE_MIN_WIDTH: f64 = 500.0;
 pub const PALETTE_MIN_HEIGHT: f64 = 220.0;
 pub const PALETTE_DOT_SIZE_TOLERANCE: f64 = 0.5;
 

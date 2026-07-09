@@ -52,14 +52,29 @@
   const TRANSLUCENT_KEY = "paletteTranslucent";
   let agentModel = $state<string>(localStorage.getItem(AGENT_MODEL_KEY) || "");
   let models = $state<string[]>([]);
+  let hubEnabled = $state(false);
+  let hubChatModel = $state("");
+  const MODEL_FALLBACKS = ["qwen3.6-35b-a3b", "gpt-oss-120b", "gemma-4-31b"] as const;
   // Attach a screenshot of the app that was frontmost when the palette opened.
   let attachScreenshot = $state(false);
   // Glass / transparency mode for the palette window.
   let translucent = $state(localStorage.getItem(TRANSLUCENT_KEY) === "1");
 
   function modelOptions(): string[] {
-    const base = models.length ? models : ["qwen3.6-35b-a3b", "gpt-oss-120b", "gemma-4-31b"];
+    if (!hubEnabled) return [];
+    const base = models.length ? models : [...MODEL_FALLBACKS];
     return agentModel && !base.includes(agentModel) ? [agentModel, ...base] : base;
+  }
+
+  function syncAgentModelSelection() {
+    if (!hubEnabled) return;
+    const options = modelOptions();
+    if (options.length === 0) return;
+    const preferred = hubChatModel && options.includes(hubChatModel) ? hubChatModel : options[0];
+    if (!agentModel || !options.includes(agentModel)) {
+      agentModel = preferred;
+      localStorage.setItem(AGENT_MODEL_KEY, agentModel);
+    }
   }
 
   function onModelChange(e: Event) {
@@ -75,11 +90,19 @@
   async function loadAgentModelDefaults() {
     try {
       const s = await getAppSettings();
+      hubEnabled = s.hub_enabled;
+      hubChatModel = s.hub_chat_model;
       if (!agentModel) agentModel = s.hub_chat_model;
-      models = await hubListModels(s.hub_url, s.hub_token);
+      if (s.hub_enabled) {
+        models = await hubListModels(s.hub_url, s.hub_token);
+      } else {
+        models = [];
+      }
     } catch {
-      // Offline / hub not set — modelOptions() falls back to a static list.
+      hubEnabled = false;
+      models = [];
     }
+    syncAgentModelSelection();
   }
 
   function clearHistory() {
@@ -436,15 +459,23 @@
     </button>
     {#if mode === "agent"}
       <select
-        class="model-select app-btn"
-        title="Agent model"
+        class="form-select model-select"
+        class:is-unavailable={!hubEnabled}
+        title={hubEnabled
+          ? "Agent model"
+          : "Enable NeuralDeep hub in Settings to choose a model"}
         aria-label="Agent model"
-        value={agentModel}
+        disabled={!hubEnabled}
+        value={hubEnabled ? agentModel : ""}
         onchange={onModelChange}
       >
-        {#each modelOptions() as m}
-          <option value={m}>{m}</option>
-        {/each}
+        {#if !hubEnabled}
+          <option value="">Hub disabled</option>
+        {:else}
+          {#each modelOptions() as m (m)}
+            <option value={m}>{m}</option>
+          {/each}
+        {/if}
       </select>
     {/if}
     {#if loading}<span class="run-dot" title="Agent running"></span><span class="run-label">running… {elapsed}s</span>{/if}
@@ -653,59 +684,6 @@
     background: color-mix(in oklab, var(--surface-overlay) 52%, transparent);
     backdrop-filter: blur(calc(var(--blur-palette-panel) * 1.4));
     -webkit-backdrop-filter: blur(calc(var(--blur-palette-panel) * 1.4));
-  }
-
-  .model-select {
-    max-width: 8.5rem;
-    padding: 0.15rem 0.4rem;
-    font-size: 0.72rem;
-    line-height: 1.2;
-    color: inherit;
-    background: color-mix(in oklab, var(--surface-10) 70%, transparent);
-    border: 1px solid var(--surface-10);
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .model-select:focus-visible {
-    outline: 2px solid var(--color-agent);
-    outline-offset: 1px;
-  }
-
-  .shot-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.9rem;
-    height: 1.9rem;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
-    opacity: 0.75;
-    transition: opacity var(--duration-fast, 0.12s) ease, background var(--duration-fast, 0.12s) ease;
-  }
-  .shot-btn:hover:not(:disabled) {
-    opacity: 1;
-    background: var(--surface-6);
-  }
-  .shot-btn.active {
-    opacity: 1;
-    color: var(--color-agent);
-    background: var(--surface-agent-muted);
-  }
-  .shot-btn:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-  .shot-btn-icon {
-    width: 1.05rem;
-    height: 1.05rem;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.7;
-    stroke-linecap: round;
-    stroke-linejoin: round;
   }
 
   .history-head {

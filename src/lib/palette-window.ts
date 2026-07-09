@@ -1,7 +1,7 @@
 /** Logical min-dot size — keep in sync with `palette_window::PALETTE_DOT_SIZE`. */
 export const PALETTE_DOT_SIZE = 72;
 export const PALETTE_DOT_SIZE_TOLERANCE = 0.5;
-export const PALETTE_MIN_WIDTH = 480;
+export const PALETTE_MIN_WIDTH = 500;
 export const PALETTE_MIN_HEIGHT = 220;
 
 const RESTORE_SIZE_KEY = "paletteRestoreSize";

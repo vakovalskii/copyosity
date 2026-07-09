@@ -1,3 +1,5 @@
+import { overlayEscapeAction } from "./overlay-search.ts";
+
 export type QuickLookToggleContext = {
   displayListPending: boolean;
   displayFetchFailed: boolean;
@@ -35,8 +37,8 @@ export function resolveOverlayEscapeAction(
 ): "close-context-menu" | "close-quick-look" | "clear-search" | "dismiss-overlay" {
   if (ctx.cardContextMenuOpen) return "close-context-menu";
   if (ctx.quickLookOpen) return "close-quick-look";
-  if (ctx.hasSearchQuery) return "clear-search";
-  return "dismiss-overlay";
+  const action = overlayEscapeAction(ctx.hasSearchQuery);
+  return action === "clear-search" ? "clear-search" : "dismiss-overlay";
 }
 
 export function shouldHandleQuickLookSpace(

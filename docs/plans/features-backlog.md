@@ -12,17 +12,18 @@ Not a feature spec — items with a linked `feature-*.md` keep the full design t
 
 ## Open — features
 
-- [ ] **Shortcut recorder** (voice, overlay, palette)
+- [ ] **Shortcut recorder** (voice, overlay, palette, snippets)
   - Replace text inputs with a shortcut recorder control (System Settings pattern)
   - Cover all global shortcuts:
     - **Voice transcription** — today: text field `voice_shortcut` in Settings
     - **Clipboard overlay** — today: hardcoded `⌘⇧V` / `Ctrl+Shift+V` in Rust
     - **Agent / command palette** — today: hardcoded `⌘⇧Space` / `Ctrl+Shift+Space` in Rust
+    - **Snippets / quick menu** — today: text field `quick_menu_shortcut` in Settings → Quick Menu; default `⌘⇧C` / `Ctrl+Shift+C` in Rust
   - Show symbols in the UI; persist a canonical string for Rust `parse_shortcut`
   - States: idle / recording / invalid / conflict
   - `aria-label`: “Shortcut, click to record”; `aria-live="polite"` while recording
   - Keypress commits the shortcut without requiring Enter on Save
-  - Conflict detection across voice / overlay / palette shortcuts
+  - Conflict detection across voice / overlay / palette / snippets shortcuts
   - Tray menu labels and overlay header tooltips read from the same display helper
 
 - [ ] **Voice HUD accessibility** — full screen-reader lifecycle for the recording capsule; spec: [feature-voice-hud-accessibility.md](feature-voice-hud-accessibility.md)
