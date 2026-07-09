@@ -807,6 +807,8 @@
           scrollWidth: target.scrollHeight,
           hasMore: overlay.entriesHasMore && !overlay.displayFetchFailed,
           loading: overlay.loadingMoreEntries || overlay.displayListPending,
+          // Prefetch ~2 viewports ahead so fast scrolling never outruns the loader.
+          prefetchPx: target.clientHeight * 2,
         })
       ) {
         void overlay.loadNextEntryPage();
@@ -818,6 +820,8 @@
         scrollWidth: target.scrollWidth,
         hasMore: overlay.entriesHasMore && !overlay.displayFetchFailed,
         loading: overlay.loadingMoreEntries || overlay.displayListPending,
+        // Prefetch ~2 viewports ahead so fast scrolling never outruns the loader.
+        prefetchPx: target.clientWidth * 2,
       })
     ) {
       void overlay.loadNextEntryPage();
