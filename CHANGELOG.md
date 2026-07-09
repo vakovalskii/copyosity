@@ -5,6 +5,16 @@ All notable changes to Copyosity are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-07-09
+
+### Fixed
+
+- **App version now shows in Settings → Updates** — added the `core:app` capability so `getVersion()` resolves; the pane no longer shows `Current: …`.
+
+### Changed
+
+- **Switching apps hides the overlay** — Cmd+Tab, clicking another window, or the Dock now dismisses the clipboard overlay (it's a transient picker). The panel still opens over the frontmost app without stealing focus, and Cmd+↑ still hides it.
+
 ## [0.6.2] - 2026-07-09
 
 ### Added

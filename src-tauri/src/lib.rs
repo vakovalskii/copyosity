@@ -516,6 +516,7 @@ pub fn run() {
                 );
                 overlay_dismiss::install_overlay_dismiss_guards();
                 overlay_dismiss::install_cmd_up_dismiss(app.handle().clone());
+                overlay_dismiss::install_app_switch_dismiss(app.handle().clone());
             }
 
             let tray = TrayIconBuilder::new()

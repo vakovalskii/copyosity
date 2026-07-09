@@ -1,0 +1,10 @@
+{
+  "version": "0.5.2",
+  "notes": "Auto-updates enabled. Overlay capsule, emerald theme, active-screen + vertical board.",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSMUlCc2xGemc5bmh4c1NXaUxmV1RzQ2hEU01Ga2hwQ0c4NVVQVSt1ZEJJTjFsWDZvU1J4ZmdLTXBlQ1U0RWwwN1BpTUIxb2Y0TFlUVFBROXozZG82eVRaOVJPdUZ6M1FrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyOTgzMzk1CWZpbGU6Q29weW9zaXR5LmFwcC50YXIuZ3oKc3A4VGN1TnNJeDl5N0QrU3lEcHBWMmRhdXo1SXFOUzlqTkZlYWNNY1JscFNjamFIUXdCZm9QMEF1bDhkRW0wamw1aVJNdFJKb3FEM1E1U2JZOEV4Qnc9PQo=",
+      "url": "https://github.com/vakovalskii/copyosity/releases/download/v0.5.2/Copyosity.app.tar.gz"
+    }
+  }
+}
