@@ -5,6 +5,18 @@ All notable changes to Copyosity are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] - 2026-07-09
+
+### Fixed
+
+- **App no longer quits after voice transcription** — `hide_voice_overlay()` (an AppKit `NSPanel` call) was running on a worker thread; it now hops to the main thread, so the app survives every transcription.
+- **Version shows in Settings → Updates** — the settings window was missing the `core:app` capability, so `getVersion()` failed and the pane read `Current: …`.
+- **Settings window gets a Dock icon and no longer vanishes** — while Settings is open the app switches to the `Regular` activation policy (Dock icon, stable window), reverting to `Accessory` (menu-bar-only) when it closes.
+
+### Tests
+
+- Added `docs/TESTING.md` (full pre-release functional plan) and node:test coverage for overlay search/escape, display-query keys, clear-history confirmations, and content-kind session persistence.
+
 ## [0.6.4] - 2026-07-09
 
 ### Fixed
