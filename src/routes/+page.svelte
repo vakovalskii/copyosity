@@ -19,7 +19,7 @@
     excludeFromHistoryLabel,
     invokeErrorMessage,
   } from "$lib/exclusion-label";
-  import { autoUpdateOnLaunch } from "$lib/updater";
+  import { autoUpdateOnLaunch, notify } from "$lib/updater";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
   import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
@@ -620,6 +620,11 @@
       openSettingsWindow();
     });
 
+    // Voice transcription failures (e.g. a hub 429 asking to raise the tariff).
+    const unlistenVoiceError = listen<string>("voice-error", (e) => {
+      void notify("Voice transcription failed", e.payload);
+    });
+
     const handleKeydown = (e: KeyboardEvent) => {
       if (!visible) return;
 
@@ -726,6 +731,7 @@
       unlistenHideRequest.then((fn) => fn());
       unlistenHide.then((fn) => fn());
       unlistenOpenSettings.then((fn) => fn());
+      unlistenVoiceError.then((fn) => fn());
       window.removeEventListener("keydown", handleKeydown, true);
     };
   });

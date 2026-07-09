@@ -37,10 +37,7 @@ pub fn test_connection(base_url: &str, token: &str) -> Result<usize, String> {
         .set("Authorization", &format!("Bearer {}", token.trim()))
         .set("Accept", "application/json")
         .call()
-        .map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
-            other => format!("Hub request failed: {}", other),
-        })?;
+        .map_err(format_hub_error)?;
 
     let json: serde_json::Value = response
         .into_json()
@@ -65,10 +62,7 @@ pub fn list_models(base_url: &str, token: &str) -> Result<Vec<String>, String> {
         .set("Authorization", &format!("Bearer {}", token.trim()))
         .set("Accept", "application/json")
         .call()
-        .map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
-            other => format!("Hub request failed: {}", other),
-        })?;
+        .map_err(format_hub_error)?;
     let json: serde_json::Value = response
         .into_json()
         .map_err(|e| format!("Failed to parse hub response: {}", e))?;
@@ -126,6 +120,27 @@ fn no_think_suffix(model: &str) -> &'static str {
         "\n\n/no_think"
     } else {
         ""
+    }
+}
+
+/// Turn a hub HTTP error into a user-facing message. A 429 means the user's
+/// NeuralDeep plan limit (session / week / parallel / rpm) is exhausted, so we
+/// tell them to raise their tariff rather than showing a bare status code.
+pub fn format_hub_error(e: ureq::Error) -> String {
+    match e {
+        ureq::Error::Status(429, resp) => {
+            let retry = resp
+                .header("Retry-After")
+                .and_then(|v| v.trim().parse::<u64>().ok());
+            match retry {
+                Some(secs) => format!(
+                    "NeuralDeep Hub limit reached (429). Your plan's quota is used up — raise your tariff at hub.neuraldeep.ru/app, or retry in {secs}s."
+                ),
+                None => "NeuralDeep Hub limit reached (429). Your plan's quota is used up — raise your tariff at hub.neuraldeep.ru/app.".to_string(),
+            }
+        }
+        ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
+        other => format!("Hub request failed: {}", other),
     }
 }
 
@@ -205,13 +220,7 @@ pub fn web_search(base_url: &str, token: &str, query: &str, limit: u32) -> Resul
         .set("Authorization", &format!("Bearer {}", token.trim()))
         .set("Accept", "application/json")
         .send_json(serde_json::json!({ "query": query, "limit": limit }))
-        .map_err(|e| match e {
-            ureq::Error::Status(429, _) => {
-                "Search quota exceeded (429) — try again later".to_string()
-            }
-            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
-            other => format!("Hub request failed: {}", other),
-        })?;
+        .map_err(format_hub_error)?;
 
     let json: serde_json::Value = response
         .into_json()
@@ -313,10 +322,7 @@ pub fn agent_search(
         .set("Authorization", &format!("Bearer {}", token.trim()))
         .set("Accept", "application/json")
         .send_json(request)
-        .map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
-            other => format!("Hub request failed: {}", other),
-        })?;
+        .map_err(format_hub_error)?;
 
     let chat: ChatResponse = response
         .into_json()
@@ -564,10 +570,7 @@ pub fn polish_text(
         .set("Authorization", &format!("Bearer {}", token.trim()))
         .set("Accept", "application/json")
         .send_json(body)
-        .map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
-            other => format!("Hub request failed: {}", other),
-        })?;
+        .map_err(format_hub_error)?;
 
     let json: serde_json::Value = response
         .into_json()

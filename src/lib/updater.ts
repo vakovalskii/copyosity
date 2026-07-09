@@ -15,7 +15,7 @@ export async function checkForUpdate(): Promise<Update | null> {
 }
 
 /** Post a native OS notification (requesting permission once if needed). */
-async function notify(title: string, body: string): Promise<void> {
+export async function notify(title: string, body: string): Promise<void> {
   try {
     let granted = await isPermissionGranted();
     if (!granted) {

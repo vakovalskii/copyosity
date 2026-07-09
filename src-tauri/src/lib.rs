@@ -1140,7 +1140,11 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                             }
                         }
                         Ok(_) => eprintln!("[voice] transcription returned empty text"),
-                        Err(e) => eprintln!("[voice] transcription ERROR: {}", e),
+                        Err(e) => {
+                            eprintln!("[voice] transcription ERROR: {}", e);
+                            // Surface to the user (e.g. a hub 429 raise-tariff hint).
+                            let _ = app.emit("voice-error", e);
+                        }
                     }
                     hide_voice_overlay(&app);
                 });

@@ -211,9 +211,14 @@ pub fn transcribe_audio(
         req = req.set("Authorization", &format!("Bearer {}", token));
     }
 
-    let response = req
-        .send_bytes(&body)
-        .map_err(|e| format!("Whisper request failed: {}", e))?;
+    let response = req.send_bytes(&body).map_err(|e| {
+        // Hub audio endpoint shares the plan quota — surface a raise-tariff hint on 429.
+        if matches!(e, ureq::Error::Status(429, _)) {
+            crate::hub::format_hub_error(e)
+        } else {
+            format!("Transcription request failed: {}", e)
+        }
+    })?;
 
     let json: serde_json::Value = response
         .into_json()
