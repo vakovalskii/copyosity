@@ -773,6 +773,35 @@ pub fn set_quick_menu_shortcut(
     Ok(stored)
 }
 
+// ---- Command/agent palette shortcut (stored under its own settings key) ----
+
+#[tauri::command]
+pub fn get_palette_shortcut(db: State<'_, Arc<Database>>) -> Result<String, String> {
+    Ok(db
+        .get_setting("palette_shortcut")
+        .map_err(|e| e.to_string())?
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| crate::DEFAULT_PALETTE_SHORTCUT.to_string()))
+}
+
+#[tauri::command]
+pub fn set_palette_shortcut(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<Database>>,
+    shortcut: String,
+) -> Result<String, String> {
+    let trimmed = shortcut.trim().to_string();
+    db.set_setting("palette_shortcut", &trimmed)
+        .map_err(|e| e.to_string())?;
+    // Re-register from the current hub state (palette hotkey is hub-gated).
+    crate::register_palette_shortcut(&app)?;
+    Ok(if trimmed.is_empty() {
+        crate::DEFAULT_PALETTE_SHORTCUT.to_string()
+    } else {
+        trimmed
+    })
+}
+
 // ---- Snippet commands ----
 
 #[tauri::command]

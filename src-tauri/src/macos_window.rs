@@ -267,6 +267,72 @@ fn center_window_on_monitor(
     )
 }
 
+/// Pure edge-snap geometry: given a window rect (x,y,w,h) and a work-area rect
+/// (ax,ay,aw,ah) in the same coordinate space, return the position snapped to any
+/// work-area edge the window is within `threshold` of. All values in physical px.
+#[cfg(any(target_os = "macos", test))]
+pub fn snapped_position(
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    ax: i32,
+    ay: i32,
+    aw: i32,
+    ah: i32,
+    threshold: i32,
+) -> (i32, i32) {
+    let right = ax + aw;
+    let bottom = ay + ah;
+    let mut nx = x;
+    let mut ny = y;
+    if (x - ax).abs() <= threshold {
+        nx = ax;
+    } else if ((x + w) - right).abs() <= threshold {
+        nx = right - w;
+    }
+    if (y - ay).abs() <= threshold {
+        ny = ay;
+    } else if ((y + h) - bottom).abs() <= threshold {
+        ny = bottom - h;
+    }
+    (nx, ny)
+}
+
+/// Snap `win` to the nearest work-area edge when it was dragged within
+/// `threshold_logical` px of one. No-op when already away from every edge.
+#[cfg(target_os = "macos")]
+pub fn snap_window_to_edges(win: &tauri::WebviewWindow, threshold_logical: f64) {
+    use tauri::PhysicalPosition;
+
+    let Some(monitor) = monitor_for_window(win) else {
+        return;
+    };
+    let Ok(pos) = win.outer_position() else {
+        return;
+    };
+    let Ok(size) = win.outer_size() else {
+        return;
+    };
+    let scale = monitor.scale_factor();
+    let threshold = (threshold_logical * scale).round() as i32;
+    let wa = monitor.work_area();
+    let (nx, ny) = snapped_position(
+        pos.x,
+        pos.y,
+        size.width as i32,
+        size.height as i32,
+        wa.position.x,
+        wa.position.y,
+        wa.size.width as i32,
+        wa.size.height as i32,
+        threshold,
+    );
+    if nx != pos.x || ny != pos.y {
+        let _ = win.set_position(PhysicalPosition::new(nx, ny));
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub fn palette_is_dot_mode(app: &tauri::AppHandle) -> Result<bool, String> {
     use tauri::Manager;
@@ -303,9 +369,43 @@ mod tests {
 
     #[test]
     fn hidden_auxiliary_level_stays_below_status_bar_menus() {
-        const {
-            assert!(HIDDEN_AUXILIARY_LEVEL < FULLSCREEN_AUXILIARY_LEVEL);
-        }
+        assert!(HIDDEN_AUXILIARY_LEVEL < FULLSCREEN_AUXILIARY_LEVEL);
         assert_eq!(HIDDEN_AUXILIARY_LEVEL, 3);
+    }
+
+    #[test]
+    fn snap_pulls_to_left_and_top_edges_within_threshold() {
+        // window near the top-left of a 1440x900 work area at (0,0)
+        assert_eq!(
+            snapped_position(10, 8, 400, 300, 0, 0, 1440, 900, 24),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn snap_pulls_to_right_and_bottom_edges() {
+        // right edge: x+w = 1420+400 = 1820, work right = 1440 → too far, no snap on x
+        // put it 10px shy of the right/bottom edges instead
+        assert_eq!(
+            snapped_position(1030, 590, 400, 300, 0, 0, 1440, 900, 24),
+            (1040, 600)
+        );
+    }
+
+    #[test]
+    fn snap_leaves_centered_window_untouched() {
+        assert_eq!(
+            snapped_position(500, 300, 400, 300, 0, 0, 1440, 900, 24),
+            (500, 300)
+        );
+    }
+
+    #[test]
+    fn snap_respects_non_zero_work_area_origin() {
+        // work area starts at (0,25) (menu bar); a window 5px below snaps to y=25
+        assert_eq!(
+            snapped_position(500, 29, 400, 300, 0, 25, 1440, 875, 24),
+            (500, 25)
+        );
     }
 }

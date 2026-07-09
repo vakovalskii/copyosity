@@ -3,444 +3,1034 @@
      macrostructure: keystroke-led hero → signature-shortcut band → asymmetric capability rows → bento → download
      pre-emit critique: P5 H5 E4 S5 R4 V5 -->
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Copyosity — a fast, native macOS clipboard manager with on-device intelligence</title>
-<meta name="description" content="Searchable clipboard history, on-device image OCR, voice-to-text, and a command palette — from a floating panel you summon with a hotkey. Signed &amp; notarized for Apple Silicon and Intel.">
-<meta property="og:title" content="Copyosity">
-<meta property="og:description" content="A fast, native macOS clipboard manager with on-device intelligence.">
-<meta property="og:type" content="website">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-  :root {
-    /* palette — ink base, teal accent, violet co-anchor */
-    --bg:        oklch(0.158 0.016 264);
-    --bg-2:      oklch(0.196 0.018 264);
-    --bg-3:      oklch(0.238 0.021 264);
-    --line:      oklch(0.42 0.02 264 / 0.34);
-    --line-soft: oklch(0.42 0.02 264 / 0.18);
-    --text:      oklch(0.962 0.008 264);
-    --muted:     oklch(0.760 0.014 264);
-    --faint:     oklch(0.605 0.016 264);
-    --accent:    oklch(0.812 0.132 196);
-    --accent-ink:oklch(0.24 0.06 210);
-    --violet:    oklch(0.700 0.150 288);
-    --focus:     oklch(0.86 0.11 200);
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copyosity — a fast, native macOS clipboard manager with on-device intelligence</title>
+    <meta
+      name="description"
+      content="Searchable clipboard history, on-device image OCR, voice-to-text, and a command palette — from a floating panel you summon with a hotkey. Signed &amp; notarized for Apple Silicon and Intel."
+    />
+    <meta property="og:title" content="Copyosity" />
+    <meta
+      property="og:description"
+      content="A fast, native macOS clipboard manager with on-device intelligence."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        /* palette — ink base, teal accent, violet co-anchor */
+        --bg: oklch(0.158 0.016 264);
+        --bg-2: oklch(0.196 0.018 264);
+        --bg-3: oklch(0.238 0.021 264);
+        --line: oklch(0.42 0.02 264 / 0.34);
+        --line-soft: oklch(0.42 0.02 264 / 0.18);
+        --text: oklch(0.962 0.008 264);
+        --muted: oklch(0.76 0.014 264);
+        --faint: oklch(0.605 0.016 264);
+        --accent: oklch(0.812 0.132 196);
+        --accent-ink: oklch(0.24 0.06 210);
+        --violet: oklch(0.7 0.15 288);
+        --focus: oklch(0.86 0.11 200);
 
-    --font-display: "Space Grotesk", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --font-text: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
-    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
+        --font-display:
+          "Space Grotesk", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --font-text:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+        --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
 
-    --maxw: 1120px;
-    --pad: clamp(1.15rem, 4vw, 3rem);
-    --radius: 16px;
-    --radius-sm: 10px;
-  }
+        --maxw: 1120px;
+        --pad: clamp(1.15rem, 4vw, 3rem);
+        --radius: 16px;
+        --radius-sm: 10px;
+      }
 
-  * { box-sizing: border-box; }
-  html, body { overflow-x: clip; }
-  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        overflow-x: clip;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+        scroll-behavior: smooth;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
 
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-text);
-    font-size: 17px;
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
-  }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font-text);
+        font-size: 17px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
 
-  ::selection { background: oklch(0.812 0.132 196 / 0.28); }
+      ::selection {
+        background: oklch(0.812 0.132 196 / 0.28);
+      }
 
-  a { color: inherit; }
+      a {
+        color: inherit;
+      }
 
-  h1, h2, h3 {
-    font-family: var(--font-display);
-    font-style: normal;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    line-height: 1.06;
-    overflow-wrap: anywhere;
-    min-width: 0;
-    margin: 0;
-  }
+      h1,
+      h2,
+      h3 {
+        font-family: var(--font-display);
+        font-style: normal;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        line-height: 1.06;
+        overflow-wrap: anywhere;
+        min-width: 0;
+        margin: 0;
+      }
 
-  .wrap { width: 100%; max-width: var(--maxw); margin-inline: auto; padding-inline: var(--pad); }
+      .wrap {
+        width: 100%;
+        max-width: var(--maxw);
+        margin-inline: auto;
+        padding-inline: var(--pad);
+      }
 
-  .eyebrow {
-    font-family: var(--font-mono);
-    font-size: 0.74rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--accent);
-    margin: 0 0 1.1rem;
-  }
+      .eyebrow {
+        font-family: var(--font-mono);
+        font-size: 0.74rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0 0 1.1rem;
+      }
 
-  /* buttons */
-  .btn {
-    display: inline-flex; align-items: center; gap: 0.55rem;
-    padding: 0.72rem 1.15rem;
-    border-radius: 999px;
-    font-weight: 600; font-size: 0.98rem;
-    text-decoration: none;
-    border: 1px solid transparent;
-    transition: transform .14s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease;
-    white-space: nowrap;
-  }
-  .btn svg { flex: none; }
-  .btn-primary {
-    background: linear-gradient(180deg, oklch(0.86 0.12 198), oklch(0.79 0.13 202));
-    color: var(--accent-ink);
-    box-shadow: 0 1px 0 oklch(0.98 0.02 200 / 0.4) inset, 0 8px 24px oklch(0.7 0.13 200 / 0.22);
-  }
-  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 1px 0 oklch(0.98 0.02 200 / 0.4) inset, 0 12px 30px oklch(0.7 0.13 200 / 0.32); }
-  .btn-ghost {
-    background: var(--bg-2);
-    color: var(--text);
-    border-color: var(--line);
-  }
-  .btn-ghost:hover { transform: translateY(-1px); border-color: oklch(0.55 0.03 264 / 0.6); background: var(--bg-3); }
-  .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+      /* buttons */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.72rem 1.15rem;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 0.98rem;
+        text-decoration: none;
+        border: 1px solid transparent;
+        transition:
+          transform 0.14s ease,
+          background 0.18s ease,
+          border-color 0.18s ease,
+          box-shadow 0.18s ease;
+        white-space: nowrap;
+      }
+      .btn svg {
+        flex: none;
+      }
+      .btn-primary {
+        background: linear-gradient(180deg, oklch(0.86 0.12 198), oklch(0.79 0.13 202));
+        color: var(--accent-ink);
+        box-shadow:
+          0 1px 0 oklch(0.98 0.02 200 / 0.4) inset,
+          0 8px 24px oklch(0.7 0.13 200 / 0.22);
+      }
+      .btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow:
+          0 1px 0 oklch(0.98 0.02 200 / 0.4) inset,
+          0 12px 30px oklch(0.7 0.13 200 / 0.32);
+      }
+      .btn-ghost {
+        background: var(--bg-2);
+        color: var(--text);
+        border-color: var(--line);
+      }
+      .btn-ghost:hover {
+        transform: translateY(-1px);
+        border-color: oklch(0.55 0.03 264 / 0.6);
+        background: var(--bg-3);
+      }
+      .btn:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 3px;
+      }
 
-  /* ── top bar ── */
-  .topbar {
-    position: sticky; top: 0; z-index: 40;
-    backdrop-filter: blur(14px) saturate(1.4);
-    background: oklch(0.158 0.016 264 / 0.72);
-    border-bottom: 1px solid var(--line-soft);
-  }
-  .topbar .row { display: flex; align-items: center; gap: 1rem; height: 60px; }
-  .brand { display: flex; align-items: center; gap: 0.6rem; font-family: var(--font-display); font-weight: 700; letter-spacing: -0.02em; font-size: 1.12rem; text-decoration: none; }
-  .brand .dot { width: 12px; height: 12px; border-radius: 4px; background: linear-gradient(135deg, var(--accent), var(--violet)); box-shadow: 0 0 14px oklch(0.8 0.13 220 / 0.6); }
-  .ver { font-family: var(--font-mono); font-size: 0.72rem; color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 0.12rem 0.5rem; }
-  .topbar .spacer { flex: 1; }
-  .topbar nav { display: flex; align-items: center; gap: 0.4rem; }
-  .navlink { text-decoration: none; color: var(--muted); font-size: 0.92rem; padding: 0.4rem 0.7rem; border-radius: 8px; white-space: nowrap; }
-  .navlink:hover { color: var(--text); background: var(--bg-2); }
-  @media (max-width: 620px) { .navlink.hide-sm { display: none; } }
+      /* ── top bar ── */
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        backdrop-filter: blur(14px) saturate(1.4);
+        background: oklch(0.158 0.016 264 / 0.72);
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .topbar .row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        height: 60px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        font-family: var(--font-display);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        font-size: 1.12rem;
+        text-decoration: none;
+      }
+      .brand .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 4px;
+        background: linear-gradient(135deg, var(--accent), var(--violet));
+        box-shadow: 0 0 14px oklch(0.8 0.13 220 / 0.6);
+      }
+      .ver {
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        color: var(--faint);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 0.12rem 0.5rem;
+      }
+      .topbar .spacer {
+        flex: 1;
+      }
+      .topbar nav {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .navlink {
+        text-decoration: none;
+        color: var(--muted);
+        font-size: 0.92rem;
+        padding: 0.4rem 0.7rem;
+        border-radius: 8px;
+        white-space: nowrap;
+      }
+      .navlink:hover {
+        color: var(--text);
+        background: var(--bg-2);
+      }
+      @media (max-width: 620px) {
+        .navlink.hide-sm {
+          display: none;
+        }
+      }
 
-  /* ── hero ── */
-  .hero { position: relative; padding-top: clamp(3.5rem, 9vw, 6.5rem); padding-bottom: clamp(2rem, 5vw, 3rem); overflow: clip; }
-  .hero::before {
-    content: ""; position: absolute; inset: -20% -10% auto -10%; height: 640px; z-index: 0;
-    background:
-      radial-gradient(60% 60% at 22% 8%, oklch(0.5 0.16 220 / 0.30), transparent 70%),
-      radial-gradient(55% 55% at 82% 0%, oklch(0.5 0.17 292 / 0.24), transparent 70%);
-    filter: blur(6px); pointer-events: none;
-  }
-  .hero .wrap { position: relative; z-index: 1; }
-  .hero h1 { font-size: clamp(2.5rem, 7vw, 4.6rem); font-weight: 700; max-width: 16ch; }
-  .hero h1 .grad { background: linear-gradient(100deg, var(--accent), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .hero p.lede { font-size: clamp(1.05rem, 2.3vw, 1.3rem); color: var(--muted); max-width: 56ch; margin: 1.4rem 0 0; }
-  .cta-row { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 2rem; }
-  .meta-line { margin-top: 1.1rem; color: var(--faint); font-size: 0.86rem; display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; }
-  .meta-line b { color: var(--muted); font-weight: 600; }
+      /* ── hero ── */
+      .hero {
+        position: relative;
+        padding-top: clamp(3.5rem, 9vw, 6.5rem);
+        padding-bottom: clamp(2rem, 5vw, 3rem);
+        overflow: clip;
+      }
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: -20% -10% auto -10%;
+        height: 640px;
+        z-index: 0;
+        background:
+          radial-gradient(60% 60% at 22% 8%, oklch(0.5 0.16 220 / 0.3), transparent 70%),
+          radial-gradient(55% 55% at 82% 0%, oklch(0.5 0.17 292 / 0.24), transparent 70%);
+        filter: blur(6px);
+        pointer-events: none;
+      }
+      .hero .wrap {
+        position: relative;
+        z-index: 1;
+      }
+      .hero h1 {
+        font-size: clamp(2.5rem, 7vw, 4.6rem);
+        font-weight: 700;
+        max-width: 16ch;
+      }
+      .hero h1 .grad {
+        background: linear-gradient(100deg, var(--accent), var(--violet));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .hero p.lede {
+        font-size: clamp(1.05rem, 2.3vw, 1.3rem);
+        color: var(--muted);
+        max-width: 56ch;
+        margin: 1.4rem 0 0;
+      }
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 2rem;
+      }
+      .meta-line {
+        margin-top: 1.1rem;
+        color: var(--faint);
+        font-size: 0.86rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1.1rem;
+      }
+      .meta-line b {
+        color: var(--muted);
+        font-weight: 600;
+      }
 
-  figure { margin: 0; }
-  .shot {
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--bg-2);
-    overflow: hidden;
-    box-shadow: 0 30px 80px oklch(0.05 0.02 264 / 0.55);
-  }
-  .shot img { display: block; width: 100%; height: auto; }
-  .hero-shot { margin-top: clamp(2.5rem, 6vw, 4rem); }
-  figcaption { color: var(--faint); font-size: 0.82rem; margin-top: 0.7rem; text-align: center; }
+      figure {
+        margin: 0;
+      }
+      .shot {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--bg-2);
+        overflow: hidden;
+        box-shadow: 0 30px 80px oklch(0.05 0.02 264 / 0.55);
+      }
+      .shot img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .hero-shot {
+        margin-top: clamp(2.5rem, 6vw, 4rem);
+      }
+      figcaption {
+        color: var(--faint);
+        font-size: 0.82rem;
+        margin-top: 0.7rem;
+        text-align: center;
+      }
 
-  /* ── shortcut band ── */
-  .band { border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); background: linear-gradient(180deg, var(--bg-2), var(--bg)); }
-  .band .wrap { padding-block: clamp(2.5rem, 6vw, 4rem); }
-  .band h2 { font-size: 0.8rem; font-family: var(--font-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); font-weight: 500; margin-bottom: 1.6rem; }
-  .keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 0.9rem 1.6rem; }
-  .keyrow { display: flex; align-items: baseline; gap: 0.85rem; padding: 0.55rem 0; border-bottom: 1px solid var(--line-soft); }
-  .keycaps { flex: none; display: inline-flex; gap: 0.28rem; }
-  kbd {
-    font-family: var(--font-mono); font-size: 0.82rem; line-height: 1;
-    color: var(--text); background: var(--bg-3);
-    border: 1px solid var(--line); border-bottom-width: 2px;
-    border-radius: 7px; padding: 0.34rem 0.5rem; min-width: 1.9rem; text-align: center;
-    box-shadow: 0 1px 0 oklch(0.1 0.02 264 / 0.5);
-  }
-  .keyrow span { color: var(--muted); font-size: 0.95rem; }
+      /* ── shortcut band ── */
+      .band {
+        border-top: 1px solid var(--line-soft);
+        border-bottom: 1px solid var(--line-soft);
+        background: linear-gradient(180deg, var(--bg-2), var(--bg));
+      }
+      .band .wrap {
+        padding-block: clamp(2.5rem, 6vw, 4rem);
+      }
+      .band h2 {
+        font-size: 0.8rem;
+        font-family: var(--font-mono);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--faint);
+        font-weight: 500;
+        margin-bottom: 1.6rem;
+      }
+      .keys {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+        gap: 0.9rem 1.6rem;
+      }
+      .keyrow {
+        display: flex;
+        align-items: baseline;
+        gap: 0.85rem;
+        padding: 0.55rem 0;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .keycaps {
+        flex: none;
+        display: inline-flex;
+        gap: 0.28rem;
+      }
+      kbd {
+        font-family: var(--font-mono);
+        font-size: 0.82rem;
+        line-height: 1;
+        color: var(--text);
+        background: var(--bg-3);
+        border: 1px solid var(--line);
+        border-bottom-width: 2px;
+        border-radius: 7px;
+        padding: 0.34rem 0.5rem;
+        min-width: 1.9rem;
+        text-align: center;
+        box-shadow: 0 1px 0 oklch(0.1 0.02 264 / 0.5);
+      }
+      .keyrow span {
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
 
-  /* ── section scaffolding ── */
-  section { position: relative; }
-  .section-pad { padding-block: clamp(3.5rem, 9vw, 6rem); }
-  .sec-head { max-width: 62ch; margin-bottom: clamp(2rem, 5vw, 3.2rem); }
-  .sec-head h2 { font-size: clamp(1.8rem, 4.2vw, 2.9rem); font-weight: 600; }
-  .sec-head p { color: var(--muted); margin: 1rem 0 0; font-size: 1.06rem; }
+      /* ── section scaffolding ── */
+      section {
+        position: relative;
+      }
+      .section-pad {
+        padding-block: clamp(3.5rem, 9vw, 6rem);
+      }
+      .sec-head {
+        max-width: 62ch;
+        margin-bottom: clamp(2rem, 5vw, 3.2rem);
+      }
+      .sec-head h2 {
+        font-size: clamp(1.8rem, 4.2vw, 2.9rem);
+        font-weight: 600;
+      }
+      .sec-head p {
+        color: var(--muted);
+        margin: 1rem 0 0;
+        font-size: 1.06rem;
+      }
 
-  /* ── capability rows (asymmetric, alternating) ── */
-  .cap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: clamp(1.6rem, 4vw, 3.4rem); align-items: center; }
-  .cap + .cap { margin-top: clamp(3rem, 7vw, 5rem); }
-  .cap.flip .cap-text { order: 2; }
-  .cap-text .tag { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
-  .cap-text h3 { font-size: clamp(1.4rem, 3vw, 2rem); margin: 0.7rem 0 0.9rem; font-weight: 600; }
-  .cap-text p { color: var(--muted); margin: 0 0 0.9rem; }
-  .cap-text ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.5rem; }
-  .cap-text li { position: relative; padding-left: 1.5rem; color: var(--muted); font-size: 0.96rem; }
-  .cap-text li::before { content: ""; position: absolute; left: 0; top: 0.62em; width: 7px; height: 7px; border-radius: 2px; background: linear-gradient(135deg, var(--accent), var(--violet)); }
-  @media (max-width: 780px) {
-    .cap { grid-template-columns: minmax(0, 1fr); }
-    .cap.flip .cap-text { order: 0; }
-  }
+      /* ── capability rows (asymmetric, alternating) ── */
+      .cap {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+        gap: clamp(1.6rem, 4vw, 3.4rem);
+        align-items: center;
+      }
+      .cap + .cap {
+        margin-top: clamp(3rem, 7vw, 5rem);
+      }
+      .cap.flip .cap-text {
+        order: 2;
+      }
+      .cap-text .tag {
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .cap-text h3 {
+        font-size: clamp(1.4rem, 3vw, 2rem);
+        margin: 0.7rem 0 0.9rem;
+        font-weight: 600;
+      }
+      .cap-text p {
+        color: var(--muted);
+        margin: 0 0 0.9rem;
+      }
+      .cap-text ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 0.5rem;
+      }
+      .cap-text li {
+        position: relative;
+        padding-left: 1.5rem;
+        color: var(--muted);
+        font-size: 0.96rem;
+      }
+      .cap-text li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0.62em;
+        width: 7px;
+        height: 7px;
+        border-radius: 2px;
+        background: linear-gradient(135deg, var(--accent), var(--violet));
+      }
+      @media (max-width: 780px) {
+        .cap {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .cap.flip .cap-text {
+          order: 0;
+        }
+      }
 
-  /* ── bento grid ── */
-  .bento { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
-  @media (max-width: 860px) { .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  @media (max-width: 520px) { .bento { grid-template-columns: minmax(0, 1fr); } }
-  .card {
-    background: var(--bg-2); border: 1px solid var(--line-soft); border-radius: var(--radius-sm);
-    padding: 1.4rem 1.3rem; transition: border-color .18s ease, transform .18s ease, background .18s ease;
-  }
-  .card:hover { border-color: var(--line); transform: translateY(-2px); background: var(--bg-3); }
-  .card .ic { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: oklch(0.5 0.12 220 / 0.16); border: 1px solid oklch(0.6 0.12 220 / 0.28); margin-bottom: 0.9rem; color: var(--accent); }
-  .card h3 { font-size: 1.06rem; font-weight: 600; margin-bottom: 0.4rem; }
-  .card p { margin: 0; color: var(--muted); font-size: 0.93rem; line-height: 1.55; }
+      /* ── bento grid ── */
+      .bento {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1rem;
+      }
+      @media (max-width: 860px) {
+        .bento {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 520px) {
+        .bento {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      .card {
+        background: var(--bg-2);
+        border: 1px solid var(--line-soft);
+        border-radius: var(--radius-sm);
+        padding: 1.4rem 1.3rem;
+        transition:
+          border-color 0.18s ease,
+          transform 0.18s ease,
+          background 0.18s ease;
+      }
+      .card:hover {
+        border-color: var(--line);
+        transform: translateY(-2px);
+        background: var(--bg-3);
+      }
+      .card .ic {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+        background: oklch(0.5 0.12 220 / 0.16);
+        border: 1px solid oklch(0.6 0.12 220 / 0.28);
+        margin-bottom: 0.9rem;
+        color: var(--accent);
+      }
+      .card h3 {
+        font-size: 1.06rem;
+        font-weight: 600;
+        margin-bottom: 0.4rem;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.93rem;
+        line-height: 1.55;
+      }
 
-  /* ── privacy strip ── */
-  .privacy { border-top: 1px solid var(--line-soft); background: linear-gradient(180deg, var(--bg), var(--bg-2)); }
-  .privacy .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 1.6rem 2rem; }
-  .privacy .pt strong { display: block; font-family: var(--font-display); font-size: 1.05rem; margin-bottom: 0.35rem; }
-  .privacy .pt p { margin: 0; color: var(--muted); font-size: 0.94rem; }
+      /* ── privacy strip ── */
+      .privacy {
+        border-top: 1px solid var(--line-soft);
+        background: linear-gradient(180deg, var(--bg), var(--bg-2));
+      }
+      .privacy .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+        gap: 1.6rem 2rem;
+      }
+      .privacy .pt strong {
+        display: block;
+        font-family: var(--font-display);
+        font-size: 1.05rem;
+        margin-bottom: 0.35rem;
+      }
+      .privacy .pt p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.94rem;
+      }
 
-  /* ── download CTA ── */
-  .download { text-align: center; }
-  .download .box {
-    border: 1px solid var(--line); border-radius: var(--radius);
-    background: radial-gradient(120% 140% at 50% 0%, oklch(0.26 0.05 240 / 0.6), var(--bg-2));
-    padding: clamp(2.4rem, 6vw, 4rem) var(--pad);
-  }
-  .download h2 { font-size: clamp(1.9rem, 4.5vw, 3rem); }
-  .download p { color: var(--muted); max-width: 48ch; margin: 1rem auto 0; }
-  .download .cta-row { justify-content: center; }
-  .arch-note { margin-top: 1.4rem; font-family: var(--font-mono); font-size: 0.8rem; color: var(--faint); }
+      /* ── download CTA ── */
+      .download {
+        text-align: center;
+      }
+      .download .box {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: radial-gradient(120% 140% at 50% 0%, oklch(0.26 0.05 240 / 0.6), var(--bg-2));
+        padding: clamp(2.4rem, 6vw, 4rem) var(--pad);
+      }
+      .download h2 {
+        font-size: clamp(1.9rem, 4.5vw, 3rem);
+      }
+      .download p {
+        color: var(--muted);
+        max-width: 48ch;
+        margin: 1rem auto 0;
+      }
+      .download .cta-row {
+        justify-content: center;
+      }
+      .arch-note {
+        margin-top: 1.4rem;
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        color: var(--faint);
+      }
 
-  /* ── footer ── */
-  footer { border-top: 1px solid var(--line-soft); padding-block: 2.6rem; color: var(--faint); }
-  footer .row { display: flex; flex-wrap: wrap; gap: 1.2rem; align-items: center; justify-content: space-between; }
-  footer a { color: var(--muted); text-decoration: none; font-size: 0.92rem; }
-  footer a:hover { color: var(--text); }
-  footer .links { display: flex; flex-wrap: wrap; gap: 0.4rem 1.3rem; }
-  .stack { font-family: var(--font-mono); font-size: 0.78rem; color: var(--faint); }
-</style>
-</head>
-<body>
-
-<header class="topbar">
-  <div class="wrap row">
-    <a class="brand" href="#top"><span class="dot" aria-hidden="true"></span>Copyosity</a>
-    <span class="ver">v0.6.3</span>
-    <span class="spacer"></span>
-    <nav>
-      <a class="navlink hide-sm" href="#features">Features</a>
-      <a class="navlink hide-sm" href="#shortcuts">Shortcuts</a>
-      <a class="navlink" href="https://github.com/vakovalskii/copyosity">GitHub</a>
-      <a class="navlink" href="https://github.com/vakovalskii/copyosity/releases/latest">Download</a>
-    </nav>
-  </div>
-</header>
-
-<main id="top">
-
-  <!-- HERO -->
-  <section class="hero">
-    <div class="wrap">
-      <p class="eyebrow">macOS clipboard · on-device intelligence</p>
-      <h1>Everything you copy, <span class="grad">one keystroke away.</span></h1>
-      <p class="lede">
-        Copyosity keeps a searchable history of everything you copy, reads text out of copied
-        images on-device, turns your voice into ready-to-paste text, and exposes a command
-        palette — all from a floating panel you summon with a hotkey. It lives in the menu bar
-        and stays out of your way until you need it.
-      </p>
-      <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/vakovalskii/copyosity/releases/latest">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.42 2.2-1.12 3.02-.84.98-2.22 1.74-3.36 1.65-.14-1.1.44-2.28 1.09-3.02.75-.86 2.06-1.5 3.09-1.55.03.3.3.6.3.9zM20.9 17.02c-.56 1.3-1.24 2.58-2.28 3.66-.86.9-1.5 1.53-2.75 1.53-1.2 0-1.6-.79-3.02-.79-1.44 0-1.86.77-3 .82-1.18.05-2.08-.98-2.95-1.87-1.78-1.83-3.15-5.16-1.32-7.42.9-1.12 2.5-1.83 4.02-1.83 1.24 0 2.02.82 3.05.82.99 0 1.6-.83 3.03-.83 1.36 0 2.8.74 3.83 2.02-3.37 1.85-2.82 6.66.36 7.88z"/></svg>
-          Download for macOS
-        </a>
-        <a class="btn btn-ghost" href="https://github.com/vakovalskii/copyosity">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58v-2.03c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.5.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.34-5.47-5.95 0-1.31.47-2.39 1.24-3.23-.13-.31-.54-1.53.11-3.19 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 016 0c2.29-1.55 3.3-1.23 3.3-1.23.65 1.66.24 2.88.12 3.19.77.84 1.23 1.92 1.23 3.23 0 4.62-2.8 5.64-5.48 5.94.43.37.81 1.1.81 2.22v3.29c0 .32.22.7.83.58A12.01 12.01 0 0024 12.5C24 5.87 18.63.5 12 .5z"/></svg>
-          View on GitHub
-        </a>
+      /* ── footer ── */
+      footer {
+        border-top: 1px solid var(--line-soft);
+        padding-block: 2.6rem;
+        color: var(--faint);
+      }
+      footer .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.2rem;
+        align-items: center;
+        justify-content: space-between;
+      }
+      footer a {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.92rem;
+      }
+      footer a:hover {
+        color: var(--text);
+      }
+      footer .links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1.3rem;
+      }
+      .stack {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        color: var(--faint);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="wrap row">
+        <a class="brand" href="#top"><span class="dot" aria-hidden="true"></span>Copyosity</a>
+        <span class="ver">v0.7.0</span>
+        <span class="spacer"></span>
+        <nav>
+          <a class="navlink hide-sm" href="#features">Features</a>
+          <a class="navlink hide-sm" href="#shortcuts">Shortcuts</a>
+          <a class="navlink" href="https://github.com/vakovalskii/copyosity">GitHub</a>
+          <a class="navlink" href="https://github.com/vakovalskii/copyosity/releases/latest"
+            >Download</a
+          >
+        </nav>
       </div>
-      <div class="meta-line">
-        <span><b>Apple Silicon</b> &amp; <b>Intel</b> · separate signed DMGs</span>
-        <span>Requires <b>macOS 12+</b></span>
-        <span>Developer&nbsp;ID signed, notarized &amp; stapled</span>
-      </div>
+    </header>
 
-      <figure class="hero-shot">
-        <div class="shot"><img src="screenshots/overlay-horizontal.png" alt="Copyosity clipboard overlay with History tab, search field, tag filters, and image cards with OCR previews" loading="eager" width="1440"></div>
-        <figcaption>The floating overlay — search, History / Starred tabs, tag and format filters, image cards with OCR.</figcaption>
-      </figure>
-    </div>
-  </section>
+    <main id="top">
+      <!-- HERO -->
+      <section class="hero">
+        <div class="wrap">
+          <p class="eyebrow">macOS clipboard · on-device intelligence</p>
+          <h1>Everything you copy, <span class="grad">one keystroke away.</span></h1>
+          <p class="lede">
+            Copyosity keeps a searchable history of everything you copy, reads text out of copied
+            images on-device, turns your voice into ready-to-paste text, and exposes a command
+            palette — all from a floating panel you summon with a hotkey. It lives in the menu bar
+            and stays out of your way until you need it.
+          </p>
+          <div class="cta-row">
+            <a
+              class="btn btn-primary"
+              href="https://github.com/vakovalskii/copyosity/releases/latest"
+            >
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M16.365 1.43c0 1.14-.42 2.2-1.12 3.02-.84.98-2.22 1.74-3.36 1.65-.14-1.1.44-2.28 1.09-3.02.75-.86 2.06-1.5 3.09-1.55.03.3.3.6.3.9zM20.9 17.02c-.56 1.3-1.24 2.58-2.28 3.66-.86.9-1.5 1.53-2.75 1.53-1.2 0-1.6-.79-3.02-.79-1.44 0-1.86.77-3 .82-1.18.05-2.08-.98-2.95-1.87-1.78-1.83-3.15-5.16-1.32-7.42.9-1.12 2.5-1.83 4.02-1.83 1.24 0 2.02.82 3.05.82.99 0 1.6-.83 3.03-.83 1.36 0 2.8.74 3.83 2.02-3.37 1.85-2.82 6.66.36 7.88z"
+                />
+              </svg>
+              Download for macOS
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/vakovalskii/copyosity">
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58v-2.03c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.5.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.34-5.47-5.95 0-1.31.47-2.39 1.24-3.23-.13-.31-.54-1.53.11-3.19 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 016 0c2.29-1.55 3.3-1.23 3.3-1.23.65 1.66.24 2.88.12 3.19.77.84 1.23 1.92 1.23 3.23 0 4.62-2.8 5.64-5.48 5.94.43.37.81 1.1.81 2.22v3.29c0 .32.22.7.83.58A12.01 12.01 0 0024 12.5C24 5.87 18.63.5 12 .5z"
+                />
+              </svg>
+              View on GitHub
+            </a>
+          </div>
+          <div class="meta-line">
+            <span><b>Apple Silicon</b> &amp; <b>Intel</b> · separate signed DMGs</span>
+            <span>Requires <b>macOS 12+</b></span>
+            <span>Developer&nbsp;ID signed, notarized &amp; stapled</span>
+          </div>
 
-  <!-- SHORTCUT BAND -->
-  <section class="band" id="shortcuts">
-    <div class="wrap">
-      <h2>Keyboard-first, by design</h2>
-      <div class="keys">
-        <div class="keyrow"><span class="keycaps"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>V</kbd></span><span>Open / close clipboard history</span></div>
-        <div class="keyrow"><span class="keycaps"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>C</kbd></span><span>Quick menu at cursor — history + snippets</span></div>
-        <div class="keyrow"><span class="keycaps"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd></span><span>Command / agent palette</span></div>
-        <div class="keyrow"><span class="keycaps"><kbd>⌥</kbd><kbd>Space</kbd></span><span>Hold to record voice</span></div>
-        <div class="keyrow"><span class="keycaps"><kbd>⌘</kbd><kbd>F</kbd></span><span>Focus search in the overlay</span></div>
-        <div class="keyrow"><span class="keycaps"><kbd>Esc</kbd></span><span>Clear search, then hide overlay</span></div>
-      </div>
-    </div>
-  </section>
+          <figure class="hero-shot">
+            <div class="shot">
+              <img
+                src="screenshots/overlay-horizontal.png"
+                alt="Copyosity clipboard overlay with History tab, search field, tag filters, and image cards with OCR previews"
+                loading="eager"
+                width="1440"
+              />
+            </div>
+            <figcaption>
+              The floating overlay — search, History / Starred tabs, tag and format filters, image
+              cards with OCR.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
 
-  <!-- CAPABILITY ROWS -->
-  <section class="section-pad wrap" id="features">
-    <div class="sec-head">
-      <h2>A clipboard that actually reads what you copy</h2>
-      <p>Four things you reach for every day — history, a command palette, your voice, and two-click snippets — each one native, fast, and a keystroke away.</p>
-    </div>
+      <!-- SHORTCUT BAND -->
+      <section class="band" id="shortcuts">
+        <div class="wrap">
+          <h2>Keyboard-first, by design</h2>
+          <div class="keys">
+            <div class="keyrow">
+              <span class="keycaps"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>V</kbd></span
+              ><span>Open / close clipboard history</span>
+            </div>
+            <div class="keyrow">
+              <span class="keycaps"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>C</kbd></span
+              ><span>Quick menu at cursor — history + snippets</span>
+            </div>
+            <div class="keyrow">
+              <span class="keycaps"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd></span
+              ><span>Command / agent palette</span>
+            </div>
+            <div class="keyrow">
+              <span class="keycaps"><kbd>⌥</kbd><kbd>Space</kbd></span
+              ><span>Hold to record voice</span>
+            </div>
+            <div class="keyrow">
+              <span class="keycaps"><kbd>⌘</kbd><kbd>F</kbd></span
+              ><span>Focus search in the overlay</span>
+            </div>
+            <div class="keyrow">
+              <span class="keycaps"><kbd>Esc</kbd></span
+              ><span>Clear search, then hide overlay</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
-    <div class="cap">
-      <div class="cap-text">
-        <span class="tag">Clipboard history</span>
-        <h3>Search everything, including text inside images</h3>
-        <p>Every copy is captured to a local SQLite database with pinning, custom collections, and full-text search. Copied screenshots run through Apple's Vision framework on-device, so the words inside them become searchable too.</p>
-        <ul>
-          <li>History / Starred tabs and colored collection pills</li>
-          <li>Tag bar with PNG / GIF / JPG format chips and AI tags</li>
-          <li>Infinite scroll with contextual empty states</li>
-        </ul>
-      </div>
-      <figure><div class="shot"><img src="screenshots/overlay-vertical.png" alt="Copyosity overlay in vertical layout showing clipboard cards" loading="lazy" width="720"></div></figure>
-    </div>
+      <!-- CAPABILITY ROWS -->
+      <section class="section-pad wrap" id="features">
+        <div class="sec-head">
+          <h2>A clipboard that actually reads what you copy</h2>
+          <p>
+            Four things you reach for every day — history, a command palette, your voice, and
+            two-click snippets — each one native, fast, and a keystroke away.
+          </p>
+        </div>
 
-    <div class="cap flip">
-      <div class="cap-text">
-        <span class="tag">Command · agent palette</span>
-        <h3>Web search and a research agent, in place</h3>
-        <p>Summon a draggable, resizable palette with Agent and Web modes, session history, streaming progress, and markdown answers. Insert, copy, or close — then get back to what you were doing. Powered by NeuralDeep Hub when enabled.</p>
-        <ul>
-          <li>Streaming agent progress with minimize-to-dot</li>
-          <li>Voice input and Insert / Copy / Close actions</li>
-          <li>Create Notes &amp; Reminders, read Calendar via Apple Events</li>
-        </ul>
-      </div>
-      <figure><div class="shot"><img src="screenshots/command-palette-agent.png" alt="Command palette in Agent mode with a streaming research answer" loading="lazy" width="720"></div></figure>
-    </div>
+        <div class="cap">
+          <div class="cap-text">
+            <span class="tag">Clipboard history</span>
+            <h3>Search everything, including text inside images</h3>
+            <p>
+              Every copy is captured to a local SQLite database with pinning, custom collections,
+              and full-text search. Copied screenshots run through Apple's Vision framework
+              on-device, so the words inside them become searchable too.
+            </p>
+            <ul>
+              <li>History / Starred tabs and colored collection pills</li>
+              <li>Tag bar with PNG / GIF / JPG format chips and AI tags</li>
+              <li>Infinite scroll with contextual empty states</li>
+            </ul>
+          </div>
+          <figure>
+            <div class="shot">
+              <img
+                src="screenshots/overlay-vertical.png"
+                alt="Copyosity overlay in vertical layout showing clipboard cards"
+                loading="lazy"
+                width="720"
+              />
+            </div>
+          </figure>
+        </div>
 
-    <div class="cap">
-      <div class="cap-text">
-        <span class="tag">Voice to text</span>
-        <h3>Hold a key, speak, paste clean text</h3>
-        <p>Hold a global hotkey to record from any microphone. The transcription is cleaned into natural, typed-style text — punctuation, filler removed, lists formatted — and adapted to the app you're pasting into. Off by default until you switch it on.</p>
-        <ul>
-          <li>Context-aware polishing tuned to the target app</li>
-          <li>Delivered to the clipboard with retries so it always lands</li>
-          <li>A live spinner shows transcription in progress</li>
-        </ul>
-      </div>
-      <figure><div class="shot"><img src="screenshots/settings-voice.png" alt="Voice settings with transcription and AI polish options" loading="lazy" width="720"></div></figure>
-    </div>
+        <div class="cap flip">
+          <div class="cap-text">
+            <span class="tag">Command · agent palette</span>
+            <h3>Web search and a research agent, in place</h3>
+            <p>
+              Summon a draggable, resizable palette with Agent and Web modes, session history,
+              streaming progress, and markdown answers. Insert, copy, or close — then get back to
+              what you were doing. Powered by NeuralDeep Hub when enabled.
+            </p>
+            <ul>
+              <li>Streaming agent progress with minimize-to-dot</li>
+              <li>Voice input and Insert / Copy / Close actions</li>
+              <li>Create Notes &amp; Reminders, read Calendar via Apple Events</li>
+            </ul>
+          </div>
+          <figure>
+            <div class="shot">
+              <img
+                src="screenshots/command-palette-agent.png"
+                alt="Command palette in Agent mode with a streaming research answer"
+                loading="lazy"
+                width="720"
+              />
+            </div>
+          </figure>
+        </div>
 
-    <div class="cap flip">
-      <div class="cap-text">
-        <span class="tag">Quick menu &amp; snippets</span>
-        <h3>Two clicks to paste, no overlay</h3>
-        <p>A native Clipy-style pop-up appears at your cursor on <kbd>⌘⇧C</kbd>: recent history under number keys 1–9, up to 100 entries in submenus, and your saved snippets grouped by folder. Pick one and it pastes into whatever app was frontmost.</p>
-        <ul>
-          <li>Reusable templates — email, address, prompts — in folders</li>
-          <li>Configurable global hotkey; inline folder rename</li>
-          <li>Edit snippets right from Settings → Quick Menu</li>
-        </ul>
-      </div>
-      <figure><div class="shot"><img src="screenshots/settings-quick-menu.png" alt="Quick Menu settings with a configurable hotkey and a snippets editor" loading="lazy" width="720"></div></figure>
-    </div>
-  </section>
+        <div class="cap">
+          <div class="cap-text">
+            <span class="tag">Voice to text</span>
+            <h3>Hold a key, speak, paste clean text</h3>
+            <p>
+              Hold a global hotkey to record from any microphone. The transcription is cleaned into
+              natural, typed-style text — punctuation, filler removed, lists formatted — and adapted
+              to the app you're pasting into. Off by default until you switch it on.
+            </p>
+            <ul>
+              <li>Context-aware polishing tuned to the target app</li>
+              <li>Delivered to the clipboard with retries so it always lands</li>
+              <li>A live spinner shows transcription in progress</li>
+            </ul>
+          </div>
+          <figure>
+            <div class="shot">
+              <img
+                src="screenshots/settings-voice.png"
+                alt="Voice settings with transcription and AI polish options"
+                loading="lazy"
+                width="720"
+              />
+            </div>
+          </figure>
+        </div>
 
-  <!-- BENTO -->
-  <section class="section-pad wrap">
-    <div class="sec-head">
-      <h2>And the details that keep it out of your way</h2>
-    </div>
-    <div class="bento">
-      <div class="card">
-        <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
-        <h3>On-device OCR</h3>
-        <p>Text inside screenshots and photos is extracted with Apple's Vision framework. No image ever leaves your Mac for OCR.</p>
-      </div>
-      <div class="card">
-        <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg></div>
-        <h3>Image clipboard</h3>
-        <p>PNG, JPG, and animated GIF from the pasteboard or Finder, with format badges, dimensions, and file size on every card.</p>
-      </div>
-      <div class="card">
-        <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z"/></svg></div>
-        <h3>Automatic tagging</h3>
-        <p>Entries get short, practical labels via NeuralDeep Hub or local Ollama — with a manual Retag whenever you want.</p>
-      </div>
-      <div class="card">
-        <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h5"/></svg></div>
-        <h3>Local AI option</h3>
-        <p>Optional Ollama integration for fully local tagging, with in-app onboarding: install, start server, download model, test.</p>
-      </div>
-      <div class="card">
-        <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M9 7V5a3 3 0 016 0v2"/></svg></div>
-        <h3>Privacy built in</h3>
-        <p>Concealed clipboard content is ignored, app exclusions hide sensitive sources, and Copyosity's own copy/paste never pollutes history.</p>
-      </div>
-      <div class="card">
-        <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="1.6" fill="currentColor"/><circle cx="16" cy="12" r="1.6" fill="currentColor"/><circle cx="10" cy="18" r="1.6" fill="currentColor"/></svg></div>
-        <h3>Native menu-bar UI</h3>
-        <p>A transparent, non-activating NSPanel that appears over your current app without stealing focus, plus a tray icon and global shortcuts.</p>
-      </div>
-    </div>
-  </section>
+        <div class="cap flip">
+          <div class="cap-text">
+            <span class="tag">Quick menu &amp; snippets</span>
+            <h3>Two clicks to paste, no overlay</h3>
+            <p>
+              A native Clipy-style pop-up appears at your cursor on <kbd>⌘⇧C</kbd>: recent history
+              under number keys 1–9, up to 100 entries in submenus, and your saved snippets grouped
+              by folder. Pick one and it pastes into whatever app was frontmost.
+            </p>
+            <ul>
+              <li>Reusable templates — email, address, prompts — in folders</li>
+              <li>Configurable global hotkey; inline folder rename</li>
+              <li>Edit snippets right from Settings → Quick Menu</li>
+            </ul>
+          </div>
+          <figure>
+            <div class="shot">
+              <img
+                src="screenshots/settings-quick-menu.png"
+                alt="Quick Menu settings with a configurable hotkey and a snippets editor"
+                loading="lazy"
+                width="720"
+              />
+            </div>
+          </figure>
+        </div>
+      </section>
 
-  <!-- PRIVACY / TECH STRIP -->
-  <section class="privacy">
-    <div class="wrap section-pad">
-      <div class="grid">
-        <div class="pt"><strong>On-device by default</strong><p>OCR runs through Apple Vision locally. Tagging and voice can stay fully local via Ollama — nothing leaves your Mac unless you turn a hub feature on.</p></div>
-        <div class="pt"><strong>Signed &amp; notarized</strong><p>Every build is signed with a Developer ID certificate and notarized + stapled by Apple, so Gatekeeper opens it cleanly — even offline.</p></div>
-        <div class="pt"><strong>Auto-updates</strong><p>Copyosity checks GitHub Releases on launch, downloads signed updates in the background, and notifies you when a new version is ready.</p></div>
-        <div class="pt"><strong>Built native</strong><p>Tauri 2, Svelte 5, Rust, and SQLite. Small, fast, and quiet — it runs in the menu bar and waits for its hotkey.</p></div>
+      <!-- BENTO -->
+      <section class="section-pad wrap">
+        <div class="sec-head">
+          <h2>And the details that keep it out of your way</h2>
+        </div>
+        <div class="bento">
+          <div class="card">
+            <div class="ic">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="3" />
+                <path d="M8 8h8M8 12h8M8 16h5" />
+              </svg>
+            </div>
+            <h3>On-device OCR</h3>
+            <p>
+              Text inside screenshots and photos is extracted with Apple's Vision framework. No
+              image ever leaves your Mac for OCR.
+            </p>
+          </div>
+          <div class="card">
+            <div class="ic">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="3" />
+                <circle cx="9" cy="9" r="2" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
+            </div>
+            <h3>Image clipboard</h3>
+            <p>
+              PNG, JPG, and animated GIF from the pasteboard or Finder, with format badges,
+              dimensions, and file size on every card.
+            </p>
+          </div>
+          <div class="card">
+            <div class="ic">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              >
+                <path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z" />
+              </svg>
+            </div>
+            <h3>Automatic tagging</h3>
+            <p>
+              Entries get short, practical labels via NeuralDeep Hub or local Ollama — with a manual
+              Retag whenever you want.
+            </p>
+          </div>
+          <div class="card">
+            <div class="ic">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              >
+                <rect x="4" y="4" width="16" height="16" rx="3" />
+                <path d="M8 9h8M8 13h5" />
+              </svg>
+            </div>
+            <h3>Local AI option</h3>
+            <p>
+              Optional Ollama integration for fully local tagging, with in-app onboarding: install,
+              start server, download model, test.
+            </p>
+          </div>
+          <div class="card">
+            <div class="ic">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              >
+                <rect x="4" y="7" width="16" height="12" rx="2" />
+                <path d="M9 7V5a3 3 0 016 0v2" />
+              </svg>
+            </div>
+            <h3>Privacy built in</h3>
+            <p>
+              Concealed clipboard content is ignored, app exclusions hide sensitive sources, and
+              Copyosity's own copy/paste never pollutes history.
+            </p>
+          </div>
+          <div class="card">
+            <div class="ic">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              >
+                <path d="M4 6h16M4 12h16M4 18h16" />
+                <circle cx="8" cy="6" r="1.6" fill="currentColor" />
+                <circle cx="16" cy="12" r="1.6" fill="currentColor" />
+                <circle cx="10" cy="18" r="1.6" fill="currentColor" />
+              </svg>
+            </div>
+            <h3>Native menu-bar UI</h3>
+            <p>
+              A transparent, non-activating NSPanel that appears over your current app without
+              stealing focus, plus a tray icon and global shortcuts.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- PRIVACY / TECH STRIP -->
+      <section class="privacy">
+        <div class="wrap section-pad">
+          <div class="grid">
+            <div class="pt">
+              <strong>On-device by default</strong>
+              <p>
+                OCR runs through Apple Vision locally. Tagging and voice can stay fully local via
+                Ollama — nothing leaves your Mac unless you turn a hub feature on.
+              </p>
+            </div>
+            <div class="pt">
+              <strong>Signed &amp; notarized</strong>
+              <p>
+                Every build is signed with a Developer ID certificate and notarized + stapled by
+                Apple, so Gatekeeper opens it cleanly — even offline.
+              </p>
+            </div>
+            <div class="pt">
+              <strong>Auto-updates</strong>
+              <p>
+                Copyosity checks GitHub Releases on launch, downloads signed updates in the
+                background, and notifies you when a new version is ready.
+              </p>
+            </div>
+            <div class="pt">
+              <strong>Built native</strong>
+              <p>
+                Tauri 2, Svelte 5, Rust, and SQLite. Small, fast, and quiet — it runs in the menu
+                bar and waits for its hotkey.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DOWNLOAD -->
+      <section class="section-pad wrap download">
+        <div class="box">
+          <h2>Get Copyosity</h2>
+          <p>
+            Pick the DMG for your Mac's architecture from the latest release, drag Copyosity into
+            Applications, and press <kbd>⌘⇧V</kbd>.
+          </p>
+          <div class="cta-row">
+            <a
+              class="btn btn-primary"
+              href="https://github.com/vakovalskii/copyosity/releases/latest"
+              >Apple Silicon &nbsp;·&nbsp; aarch64</a
+            >
+            <a class="btn btn-ghost" href="https://github.com/vakovalskii/copyosity/releases/latest"
+              >Intel &nbsp;·&nbsp; x86_64</a
+            >
+          </div>
+          <p class="arch-note">
+            macOS 12+ · Copyosity_*_aarch64.dmg (M-series) · Copyosity_*_x86_64.dmg (Intel)
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap row">
+        <a class="brand" href="#top" style="font-size: 1rem"
+          ><span class="dot" aria-hidden="true"></span>Copyosity
+          <span class="stack" style="margin-left: 0.5rem">v0.7.0</span></a
+        >
+        <div class="links">
+          <a href="https://github.com/vakovalskii/copyosity">GitHub</a>
+          <a href="https://github.com/vakovalskii/copyosity/releases">Releases</a>
+          <a href="https://github.com/vakovalskii/copyosity/blob/main/CHANGELOG.md">Changelog</a>
+          <a href="https://github.com/vakovalskii/copyosity#readme">Docs</a>
+        </div>
+        <span class="stack">Tauri&nbsp;2 · Svelte&nbsp;5 · Rust · SQLite</span>
       </div>
-    </div>
-  </section>
-
-  <!-- DOWNLOAD -->
-  <section class="section-pad wrap download">
-    <div class="box">
-      <h2>Get Copyosity</h2>
-      <p>Pick the DMG for your Mac's architecture from the latest release, drag Copyosity into Applications, and press <kbd>⌘⇧V</kbd>.</p>
-      <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/vakovalskii/copyosity/releases/latest">Apple Silicon &nbsp;·&nbsp; aarch64</a>
-        <a class="btn btn-ghost" href="https://github.com/vakovalskii/copyosity/releases/latest">Intel &nbsp;·&nbsp; x86_64</a>
-      </div>
-      <p class="arch-note">macOS 12+ · Copyosity_*_aarch64.dmg (M-series) · Copyosity_*_x86_64.dmg (Intel)</p>
-    </div>
-  </section>
-
-</main>
-
-<footer>
-  <div class="wrap row">
-    <a class="brand" href="#top" style="font-size:1rem"><span class="dot" aria-hidden="true"></span>Copyosity <span class="stack" style="margin-left:.5rem">v0.6.3</span></a>
-    <div class="links">
-      <a href="https://github.com/vakovalskii/copyosity">GitHub</a>
-      <a href="https://github.com/vakovalskii/copyosity/releases">Releases</a>
-      <a href="https://github.com/vakovalskii/copyosity/blob/main/CHANGELOG.md">Changelog</a>
-      <a href="https://github.com/vakovalskii/copyosity#readme">Docs</a>
-    </div>
-    <span class="stack">Tauri&nbsp;2 · Svelte&nbsp;5 · Rust · SQLite</span>
-  </div>
-</footer>
-
-</body>
+    </footer>
+  </body>
 </html>

@@ -6,6 +6,8 @@
 [![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte&logoColor=white)](https://svelte.dev/)
 [![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 
+**Website: [vakovalskii.github.io/copyosity](https://vakovalskii.github.io/copyosity/)** · [Download the latest release](https://github.com/vakovalskii/copyosity/releases/latest)
+
 A fast, native macOS clipboard manager with on-device intelligence.
 
 Copyosity keeps a searchable history of everything you copy, reads text out of

@@ -91,6 +91,12 @@ static QUICK_MENU_TARGET_PID: AtomicI32 = AtomicI32::new(0);
 /// Default hotkey for the native quick menu (Clipy-style).
 pub(crate) const DEFAULT_QUICK_MENU_SHORTCUT: &str = "cmd+shift+c";
 
+/// Default hotkey for the command / agent palette.
+#[cfg(target_os = "macos")]
+pub(crate) const DEFAULT_PALETTE_SHORTCUT: &str = "cmd+shift+space";
+#[cfg(not(target_os = "macos"))]
+pub(crate) const DEFAULT_PALETTE_SHORTCUT: &str = "ctrl+shift+space";
+
 static RECORDING: std::sync::OnceLock<std::sync::Mutex<Option<whisper::RecordingSession>>> =
     std::sync::OnceLock::new();
 
@@ -137,15 +143,20 @@ fn palette_shortcut_mutex() -> &'static std::sync::Mutex<Option<Shortcut>> {
     CURRENT_PALETTE_SHORTCUT.get_or_init(|| std::sync::Mutex::new(None))
 }
 
-fn palette_shortcut() -> Shortcut {
-    #[cfg(target_os = "macos")]
-    {
-        Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space)
-    }
+/// The configured palette shortcut string (DB `palette_shortcut`, or the default).
+fn palette_shortcut_str(app: &tauri::AppHandle) -> String {
+    app.state::<std::sync::Arc<db::Database>>()
+        .get_setting("palette_shortcut")
+        .ok()
+        .flatten()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_PALETTE_SHORTCUT.to_string())
+}
+
+fn palette_shortcut(app: &tauri::AppHandle) -> Shortcut {
+    parse_shortcut(&palette_shortcut_str(app)).unwrap_or_else(|| {
+        parse_shortcut(DEFAULT_PALETTE_SHORTCUT).expect("valid default palette shortcut")
+    })
 }
 
 /// Register (or unregister) the hub agent-search shortcut for an explicit hub state.
@@ -160,7 +171,7 @@ pub fn sync_palette_shortcut_for_hub(
         return Ok(());
     }
 
-    let new_shortcut = palette_shortcut();
+    let new_shortcut = palette_shortcut(app);
 
     {
         let mut current = palette_shortcut_mutex().lock().unwrap();
@@ -719,6 +730,9 @@ pub fn run() {
             palette_voice_stop,
             palette_set_dot_mode,
             palette_is_dot_mode,
+            palette_snap_to_edges,
+            commands::get_palette_shortcut,
+            commands::set_palette_shortcut,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -757,6 +771,9 @@ pub fn run() {
 }
 
 pub(crate) fn present_settings_window(window: &tauri::WebviewWindow) {
+    // Settings is a real, focusable window. As an Accessory (menu-bar) app it would
+    // have no Dock icon and could vanish behind other apps on focus change, so switch
+    // to Regular while it is open. Reverted to Accessory on the window's Destroyed event.
     // `MoveToActiveSpace` (not `CanJoinAllSpaces` — that's for the always-floating overlay/palette
     // panels, see macos_window.rs) — without it, focusing Settings while another app (e.g. a
     // fullscreen IDE) owns the active Space forces macOS to switch the user off that Space to
@@ -764,7 +781,10 @@ pub(crate) fn present_settings_window(window: &tauri::WebviewWindow) {
     // leaves it a normal single-Space window again, so it does not keep following the user to
     // other screens/Spaces afterward.
     #[cfg(target_os = "macos")]
-    macos_window::apply_move_to_active_space_behavior(window);
+    {
+        activation_macos::promote_to_regular(window.app_handle());
+        macos_window::apply_move_to_active_space_behavior(window);
+    }
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
@@ -1335,7 +1355,13 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                             let _ = app.emit("voice-error", e);
                         }
                     }
-                    hide_voice_overlay(&app);
+                    // hide_voice_overlay touches AppKit (NSPanel); this closure runs on a
+                    // worker thread, so hop to the main thread — calling NSPanel.hide() off
+                    // the main thread crashes the app after every transcription.
+                    let hide_app = app.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        hide_voice_overlay(&hide_app);
+                    });
                 });
             }
         }
@@ -1634,16 +1660,69 @@ fn open_command_palette(app: tauri::AppHandle) {
 /// Run the research agent loop for `query` in the background, streaming
 /// progress to the palette via agent-progress / agent-final / agent-error.
 #[tauri::command]
-fn palette_agent(app: tauri::AppHandle, query: String) -> Result<(), String> {
+fn palette_agent(
+    app: tauri::AppHandle,
+    query: String,
+    model: Option<String>,
+    screenshot: Option<bool>,
+) -> Result<(), String> {
     let db = app.state::<std::sync::Arc<db::Database>>();
     let s = db.get_app_settings().map_err(|e| e.to_string())?;
     if !s.hub_enabled {
         return Err("NeuralDeep hub is disabled in Settings".to_string());
     }
+    let model = model
+        .filter(|m| !m.trim().is_empty())
+        .unwrap_or_else(|| s.hub_chat_model.clone());
+
+    // Optionally attach a screenshot of the app that was frontmost when the
+    // palette opened, so the agent can reason about the current screen.
+    let screenshot_b64 = if screenshot.unwrap_or(false) {
+        #[cfg(target_os = "macos")]
+        {
+            let pid = PALETTE_TARGET_PID.load(Ordering::Relaxed);
+            let png = if pid > 0 {
+                screen::capture_window_png(pid)
+            } else {
+                screen::capture_context_png()
+            };
+            png.map(|b| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &b))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
+    } else {
+        None
+    };
+
     std::thread::spawn(move || {
-        agent::run(&app, &s.hub_url, &s.hub_token, &query);
+        agent::run(
+            &app,
+            &s.hub_url,
+            &s.hub_token,
+            &query,
+            &model,
+            screenshot_b64,
+        );
     });
     Ok(())
+}
+
+/// Snap the palette window to the nearest screen work-area edge when the user
+/// dragged it close to one. Called from the frontend after a drag ends.
+#[tauri::command]
+fn palette_snap_to_edges(app: tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(window) = app.get_webview_window("command_palette") {
+            macos_window::snap_window_to_edges(&window, 24.0);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+    }
 }
 
 /// Start recording from the palette mic.

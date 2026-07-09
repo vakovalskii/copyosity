@@ -11,8 +11,9 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use tauri::Emitter;
 
-/// Model with the best native tool-calling on the hub.
-const AGENT_MODEL: &str = "qwen3.6-35b-a3b";
+/// Fallback model with the best native tool-calling on the hub, used when the
+/// caller does not specify one.
+pub const DEFAULT_AGENT_MODEL: &str = "qwen3.6-35b-a3b";
 const MAX_STEPS: usize = 12;
 
 fn agent_http() -> ureq::Agent {
@@ -67,8 +68,19 @@ fn parse_due_offset_secs(iso: &str) -> Option<i64> {
 }
 
 /// Run the agent loop to completion, emitting progress events on `app`.
-pub fn run(app: &tauri::AppHandle, base_url: &str, token: &str, query: &str) {
-    if let Err(e) = run_inner(app, base_url, token, query) {
+///
+/// `model` selects the hub chat model (empty → `DEFAULT_AGENT_MODEL`).
+/// `screenshot_b64`, when present, is attached to the user's turn as a
+/// multimodal image so the agent can reason about what is on screen.
+pub fn run(
+    app: &tauri::AppHandle,
+    base_url: &str,
+    token: &str,
+    query: &str,
+    model: &str,
+    screenshot_b64: Option<String>,
+) {
+    if let Err(e) = run_inner(app, base_url, token, query, model, screenshot_b64) {
         let _ = app.emit("agent-error", e);
     }
 }
@@ -78,6 +90,8 @@ fn run_inner(
     base_url: &str,
     token: &str,
     query: &str,
+    model: &str,
+    screenshot_b64: Option<String>,
 ) -> Result<(), String> {
     let base = normalize_base(base_url);
     if base.is_empty() || token.trim().is_empty() {
@@ -87,6 +101,14 @@ fn run_inner(
     if query.is_empty() {
         return Err("Empty question".to_string());
     }
+    let model = {
+        let m = model.trim();
+        if m.is_empty() {
+            DEFAULT_AGENT_MODEL
+        } else {
+            m
+        }
+    };
 
     let tools = json!([
         {
@@ -153,12 +175,28 @@ fn run_inner(
         }
     ]);
 
+    // Attach the screenshot to the first user turn as a multimodal image when present.
+    let user_content: Value = match screenshot_b64.as_deref().filter(|s| !s.is_empty()) {
+        Some(b64) => json!([
+            { "type": "text", "text": query },
+            { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64) } }
+        ]),
+        None => Value::String(query.to_string()),
+    };
+
+    let system_prompt = if screenshot_b64
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .is_some()
+    {
+        "You are a personal assistant agent on the user's Mac. The user has attached a screenshot of what is currently on their screen — use it as context for their question. You can search the web AND act on the user's apps: create notes (create_note), create/list reminders (create_reminder, list_reminders), and read their calendar (read_calendar). Call tools as needed, then give a concise answer in the user's language. Do not invent facts — use web_search."
+    } else {
+        "You are a personal assistant agent on the user's Mac. You can search the web AND act on the user's apps: create notes (create_note), create/list reminders (create_reminder, list_reminders), and read their calendar (read_calendar). Use the right tool for the request — e.g. 'remind me tomorrow at 10 to call Bob' -> create_reminder; 'what's on my calendar this week' -> read_calendar; 'save this to notes' -> create_note. Call tools as needed, then give a concise confirmation/answer in the user's language. Do not invent facts — use web_search."
+    };
+
     let mut messages: Vec<Value> = vec![
-        json!({
-            "role": "system",
-            "content": "You are a personal assistant agent on the user's Mac. You can search the web AND act on the user's apps: create notes (create_note), create/list reminders (create_reminder, list_reminders), and read their calendar (read_calendar). Use the right tool for the request — e.g. 'remind me tomorrow at 10 to call Bob' -> create_reminder; 'what's on my calendar this week' -> read_calendar; 'save this to notes' -> create_note. Call tools as needed, then give a concise confirmation/answer in the user's language. Do not invent facts — use web_search."
-        }),
-        json!({ "role": "user", "content": query }),
+        json!({ "role": "system", "content": system_prompt }),
+        json!({ "role": "user", "content": user_content }),
     ];
 
     let url = format!("{}/v1/chat/completions", base);
@@ -173,7 +211,7 @@ fn run_inner(
         );
 
         let body = json!({
-            "model": AGENT_MODEL,
+            "model": model,
             "messages": messages,
             "tools": tools,
             "tool_choice": if force_final { "none" } else { "auto" },

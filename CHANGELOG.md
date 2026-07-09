@@ -28,6 +28,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings window** no longer forces a macOS Space switch when opened from the tray while another app owns a fullscreen Space, and no longer follows you to other screens/Spaces afterward — it relocates once, then stays put like a normal window.
 - **Tray menu** — no longer blinks on the first or second click.
 
+## [0.7.0] - 2026-07-09
+
+### Added — Command / agent palette upgrade
+
+- **Configurable palette hotkey** — set it in Settings → NeuralDeep (default `⌘⇧Space`), stored and re-registered like the quick-menu hotkey.
+- **Model picker in the palette** — choose the agent's hub model on the fly from the top bar; the choice persists and defaults to the hub chat model (the agent no longer hardcodes one).
+- **Screenshot for the agent** — a camera button attaches a screenshot of the app that was frontmost when the palette opened, sent to the agent as a multimodal image so it can reason about what's on screen.
+- **Sticky-to-edges** — the palette window snaps to the nearest screen work-area edge when dragged close.
+- **Transparency (glass) mode** — a top-bar toggle makes the panel more translucent; the choice persists.
+- **Session history** — recent sessions list with click-to-restore and a Clear action.
+
+## [0.6.5] - 2026-07-09
+
+### Fixed
+
+- **App no longer quits after voice transcription** — `hide_voice_overlay()` (an AppKit `NSPanel` call) was running on a worker thread; it now hops to the main thread, so the app survives every transcription.
+- **Version shows in Settings → Updates** — the settings window was missing the `core:app` capability, so `getVersion()` failed and the pane read `Current: …`.
+- **Settings window gets a Dock icon and no longer vanishes** — while Settings is open the app switches to the `Regular` activation policy (Dock icon, stable window), reverting to `Accessory` (menu-bar-only) when it closes.
+
+### Tests
+
+- Added `docs/TESTING.md` (full pre-release functional plan) and node:test coverage for overlay search/escape, display-query keys, clear-history confirmations, and content-kind session persistence.
+
+## [0.6.4] - 2026-07-09
+
+### Fixed
+
+- **Auto-update restart now works** — added the `process` capability so `relaunch()` after "Download & install" actually restarts Copyosity into the new version instead of failing silently.
+
 ## [0.6.3] - 2026-07-09
 
 ### Fixed

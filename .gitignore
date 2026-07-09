@@ -56,3 +56,7 @@ docs/screenshot-app.png
 
 # --- Git worktrees (isolated feature branches) ---
 .worktrees/
+
+# stray session artifacts at repo root
+/latest.json
+/settings-*.png

@@ -28,6 +28,8 @@
     rebindPaletteShortcut,
     getQuickMenuShortcut,
     setQuickMenuShortcut,
+    getPaletteShortcut,
+    setPaletteShortcut,
     listMicrophones,
     checkAccessibility,
     openAccessibilitySettings,
@@ -403,6 +405,7 @@
     loadModelCatalog();
     void loadHistoryCounts();
     void loadQuickMenuShortcut();
+    void loadPaletteShortcut();
     refreshOllamaStatus();
     void currentVersion().then((v) => {
       appVersion = v;
@@ -789,6 +792,26 @@
     }
   }
 
+  // ---- Command / agent palette hotkey ----
+  let paletteShortcut = $state("cmd+shift+space");
+  let paletteNotice = $state("");
+  async function loadPaletteShortcut() {
+    try {
+      paletteShortcut = await getPaletteShortcut();
+    } catch {
+      // keep default
+    }
+  }
+  async function savePaletteShortcut() {
+    paletteNotice = "";
+    try {
+      paletteShortcut = await setPaletteShortcut(paletteShortcut);
+      paletteNotice = "Saved";
+    } catch (e) {
+      paletteNotice = `${e}`;
+    }
+  }
+
   let voiceShortcutNotice = $state("");
   async function saveVoiceShortcut() {
     voiceShortcutNotice = "";
@@ -1069,6 +1092,19 @@
             </div>
           </div>
         </fieldset>
+      </section>
+
+      <section class="form-section">
+        <div class="form-section-body form-section-body--subsections">
+          <HotkeySettingsSection
+            bind:value={paletteShortcut}
+            placeholder="cmd+shift+space"
+            examples={["cmd+shift+space"]}
+            detail="Opens the command / agent palette. The agent can search the web, act on your apps, use the selected model, and see a screenshot of the active window. Registered only while the hub is enabled."
+            notice={paletteNotice || undefined}
+            onSave={savePaletteShortcut}
+          />
+        </div>
       </section>
     {:else if activePane === "voice"}
       <div class="pane-head">
