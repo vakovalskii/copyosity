@@ -5,6 +5,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { marked } from "marked";
   import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
+  import { getAppSettings, hubListModels } from "$lib/api";
   import { invokeErrorMessage } from "$lib/exclusion-label";
   import {
     isPaletteDotLogicalSize,
@@ -45,6 +46,46 @@
   type Session = { q: string; a: string; mode: Mode; ts: number };
   let sessions = $state<Session[]>([]);
   let showHistory = $state(false);
+
+  // Agent model selection (persisted; defaults to the hub chat model).
+  const AGENT_MODEL_KEY = "paletteAgentModel";
+  const TRANSLUCENT_KEY = "paletteTranslucent";
+  let agentModel = $state<string>(localStorage.getItem(AGENT_MODEL_KEY) || "");
+  let models = $state<string[]>([]);
+  // Attach a screenshot of the app that was frontmost when the palette opened.
+  let attachScreenshot = $state(false);
+  // Glass / transparency mode for the palette window.
+  let translucent = $state(localStorage.getItem(TRANSLUCENT_KEY) === "1");
+
+  function modelOptions(): string[] {
+    const base = models.length ? models : ["qwen3.6-35b-a3b", "gpt-oss-120b", "gemma-4-31b"];
+    return agentModel && !base.includes(agentModel) ? [agentModel, ...base] : base;
+  }
+
+  function onModelChange(e: Event) {
+    agentModel = (e.currentTarget as HTMLSelectElement).value;
+    localStorage.setItem(AGENT_MODEL_KEY, agentModel);
+  }
+
+  function toggleTranslucent() {
+    translucent = !translucent;
+    localStorage.setItem(TRANSLUCENT_KEY, translucent ? "1" : "0");
+  }
+
+  async function loadAgentModelDefaults() {
+    try {
+      const s = await getAppSettings();
+      if (!agentModel) agentModel = s.hub_chat_model;
+      models = await hubListModels(s.hub_url, s.hub_token);
+    } catch {
+      // Offline / hub not set — modelOptions() falls back to a static list.
+    }
+  }
+
+  function clearHistory() {
+    sessions = [];
+    localStorage.setItem("agentSessions", "[]");
+  }
 
   const paletteShortcutHints = $derived<KeyboardHint[]>([
     { keys: "↵", action: mode === "agent" ? "run agent" : "search" },
@@ -218,7 +259,12 @@
     try {
       if (mode === "agent") {
         // Streams via agent-progress / agent-final / agent-error events.
-        await invoke("palette_agent", { query: q });
+        await invoke("palette_agent", {
+          query: q,
+          model: agentModel || null,
+          screenshot: attachScreenshot,
+        });
+        attachScreenshot = false;
       } else {
         answer = await invoke<string>("palette_search", { query: q });
         loading = false;
@@ -328,11 +374,26 @@
       }),
     ];
     loadSessions();
+    void loadAgentModelDefaults();
     void initPaletteState().then(() => {
       if (!minimized) inputEl?.focus();
       return undefined;
     });
-    return () => unlistens.forEach((u) => u.then((fn) => fn()));
+
+    // Sticky-to-edges: after the window stops moving, snap it to a nearby edge.
+    let moveTimer: ReturnType<typeof setTimeout> | undefined;
+    const movedPromise = getCurrentWindow().onMoved(() => {
+      clearTimeout(moveTimer);
+      moveTimer = setTimeout(() => {
+        void invoke("palette_snap_to_edges").catch(() => {});
+      }, 180);
+    });
+
+    return () => {
+      clearTimeout(moveTimer);
+      void movedPromise.then((fn) => fn());
+      unlistens.forEach((u) => u.then((fn) => fn()));
+    };
   });
 </script>
 
@@ -357,7 +418,7 @@
     ></span>
   </div>
 {:else}
-<div class="palette">
+<div class="palette" class:translucent>
   <div class="palette-head">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <header class="topbar" onmousedown={startDrag}>
@@ -371,8 +432,35 @@
     >
       {mode === "agent" ? "Agent" : "Web"}
     </button>
+    {#if mode === "agent"}
+      <select
+        class="model-select app-btn"
+        title="Agent model"
+        aria-label="Agent model"
+        value={agentModel}
+        onchange={onModelChange}
+      >
+        {#each modelOptions() as m}
+          <option value={m}>{m}</option>
+        {/each}
+      </select>
+    {/if}
     {#if loading}<span class="run-dot" title="Agent running"></span><span class="run-label">running… {elapsed}s</span>{/if}
     <div class="topbar-spacer"></div>
+    <button
+      class="bar-btn overlay-icon-btn app-btn"
+      class:active={translucent}
+      type="button"
+      title="Transparency (glass) mode"
+      aria-label="Toggle transparency"
+      aria-pressed={translucent}
+      onclick={toggleTranslucent}
+    >
+      <svg class="overlay-icon-btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="3" />
+        <path d="M3 9h18M9 3v18" />
+      </svg>
+    </button>
     <button
       class="bar-btn overlay-icon-btn app-btn"
       class:active={showHistory}
@@ -447,6 +535,25 @@
         aria-hidden="true"
       ></span>
     {/if}
+    {#if mode === "agent"}
+      <button
+        class="shot-btn app-btn"
+        class:active={attachScreenshot}
+        type="button"
+        title={attachScreenshot
+          ? "Screenshot attached — the agent will see the active window"
+          : "Attach a screenshot of the active window for the agent"}
+        aria-label="Attach screenshot of the active window"
+        aria-pressed={attachScreenshot}
+        disabled={loading}
+        onclick={() => (attachScreenshot = !attachScreenshot)}
+      >
+        <svg class="shot-btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+          <circle cx="12" cy="13" r="4" />
+        </svg>
+      </button>
+    {/if}
     <button
       class="mic-btn app-btn"
       class:recording
@@ -484,6 +591,10 @@
       {#if sessions.length === 0}
         <p class="overlay-status-hint neutral">No history yet — ask a question and it will appear here.</p>
       {:else}
+        <div class="history-head">
+          <span class="history-count">{sessions.length} recent</span>
+          <button class="history-clear app-btn" type="button" onclick={clearHistory}>Clear</button>
+        </div>
         {#each sessions as s}
           <button class="history-item app-btn" type="button" onclick={() => openSession(s)}>
             <span class="history-mode" class:agent={s.mode === "agent"}>{s.mode === "agent" ? "A" : "W"}</span>
@@ -524,3 +635,88 @@
 </div>
 {/if}
 {/if}
+
+<style>
+  /* Glass / transparency mode — more see-through, stronger blur. */
+  .palette.translucent {
+    background: color-mix(in oklab, var(--surface-overlay) 52%, transparent);
+    backdrop-filter: blur(calc(var(--blur-palette-panel) * 1.4));
+    -webkit-backdrop-filter: blur(calc(var(--blur-palette-panel) * 1.4));
+  }
+
+  .model-select {
+    max-width: 8.5rem;
+    padding: 0.15rem 0.4rem;
+    font-size: 0.72rem;
+    line-height: 1.2;
+    color: inherit;
+    background: color-mix(in oklab, var(--surface-10) 70%, transparent);
+    border: 1px solid var(--surface-10);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .model-select:focus-visible {
+    outline: 2px solid var(--color-agent);
+    outline-offset: 1px;
+  }
+
+  .shot-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.75;
+    transition: opacity var(--duration-fast, 0.12s) ease, background var(--duration-fast, 0.12s) ease;
+  }
+  .shot-btn:hover:not(:disabled) {
+    opacity: 1;
+    background: var(--surface-6);
+  }
+  .shot-btn.active {
+    opacity: 1;
+    color: var(--color-agent);
+    background: var(--surface-agent-muted);
+  }
+  .shot-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .shot-btn-icon {
+    width: 1.05rem;
+    height: 1.05rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.1rem 0.2rem 0.35rem;
+  }
+  .history-count {
+    font-size: 0.72rem;
+    opacity: 0.6;
+  }
+  .history-clear {
+    font-size: 0.72rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid var(--surface-10);
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+  .history-clear:hover {
+    background: var(--surface-6);
+  }
+</style>

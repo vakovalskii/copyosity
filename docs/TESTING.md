@@ -16,7 +16,7 @@ Legend: ✅ automated · 👁 manual only (native / OS-integration).
 
 ## 0. Dev stand & build gate
 
-- **Auto:** `make check` → backend **160** tests + frontend **198** tests, plus
+- **Auto:** `make check` → backend **164** tests + frontend **198** tests, plus
   `cargo clippy -D warnings`, `svelte-check`, `oxlint`, `stylelint`, `oxfmt`.
   Frontend tests must run under `LC_ALL=en_US.UTF-8` (some assert `toLocaleString`).
 - **Manual boot:** `npm run tauri dev`. Expect in the log:
@@ -66,7 +66,7 @@ Legend: ✅ automated · 👁 manual only (native / OS-integration).
 - 👁 Settings → add an app to the exclusion list → copies from it are not captured.
 - 👁 With a sensitive app frontmost, the overlay offers **Exclude [App]**.
 
-## 6. Voice to text  ⚠️ regression-fixed area
+## 6. Voice to text ⚠️ regression-fixed area
 
 - ✅ backend `transcription`, `whisper` (429 → tariff hint), hub `no_think`/`format_hub_error`.
 - 👁 **Crash fix:** hold `⌥Space`, speak, release. Transcript is pasted into the
@@ -87,14 +87,27 @@ Legend: ✅ automated · 👁 manual only (native / OS-integration).
 - 👁 With the hub enabled, a new entry gets short tags shortly after capture.
 - 👁 **Retag** re-runs tagging on an entry.
 
-## 8. Command / agent palette
+## 8. Command / agent palette  ⚠️ new features
 
-- ✅ `palette-window` (restore size/position), backend `palette_window`, `agent`.
-- 👁 `⌘⇧Space` (or the sparkles button / tray) opens the palette.
+- ✅ `palette-window` (restore size/position), backend `palette_window`, `agent`,
+  `macos_window::snapped_position` (edge-snap geometry).
+- 👁 **Configurable shortcut:** default `⌘⇧Space`; change it in Settings →
+  NeuralDeep → palette hotkey and confirm the new combo opens the palette (and the
+  old one no longer does). Hub must be enabled.
 - 👁 Web mode returns search results; Agent mode streams progress then a markdown answer.
+- 👁 **Model dropdown** in the palette top bar (Agent mode) — pick a model; it
+  persists and the agent uses it (defaults to the hub chat model).
+- 👁 **Screenshot button** (camera, Agent mode) — toggle it on, ask a question →
+  the agent receives a screenshot of the app that was frontmost when the palette
+  opened (needs Screen Recording permission). The flag resets after each run.
+- 👁 **Sticky-to-edges:** drag the palette near a screen edge → it snaps to the edge.
+- 👁 **Transparency (glass) mode:** toggle in the top bar → the panel becomes more
+  translucent; the choice persists.
+- 👁 **History:** the clock button lists recent sessions; clicking one restores it;
+  **Clear** empties the list.
 - 👁 Insert / Copy / Close work; window is draggable, resizable, minimises to a dot.
 
-## 9. Quick menu  (Clipy-style)
+## 9. Quick menu (Clipy-style)
 
 - ✅ backend `quick_menu` build logic, `snippet-folders-ui`.
 - 👁 `⌘⇧C` pops a native menu at the cursor.
@@ -128,7 +141,7 @@ Legend: ✅ automated · 👁 manual only (native / OS-integration).
 - 👁 Settings → History → **Clear unpinned** keeps pinned items; **Clear all**
   warns it includes N pinned items; both require confirmation.
 
-## 14. Overlay dismiss behaviour  ⚠️ new behaviour
+## 14. Overlay dismiss behaviour ⚠️ new behaviour
 
 - ✅ `overlay_dismiss` pure helpers (`point_in_screen_rect`, `within_show_grace`,
   `dismiss_suppressed`).
@@ -138,7 +151,7 @@ Legend: ✅ automated · 👁 manual only (native / OS-integration).
 - 👁 **New:** `⌘Tab` / click another window / the Dock → overlay **hides**
   (`install_app_switch_dismiss`; Copyosity's own activations are ignored).
 
-## 15. Settings window  ⚠️ regression-fixed area
+## 15. Settings window ⚠️ regression-fixed area
 
 - 👁 **Version fix:** Settings → Updates shows `Current: <version>` (not `Current: …`).
   Root cause was the missing `core:app` capability on the **settings** window.
@@ -147,7 +160,7 @@ Legend: ✅ automated · 👁 manual only (native / OS-integration).
   changes; closing Settings reverts to `Accessory` (menu-bar-only, no Dock icon).
 - 👁 Every pane loads: NeuralDeep, Voice, Quick Menu, Local AI, History, Permissions, Updates.
 
-## 16. Updates / auto-update  ⚠️ regression-fixed area
+## 16. Updates / auto-update ⚠️ regression-fixed area
 
 - ✅ `updater.ts` exports (`autoUpdateOnLaunch`, `notify`, `checkForUpdate`).
 - 👁 Settings → Updates → **Check now** reports the current/next version.
@@ -175,5 +188,5 @@ Legend: ✅ automated · 👁 manual only (native / OS-integration).
 - [ ] §15 settings: version shows, Dock icon appears, window persists on focus change.
 - [ ] §16 updates: install **restarts** into the new version.
 - [ ] §14 overlay hides on app switch.
-- [ ] DMGs signed + notarized + stapled (`spctl -a -t open` → *Notarized Developer ID*).
+- [ ] DMGs signed + notarized + stapled (`spctl -a -t open` → _Notarized Developer ID_).
 - [ ] `latest.json` signature = raw `.sig`; endpoint serves the new version.

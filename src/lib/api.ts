@@ -187,6 +187,15 @@ export async function setQuickMenuShortcut(shortcut: string): Promise<string> {
   return invoke("set_quick_menu_shortcut", { shortcut });
 }
 
+export async function getPaletteShortcut(): Promise<string> {
+  return invoke("get_palette_shortcut");
+}
+
+/** Persist the command/agent palette hotkey and re-register it. Returns the stored string. */
+export async function setPaletteShortcut(shortcut: string): Promise<string> {
+  return invoke("set_palette_shortcut", { shortcut });
+}
+
 // ---- Snippets ----
 
 export async function getSnippetFolders(): Promise<SnippetFolder[]> {

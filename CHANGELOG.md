@@ -5,6 +5,17 @@ All notable changes to Copyosity are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-09
+
+### Added — Command / agent palette upgrade
+
+- **Configurable palette hotkey** — set it in Settings → NeuralDeep (default `⌘⇧Space`), stored and re-registered like the quick-menu hotkey.
+- **Model picker in the palette** — choose the agent's hub model on the fly from the top bar; the choice persists and defaults to the hub chat model (the agent no longer hardcodes one).
+- **Screenshot for the agent** — a camera button attaches a screenshot of the app that was frontmost when the palette opened, sent to the agent as a multimodal image so it can reason about what's on screen.
+- **Sticky-to-edges** — the palette window snaps to the nearest screen work-area edge when dragged close.
+- **Transparency (glass) mode** — a top-bar toggle makes the panel more translucent; the choice persists.
+- **Session history** — recent sessions list with click-to-restore and a Clear action.
+
 ## [0.6.5] - 2026-07-09
 
 ### Fixed
