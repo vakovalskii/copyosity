@@ -90,7 +90,7 @@
     hub_enabled: false,
     hub_url: "https://api.neuraldeep.ru",
     hub_token: "",
-    hub_chat_model: "gpt-oss-120b",
+    hub_chat_model: "qwen3.6-35b-a3b",
     hub_tagging_enabled: false,
     hub_transcribe_enabled: false,
     voice_polish_enabled: false,
@@ -1107,6 +1107,36 @@
             notice={voiceShortcutNotice || undefined}
             onSave={saveVoiceShortcut}
           />
+
+          <div class="form-subsection-rule" role="separator"></div>
+
+          <div class="form-subsection">
+            <div class="form-subsection-title form-subsection-title--with-icon">
+              <SectionIcon name="hub" class="form-subsection-icon" />Transcription
+            </div>
+            <div class="inset-list">
+              <label class="form-checkbox">
+                <span class="form-checkbox-leading">
+                  <input
+                    type="checkbox"
+                    checked={settings.hub_transcribe_enabled}
+                    disabled={!settings.hub_enabled}
+                    onchange={(e) =>
+                      handleHubTranscribeToggle((e.currentTarget as HTMLInputElement).checked)}
+                  />
+                  <span class="form-checkbox-box" aria-hidden="true"></span>
+                </span>
+                <span class="form-checkbox-label ui-selectable-text">Transcribe with NeuralDeep Hub</span>
+              </label>
+            </div>
+            <div class="form-hint">
+              {#if settings.hub_enabled}
+                On → hub <code>/v1/audio/transcriptions</code>; off → your local Whisper server.
+              {:else}
+                Enable the <strong>NeuralDeep Hub</strong> (Hub tab) to transcribe via the hub.
+              {/if}
+            </div>
+          </div>
 
           <div class="form-subsection-rule" role="separator"></div>
 

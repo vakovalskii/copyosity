@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { parseEntryOcrEvent, parseEntryTaggedEvent, type Collection, type ExcludableAppCandidate } from "$lib/types";
@@ -20,6 +19,7 @@
     excludeFromHistoryLabel,
     invokeErrorMessage,
   } from "$lib/exclusion-label";
+  import { autoUpdateOnLaunch, notify } from "$lib/updater";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
   import QuickLookPanel from "$lib/components/QuickLookPanel.svelte";
   import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
@@ -712,6 +712,9 @@
     void loadLayout();
     loadCollections();
 
+    // Background: check for updates on launch, auto-install, and notify.
+    void autoUpdateOnLaunch();
+
     let reloadTimer: ReturnType<typeof setTimeout>;
     function scheduleReload() {
       if (isRevealing || !visible) {
@@ -782,6 +785,11 @@
       })();
     });
 
+    // Voice transcription failures (e.g. a hub 429 asking to raise the tariff).
+    const unlistenVoiceError = listen<string>("voice-error", (e) => {
+      void notify("Voice transcription failed", e.payload);
+    });
+
     const handleKeydown = (e: KeyboardEvent) => {
       if (!visible) return;
 
@@ -811,6 +819,15 @@
           searchBar?.blur();
           return;
         }
+        forceHideWindow();
+        return;
+      }
+
+      // Cmd+↑ hides the overlay (matches the native global monitor for when the
+      // panel is not the key window).
+      if (e.metaKey && e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
         forceHideWindow();
         return;
       }
@@ -961,6 +978,7 @@
       unlistenHide.then((fn) => fn());
       unlistenOpenSettings.then((fn) => fn());
       unlistenSizesReset.then((fn) => fn());
+      unlistenVoiceError.then((fn) => fn());
       window.removeEventListener("keydown", handleKeydown, true);
     };
   });
@@ -1034,6 +1052,8 @@
           scrollWidth: target.scrollHeight,
           hasMore: overlay.entriesHasMore && !overlay.displayFetchFailed,
           loading: overlay.loadingMoreEntries || overlay.displayListPending,
+          // Prefetch ~2 viewports ahead so fast scrolling never outruns the loader.
+          prefetchPx: target.clientHeight * 2,
         })
       ) {
         void overlay.loadNextEntryPage();
@@ -1045,6 +1065,8 @@
         scrollWidth: target.scrollWidth,
         hasMore: overlay.entriesHasMore && !overlay.displayFetchFailed,
         loading: overlay.loadingMoreEntries || overlay.displayListPending,
+        // Prefetch ~2 viewports ahead so fast scrolling never outruns the loader.
+        prefetchPx: target.clientWidth * 2,
       })
     ) {
       void overlay.loadNextEntryPage();

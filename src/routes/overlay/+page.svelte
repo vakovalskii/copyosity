@@ -6,6 +6,7 @@
   let bars = $state<number[]>(Array(N).fill(8));
   let elapsed = $state(0); // seconds
   let active = $state(false);
+  let transcribing = $state(false);
 
   let startMs = 0;
   let lastMs = 0;
@@ -26,10 +27,17 @@
       }
       lastMs = now;
       active = true;
+      transcribing = false; // new recording supersedes any prior transcribing state
 
       const lvl = Math.max(8, Math.min(100, event.payload));
       // Scroll the new sample in from the right.
       bars = [...bars.slice(1), lvl];
+    });
+
+    // Recording stopped; transcription is running — show the spinner until hidden.
+    const unlistenTranscribing = listen("voice-transcribing", () => {
+      active = false;
+      transcribing = true;
     });
 
     const tick = setInterval(() => {
@@ -42,19 +50,25 @@
 
     return () => {
       unlisten.then((fn) => fn());
+      unlistenTranscribing.then((fn) => fn());
       clearInterval(tick);
     };
   });
 </script>
 
 <div class="capsule">
-  <span class="dot" class:live={active}></span>
-  <div class="wave">
-    {#each bars as h, i}
-      <div class="bar" style="height: {Math.max(8, h)}%" data-i={i}></div>
-    {/each}
-  </div>
-  <span class="time">{fmt(elapsed)}</span>
+  {#if transcribing}
+    <span class="spinner" aria-hidden="true"></span>
+    <span class="status" role="status">Transcribing…</span>
+  {:else}
+    <span class="dot" class:live={active}></span>
+    <div class="wave">
+      {#each bars as h, i}
+        <div class="bar" style="height: {Math.max(8, h)}%" data-i={i}></div>
+      {/each}
+    </div>
+    <span class="time">{fmt(elapsed)}</span>
+  {/if}
 </div>
 
 <style>
@@ -137,5 +151,30 @@
     font-weight: 600;
     color: var(--color-text-primary);
     letter-spacing: 0.02em;
+  }
+
+  .spinner {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 2px solid var(--spinner-track, rgb(128 128 128 / 30%));
+    border-top-color: var(--spinner-head, var(--color-text-primary));
+    animation: voice-spin var(--duration-spinner, 0.72s) linear infinite;
+  }
+
+  .status {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    letter-spacing: 0.01em;
+  }
+
+  @keyframes voice-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

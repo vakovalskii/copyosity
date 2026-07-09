@@ -471,6 +471,7 @@ pub fn run() {
             .plugin(tauri_plugin_opener::init())
             .plugin(tauri_plugin_process::init())
             .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_notification::init())
             .plugin(tauri_plugin_global_shortcut::Builder::new().build());
         #[cfg(target_os = "macos")]
         {
@@ -559,6 +560,8 @@ pub fn run() {
                 // §5 Warmup — do not replace activateIgnoringOtherApps(true) with activate()
                 tray_macos::warmup_app_for_status_item_menu();
                 overlay_dismiss::install_overlay_dismiss_guards();
+                overlay_dismiss::install_cmd_up_dismiss(app.handle().clone());
+                overlay_dismiss::install_app_switch_dismiss(app.handle().clone());
                 clipboard_macos::install_last_frontmost_observer();
                 eprintln!("[tray] startup: hidden main + deferred tray popup ready");
             }
@@ -1233,7 +1236,11 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
             let session = recording_mutex().lock().unwrap().take();
             if let Some(session) = session {
                 let app = app.clone();
-                hide_voice_overlay(&app);
+                // Keep the capsule visible in a "transcribing" state (spinner)
+                // until the transcript is delivered, instead of hiding immediately.
+                if let Some(win) = app.get_webview_window("voice_overlay") {
+                    let _ = win.emit("voice-transcribing", ());
+                }
                 std::thread::spawn(move || {
                     let (samples, sample_rate) = session.finish();
                     eprintln!(
@@ -1269,11 +1276,41 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                         Ok(text) if !text.is_empty() => {
                             eprintln!("[voice] transcription: \"{}\"", text);
                             let final_text = maybe_polish(&settings, &text);
-                            if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                                let _ = clipboard_write::write_text(
-                                    &mut clipboard,
-                                    final_text,
-                                    clipboard_write::ClipboardWriteMode::Paste,
+
+                            // Always record the transcript in history so it is
+                            // retrievable even if the paste into the target app
+                            // fails (own clipboard writes are skipped by the monitor).
+                            clipboard_monitor::record_text_entry(
+                                &app,
+                                &db,
+                                &final_text,
+                                Some("Voice".to_owned()),
+                            );
+
+                            // Put it on the system clipboard for pasting, retrying
+                            // so the transcript reliably reaches the pasteboard.
+                            let mut delivered = false;
+                            for attempt in 1..=3 {
+                                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                    if clipboard_write::write_text(
+                                        &mut clipboard,
+                                        final_text.clone(),
+                                        clipboard_write::ClipboardWriteMode::Paste,
+                                    )
+                                    .is_ok()
+                                    {
+                                        delivered = true;
+                                        break;
+                                    }
+                                }
+                                eprintln!(
+                                    "[voice] clipboard write attempt {attempt}/3 failed, retrying"
+                                );
+                                std::thread::sleep(std::time::Duration::from_millis(80));
+                            }
+                            if !delivered {
+                                eprintln!(
+                                    "[voice] WARNING: transcript not written to clipboard after retries (still in history)"
                                 );
                             }
                             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -1292,8 +1329,13 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                             }
                         }
                         Ok(_) => eprintln!("[voice] transcription returned empty text"),
-                        Err(e) => eprintln!("[voice] transcription ERROR: {}", e),
+                        Err(e) => {
+                            eprintln!("[voice] transcription ERROR: {}", e);
+                            // Surface to the user (e.g. a hub 429 raise-tariff hint).
+                            let _ = app.emit("voice-error", e);
+                        }
                     }
+                    hide_voice_overlay(&app);
                 });
             }
         }

@@ -665,7 +665,7 @@ impl Database {
         let hub_token = self.get_setting("hub_token")?.unwrap_or_default();
         let hub_chat_model = self
             .get_setting("hub_chat_model")?
-            .unwrap_or_else(|| "gpt-oss-120b".to_string());
+            .unwrap_or_else(|| "qwen3.6-35b-a3b".to_string());
         let hub_tagging_enabled = self
             .get_setting("hub_tagging_enabled")?
             .map(|v| v == "true")

@@ -37,10 +37,7 @@ pub fn test_connection(base_url: &str, token: &str) -> Result<usize, String> {
         .set("Authorization", &format!("Bearer {}", token.trim()))
         .set("Accept", "application/json")
         .call()
-        .map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
-            other => format!("Hub request failed: {}", other),
-        })?;
+        .map_err(format_hub_error)?;
 
     let json: serde_json::Value = response
         .into_json()
@@ -65,10 +62,7 @@ pub fn list_models(base_url: &str, token: &str) -> Result<Vec<String>, String> {
         .set("Authorization", &format!("Bearer {}", token.trim()))
         .set("Accept", "application/json")
         .call()
-        .map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
-            other => format!("Hub request failed: {}", other),
-        })?;
+        .map_err(format_hub_error)?;
     let json: serde_json::Value = response
         .into_json()
         .map_err(|e| format!("Failed to parse hub response: {}", e))?;
@@ -118,6 +112,38 @@ struct TagResponse {
     tags: Vec<String>,
 }
 
+/// Qwen3 soft-switch to disable chain-of-thought ("no reasoning"). Appended to
+/// the system prompt for Qwen models where snappy, non-thinking output is wanted
+/// (voice polish, tagging). Harmless plain text for non-Qwen models.
+fn no_think_suffix(model: &str) -> &'static str {
+    if model.trim().to_lowercase().starts_with("qwen") {
+        "\n\n/no_think"
+    } else {
+        ""
+    }
+}
+
+/// Turn a hub HTTP error into a user-facing message. A 429 means the user's
+/// NeuralDeep plan limit (session / week / parallel / rpm) is exhausted, so we
+/// tell them to raise their tariff rather than showing a bare status code.
+pub fn format_hub_error(e: ureq::Error) -> String {
+    match e {
+        ureq::Error::Status(429, resp) => {
+            let retry = resp
+                .header("Retry-After")
+                .and_then(|v| v.trim().parse::<u64>().ok());
+            match retry {
+                Some(secs) => format!(
+                    "NeuralDeep Hub limit reached (429). Your plan's quota is used up — raise your tariff at hub.neuraldeep.ru/app, or retry in {secs}s."
+                ),
+                None => "NeuralDeep Hub limit reached (429). Your plan's quota is used up — raise your tariff at hub.neuraldeep.ru/app.".to_string(),
+            }
+        }
+        ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
+        other => format!("Hub request failed: {}", other),
+    }
+}
+
 const TAG_SYSTEM_PROMPT: &str = "You classify clipboard text. Return strict JSON only in the shape {\"tags\":[\"tag1\",\"tag2\"]}. Use 2 to 5 short lowercase tags. Prefer practical tags like bash, ssh, docker, sql, json, url, ai, meeting, credentials, error, python, rust, javascript, html, api. If the text is just an opaque token, otp, code, short id, password, or random identifier with no semantic meaning, return {\"tags\":[]}. Do not explain.";
 
 /// Tag clipboard text via the hub chat API. Returns `None` on any failure so the
@@ -141,7 +167,7 @@ pub fn tag_text(base_url: &str, token: &str, model: &str, text: &str) -> Option<
         messages: vec![
             ChatMessage {
                 role: "system",
-                content: TAG_SYSTEM_PROMPT.to_string(),
+                content: format!("{}{}", TAG_SYSTEM_PROMPT, no_think_suffix(model)),
             },
             ChatMessage {
                 role: "user",
@@ -194,13 +220,7 @@ pub fn web_search(base_url: &str, token: &str, query: &str, limit: u32) -> Resul
         .set("Authorization", &format!("Bearer {}", token.trim()))
         .set("Accept", "application/json")
         .send_json(serde_json::json!({ "query": query, "limit": limit }))
-        .map_err(|e| match e {
-            ureq::Error::Status(429, _) => {
-                "Search quota exceeded (429) — try again later".to_string()
-            }
-            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
-            other => format!("Hub request failed: {}", other),
-        })?;
+        .map_err(format_hub_error)?;
 
     let json: serde_json::Value = response
         .into_json()
@@ -302,10 +322,7 @@ pub fn agent_search(
         .set("Authorization", &format!("Bearer {}", token.trim()))
         .set("Accept", "application/json")
         .send_json(request)
-        .map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
-            other => format!("Hub request failed: {}", other),
-        })?;
+        .map_err(format_hub_error)?;
 
     let chat: ChatResponse = response
         .into_json()
@@ -502,13 +519,17 @@ pub fn polish_text(
 
     let has_selected = selected_text.map(|s| !s.trim().is_empty()).unwrap_or(false);
     let has_screenshot = screenshot_b64.map(|s| !s.is_empty()).unwrap_or(false);
-    let system = build_polish_prompt(
-        app_kind,
-        dictionary,
-        custom_prompt,
-        translate_lang,
-        has_selected,
-        has_screenshot,
+    let system = format!(
+        "{}{}",
+        build_polish_prompt(
+            app_kind,
+            dictionary,
+            custom_prompt,
+            translate_lang,
+            has_selected,
+            has_screenshot,
+        ),
+        no_think_suffix(model)
     );
 
     let mut user_text = String::new();
@@ -549,10 +570,7 @@ pub fn polish_text(
         .set("Authorization", &format!("Bearer {}", token.trim()))
         .set("Accept", "application/json")
         .send_json(body)
-        .map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("Hub returned HTTP {}", code),
-            other => format!("Hub request failed: {}", other),
-        })?;
+        .map_err(format_hub_error)?;
 
     let json: serde_json::Value = response
         .into_json()

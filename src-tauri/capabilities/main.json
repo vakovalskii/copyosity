@@ -6,6 +6,9 @@
   "permissions": [
     "core:event:default",
     "core:window:allow-start-resize-dragging",
-    "main-window-commands"
+    "core:app:default",
+    "main-window-commands",
+    "updater:default",
+    "notification:default"
   ]
 }

@@ -3,8 +3,10 @@
 //! Product behavior (intentional):
 //! - Outside click dismisses the panel when the global mouse monitor is available.
 //! - Switching Space (gesture) suppresses outside-click dismiss briefly so the panel stays open.
-//! - When the mouse monitor is active, Cmd+Tab / focus loss does **not** dismiss — users can
-//!   move to another Space or app and keep the overlay open to paste into a different target.
+//! - Switching to another app (Cmd+Tab, clicking another window, the Dock) dismisses the panel —
+//!   the overlay is a transient picker, so leaving the app hides it (see `install_app_switch_dismiss`).
+//! - The initial paste target stays frontmost when the panel opens (non-activating NSPanel), so
+//!   showing the overlay fires no activation event and does not dismiss itself.
 
 /// Grace after panel show during which outside-click dismiss is ignored.
 #[cfg(any(target_os = "macos", test))]
@@ -47,7 +49,8 @@ mod imp {
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
     use objc2_app_kit::{
-        NSEvent, NSEventMask, NSWindow, NSWorkspaceActiveSpaceDidChangeNotification,
+        NSEvent, NSEventMask, NSEventModifierFlags, NSWindow, NSWorkspace,
+        NSWorkspaceActiveSpaceDidChangeNotification, NSWorkspaceDidActivateApplicationNotification,
     };
     use objc2_foundation::{NSNotification, NSNotificationCenter, NSPoint, NSRect};
     use tauri::{AppHandle, Manager};
@@ -64,6 +67,93 @@ mod imp {
     static MOUSE_MONITOR_PTR: AtomicPtr<AnyObject> = AtomicPtr::new(ptr::null_mut());
     static MOUSE_MONITOR_ACTIVE: AtomicBool = AtomicBool::new(false);
     static SPACE_GUARD_INSTALLED: AtomicBool = AtomicBool::new(false);
+    static CMD_UP_GUARD_INSTALLED: AtomicBool = AtomicBool::new(false);
+    static APP_SWITCH_GUARD_INSTALLED: AtomicBool = AtomicBool::new(false);
+
+    /// macOS virtual key code for the Up arrow.
+    const KEY_CODE_UP_ARROW: u16 = 126;
+
+    /// Install a persistent global key monitor: pressing Cmd+↑ while the overlay
+    /// is visible hides it. Global monitors observe events sent to *other* apps
+    /// (when the panel is not key); the frontend handles Cmd+↑ when it is key.
+    /// The event is not consumed, so Cmd+↑ still does its normal thing.
+    pub fn install_cmd_up_dismiss(app: AppHandle) {
+        if CMD_UP_GUARD_INSTALLED.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let block = RcBlock::new(move |event: NonNull<NSEvent>| {
+            let event = unsafe { event.as_ref() };
+            if event.keyCode() != KEY_CODE_UP_ARROW {
+                return;
+            }
+            if !event
+                .modifierFlags()
+                .contains(NSEventModifierFlags::Command)
+            {
+                return;
+            }
+            if main_panel_visible(&app) {
+                animated_hide_panel(&app);
+            }
+        });
+        if let Some(monitor) =
+            NSEvent::addGlobalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block)
+        {
+            // Intentionally leaked for app lifetime.
+            std::mem::forget(monitor);
+        } else {
+            eprintln!("[overlay] Cmd+Up global key monitor unavailable (needs Accessibility)");
+        }
+        std::mem::forget(block);
+    }
+
+    /// Install an app-activation observer: when the user switches to another app
+    /// (Cmd+Tab, clicking another window, the Dock) while the overlay is visible,
+    /// hide it. The overlay is a transient picker — leaving Copyosity dismisses it.
+    ///
+    /// The panel is a non-activating NSPanel, so showing it fires no activation
+    /// event (the previous app stays frontmost). The first activation after the
+    /// panel is shown is therefore a genuine user app-switch. Activations of
+    /// Copyosity itself (e.g. opening Settings) are ignored.
+    pub fn install_app_switch_dismiss(app: AppHandle) {
+        if APP_SWITCH_GUARD_INSTALLED.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let own_pid = std::process::id() as i32;
+        let block = RcBlock::new(move |_notification: NonNull<NSNotification>| {
+            if !main_panel_visible(&app) {
+                return;
+            }
+            let last_show = LAST_SHOW_MS.load(Ordering::Relaxed);
+            if within_show_grace(now_ms(), last_show, SHOW_DISMISS_GRACE_MS) {
+                return;
+            }
+            if suppress_active() {
+                return;
+            }
+            // Ignore activations of Copyosity itself (Settings window, tray, etc.).
+            let workspace = NSWorkspace::sharedWorkspace();
+            if let Some(front) = workspace.frontmostApplication() {
+                if front.processIdentifier() == own_pid {
+                    return;
+                }
+            }
+            animated_hide_panel(&app);
+        });
+        let workspace = NSWorkspace::sharedWorkspace();
+        let center = workspace.notificationCenter();
+        let observer = unsafe {
+            center.addObserverForName_object_queue_usingBlock(
+                Some(NSWorkspaceDidActivateApplicationNotification),
+                None,
+                None,
+                &block,
+            )
+        };
+        // Intentionally leaked for app lifetime — observer must outlive all app switches.
+        std::mem::forget(observer);
+        std::mem::forget(block);
+    }
 
     pub fn install_overlay_dismiss_guards() {
         if SPACE_GUARD_INSTALLED.swap(true, Ordering::AcqRel) {
@@ -210,6 +300,12 @@ pub use imp::*;
 
 #[cfg(not(target_os = "macos"))]
 pub fn handle_focus_lost(_app: &tauri::AppHandle) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn install_cmd_up_dismiss(_app: tauri::AppHandle) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn install_app_switch_dismiss(_app: tauri::AppHandle) {}
 
 #[cfg(test)]
 mod tests {

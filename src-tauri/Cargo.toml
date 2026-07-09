@@ -1,6 +1,6 @@
 [package]
 name = "copyosity"
-version = "0.6.2"
+version = "0.6.3"
 description = "Privacy-first clipboard history manager with NeuralDeep Hub, voice, OCR, and local Ollama"
 authors = ["v.kovalskii"]
 edition = "2021"
@@ -36,6 +36,7 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
