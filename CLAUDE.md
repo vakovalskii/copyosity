@@ -17,43 +17,23 @@ make fix-backend && make check-backend   # Rust/backend-only changes
 make fix && make check                   # full-stack or cross-cutting changes
 ```
 
+After macOS tray, overlay, or activation-policy changes, also run `make verify-tray` on a GUI Mac with Accessibility granted for System Events. Exit code `2` means automation was unavailable (inconclusive), not a pass.
+
+**Before editing tray startup, `tray_macos.rs`, window levels, or activation policy:** read [docs/architecture/macos-tray-menu.md](docs/architecture/macos-tray-menu.md) end-to-end. Partial “simplifications” break either the 1st or 2nd tray click — only the combined scheme in that doc is verified.
+
 ## Expected Practice
 
 - Do not continue feature development directly on the last release branch.
 - Do not skip compilation checks after generating code.
 - Do not leave workflow changes undocumented.
 
-## Icons
+## Product & architecture docs
 
-Product UI uses inline stroke SVG (`SectionIcon.svelte`, `ChevronDown.svelte`, and component-local paths). Icon sizes come from `--icon-size-*` in `tokens.css`.
+Load by task — do not load everything up front:
 
-## Local AI Onboarding
-
-When working on Ollama onboarding in the app, follow this product rule set:
-
-1. If Ollama is not installed, do not silently install it.
-2. Show a clear onboarding state with a download action and short instructions.
-3. If Ollama is installed but not running, show that state separately and offer a start/check-again action.
-4. If Ollama is installed but the selected model is missing, the app may offer to download the model directly.
-5. If both Ollama and the model are ready, show a clear ready state.
-
-Expected user-facing states:
-
-- `Ollama not installed`
-- `Ollama installed, server not running`
-- `Model not installed`
-- `Local AI ready`
-
-Expected actions:
-
-- `Download Ollama`
-- `Start Ollama`
-- `Download model`
-- `Check again`
-- `Change model`
-
-Product policy:
-
-- System-level Ollama installation should be explicit and user-approved.
-- Model downloads may be initiated from inside the app once Ollama is present.
-- The UI should always explain what is missing: runtime, server, or model.
+| Topic                                             | File                                                                                   |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| **macOS menu-bar tray (blink fix — read first)**  | [docs/architecture/macos-tray-menu.md](docs/architecture/macos-tray-menu.md)           |
+| macOS paste automation (AXPaste, Cmd+V, Messages) | [docs/architecture/macos-paste-pipeline.md](docs/architecture/macos-paste-pipeline.md) |
+| UI icons (stroke SVG)                             | [docs/architecture/ui-icons.md](docs/architecture/ui-icons.md)                         |
+| Local AI / Ollama onboarding                      | [docs/product/ollama-onboarding.md](docs/product/ollama-onboarding.md)                 |

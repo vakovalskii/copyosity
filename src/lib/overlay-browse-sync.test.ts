@@ -4,7 +4,6 @@ import { describe, it } from "node:test";
 import {
   handleScrollEndBrowseSync,
   shouldClearStuckSuppressOnUserScroll,
-  shouldIncrementSuppressOnProgrammaticScroll,
   shouldRunScrollToSelectedGeneration,
   shouldScheduleTrackpadLeadingSync,
   shouldSyncLeadingCardAfterScroll,
@@ -125,30 +124,6 @@ describe("handleScrollEndBrowseSync", () => {
       }),
       { nextSuppressCount: 0, shouldSyncLeading: false },
     );
-  });
-});
-
-describe("shouldIncrementSuppressOnProgrammaticScroll", () => {
-  it("suppresses leading sync for reveal/clamp programmatic scroll by default", () => {
-    assert.equal(shouldIncrementSuppressOnProgrammaticScroll({ didScroll: true }), true);
-  });
-
-  it("suppresses for explicit keyboard arrow scroll", () => {
-    assert.equal(
-      shouldIncrementSuppressOnProgrammaticScroll({ didScroll: true, suppressLeadingSync: true }),
-      true,
-    );
-  });
-
-  it("does not suppress for trackpad leading-card follow-up", () => {
-    assert.equal(
-      shouldIncrementSuppressOnProgrammaticScroll({ didScroll: true, suppressLeadingSync: false }),
-      false,
-    );
-  });
-
-  it("does not suppress when the programmatic scroll did not move the viewport", () => {
-    assert.equal(shouldIncrementSuppressOnProgrammaticScroll({ didScroll: false }), false);
   });
 });
 

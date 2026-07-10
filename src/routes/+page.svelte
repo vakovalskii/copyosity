@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { parseEntryOcrEvent, parseEntryTaggedEvent, type Collection, type ExcludableAppCandidate } from "$lib/types";
   import {
     getCollections,
@@ -21,6 +21,7 @@
   } from "$lib/exclusion-label";
   import { autoUpdateOnLaunch, notify } from "$lib/updater";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
+  import QuickLookPanel from "$lib/components/QuickLookPanel.svelte";
   import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
   import SearchBar from "$lib/components/SearchBar.svelte";
   import CollectionTabs from "$lib/components/CollectionTabs.svelte";
@@ -35,7 +36,15 @@
     type TagChip,
   } from "$lib/overlay-filters";
   import { createOverlayEntriesStore } from "$lib/overlay-entries.svelte";
-  import { overlayEscapeAction } from "$lib/overlay-search";
+  import { closeAllCardContextMenus, isCardContextMenuOpen } from "$lib/overlay-card-context-menu";
+  import {
+    canToggleQuickLook,
+    resolveOverlayEscapeAction,
+    shouldBlockOverlayActionWhileQuickLookOpen,
+    shouldExitSearchToGrid,
+    shouldHandleQuickLookCmdY,
+    shouldHandleQuickLookSpace,
+  } from "$lib/quick-look-keyboard";
   import { setInputModality } from "$lib/input-modality";
   import { overlayHeightForLayout } from "$lib/overlay-layout";
   import {
@@ -56,11 +65,13 @@
     isCardOffScreen,
     isCardOffScreenVertical,
     nextIndexAfterKeyboardArrow,
+    verticalCardViewportPosition,
+    verticalScrollDeltaForKeyboardNav,
+    verticalScrollDeltaToSnapCard,
   } from "$lib/overlay-grid-scroll";
   import {
     handleScrollEndBrowseSync,
     shouldClearStuckSuppressOnUserScroll,
-    shouldIncrementSuppressOnProgrammaticScroll,
     shouldRunScrollToSelectedGeneration,
     shouldScheduleTrackpadLeadingSync,
   } from "$lib/overlay-browse-sync";
@@ -68,6 +79,8 @@
 
   const overlayShortcutHints: KeyboardHint[] = [
     { prefix: "Click", action: "copy" },
+    { keys: "Space", action: "preview" },
+    { keys: "⌘Y", action: "preview" },
     { keys: "↵", action: "paste" },
     { prefix: "Double-click", action: "paste" },
     { keys: ["←", "→"], action: "browse" },
@@ -76,6 +89,8 @@
 
   const overlayVerticalShortcutHints: KeyboardHint[] = [
     { prefix: "Click", action: "copy" },
+    { keys: "Space", action: "preview" },
+    { keys: "⌘Y", action: "preview" },
     { keys: "↵", action: "paste" },
     { prefix: "2× click", action: "paste" },
     { keys: ["↑", "↓"], action: "browse" },
@@ -89,6 +104,8 @@
     boardVertical ? overlayVerticalShortcutHints : overlayShortcutHints,
   );
   let selectedIndex = $state(-1);
+  let quickLookOpen = $state(false);
+  let quickLookReturnFocus: HTMLElement | null = null;
   let gridEl: HTMLDivElement | undefined = $state();
   let appEl: HTMLDivElement | undefined = $state();
   let visible = $state(false);
@@ -105,6 +122,12 @@
   let excludeNoticeTone = $state<"neutral" | "warn">("neutral");
   let excludeBusy = $state(false);
   let searchBar: SearchBar | undefined = $state();
+  // During reveal, macOS can grab first-responder focus for the search input from a
+  // separate process (WKWebView) with unpredictable IPC latency relative to our own
+  // `searchBar?.blur()` call below — it can land either before or after it. Rather than
+  // relying on winning that timing race, treat any focus gained while this is true as
+  // unwanted and immediately reverse it; explicit shortcuts (Cmd+F, `/`) clear it first.
+  let suppressAutoSearchFocus = false;
   let lastLayoutHeight = $state<number | null>(null);
   let collections: Collection[] = $state([]);
   let activating = $state(false);
@@ -149,9 +172,9 @@
   const overlay = createOverlayEntriesStore({
     getVisible: () => visible,
     getIsRevealing: () => isRevealing,
-    onSelectionRequested: (_selectFirst, scrollToFirst) => {
-      selectedIndex = filteredEntries.length > 0 ? 0 : -1;
-      if (scrollToFirst) scrollToSelected();
+    onSelectionRequested: () => {
+      // No card is preselected on open/reload — the first arrow press selects card 0.
+      selectedIndex = -1;
     },
     onClampSelection: () => {
       if (selectedIndex >= overlay.entries.length) {
@@ -189,6 +212,13 @@
 
   const filteredEntries = $derived(overlay.entries);
 
+  /** Quick Look always mirrors the current selection — arrow keys refresh it while open. */
+  const quickLookEntry = $derived(
+    quickLookOpen && selectedIndex >= 0 && selectedIndex < filteredEntries.length
+      ? filteredEntries[selectedIndex]
+      : null,
+  );
+
   $effect(() => {
     if (selectedIndex < 0) return;
     if (selectedIndex < filteredEntries.length) return;
@@ -198,6 +228,10 @@
 
   $effect(() => {
     if (overlay.displayListPending) selectedIndex = -1;
+  });
+
+  $effect(() => {
+    if (quickLookOpen && !quickLookEntry) closeQuickLook();
   });
 
   $effect(() => {
@@ -223,6 +257,72 @@
     } finally {
       activating = false;
     }
+  }
+
+  function openQuickLook() {
+    if (quickLookOpen) return;
+    closeAllCardContextMenus();
+    quickLookReturnFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    quickLookOpen = true;
+  }
+
+  function closeQuickLook() {
+    if (!quickLookOpen) return;
+    quickLookOpen = false;
+    const focusEl = quickLookReturnFocus;
+    quickLookReturnFocus = null;
+    if (focusEl?.isConnected) {
+      requestAnimationFrame(() => focusEl.focus({ preventScroll: true }));
+    } else {
+      scrollToSelected();
+    }
+  }
+
+  function toggleQuickLook() {
+    if (quickLookOpen) {
+      closeQuickLook();
+    } else {
+      openQuickLook();
+    }
+  }
+
+  function handleQuickLookShortcut(e: KeyboardEvent): boolean {
+    const toggleCtx = {
+      displayListPending: overlay.displayListPending,
+      displayFetchFailed: overlay.displayFetchFailed,
+      selectedIndex,
+      entryCount: filteredEntries.length,
+    };
+    if (!canToggleQuickLook(toggleCtx)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleQuickLook();
+    return true;
+  }
+
+  /** Blur search and anchor selection on the first visible card (↓ or → from search). */
+  function tryExitSearchToGrid(e: KeyboardEvent): boolean {
+    if (
+      !shouldExitSearchToGrid(e.key, { metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey }, {
+        boardVertical,
+        searchFocused: searchBar?.isFocused() ?? false,
+      })
+    ) {
+      return false;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    searchBar?.blur();
+    if (overlay.displayListPending || overlay.displayFetchFailed) return true;
+    if (filteredEntries.length === 0) return true;
+
+    const leading = leadingVisibleCardIndex();
+    selectedIndex = leading >= 0 ? leading : 0;
+    setInputModality("keyboard");
+    scrollToSelected({ behavior: "auto", keyboardScroll: true });
+    return true;
   }
 
   function emptyStateCopy(): { title: string; hint?: string } {
@@ -364,6 +464,29 @@
     collections = await getCollections();
   }
 
+  /**
+   * AGENT NOTE — WKWebView-only workaround, not reproducible in Chromium/Playwright:
+   *
+   * WKWebView occasionally leaves the grid's compositing layer stale after a hide/show cycle
+   * (window moves screens, or a card's on-demand `backdrop-filter` layer — see
+   * `.type-preview-btn` in ClipboardCard.svelte — gets added/removed while hidden), painting
+   * the reopened panel blank/see-through until something forces a new layout+paint pass. A
+   * plain reflow read (`offsetHeight`) isn't always enough; briefly toggling `display` forces
+   * WebKit to rebuild the layer tree from scratch. Vertical board's higher on-screen card count
+   * makes stale layers far more likely to be visible, hence noticeable there first.
+   *
+   * This is a WebKit compositor quirk that Chromium (and therefore Playwright) does not exhibit,
+   * so this fix cannot be verified by browser automation — only by manually hiding/reshowing the
+   * real macOS overlay (`make dev` + tray toggle) and confirming vertical cards still paint.
+   * Do not remove this call believing it's dead code just because Playwright runs don't need it.
+   */
+  function forceWebviewRepaint(el: HTMLElement) {
+    const previousDisplay = el.style.display;
+    el.style.display = "none";
+    void el.offsetHeight;
+    el.style.display = previousDisplay;
+  }
+
   function finishReveal() {
     isRevealing = false;
     revealTimer = undefined;
@@ -371,8 +494,10 @@
     pendingReload = false;
     // Scroll/focus after open animation so horizontal scroll does not fight panel motion.
     void (async () => {
+      overlay.syncDisplayFromCatalog();
       if (reload) await overlay.loadEntries(true, false);
       scrollToSelected();
+      if (gridEl) forceWebviewRepaint(gridEl);
     })();
   }
 
@@ -404,6 +529,8 @@
     clearRevealTimer();
     isRevealing = false;
     visible = false;
+    quickLookOpen = false;
+    quickLookReturnFocus = null;
     overlay.resetDisplayStateOnHide();
     overlay.clearSearch({ reload: false });
     overlay.resetOverlayFilters();
@@ -454,6 +581,7 @@
 
     panelMotionMode = "instant";
     visible = false;
+    suppressAutoSearchFocus = true;
     void (async () => {
       let revealed = false;
       try {
@@ -461,19 +589,25 @@
           await finalizePendingNativeHide();
           if (seq !== revealSeq) return;
         }
-        await loadLayout();
-        if (seq !== revealSeq) return;
-        const ready = await prepareOverlayLayout(seq);
+        // Layout settings and catalog data are independent — load concurrently
+        // instead of chaining two IPC round-trips before the panel can animate in.
+        const [, ready] = await Promise.all([loadLayout(), prepareOverlayLayout(seq)]);
         if (!ready || seq !== revealSeq) return;
         await afterLayoutFlush();
         if (seq !== revealSeq) return;
         panelMotionMode = "animate";
+        // Reset scroll and force the WebKit repaint while still invisible (opacity 0)
+        // so the reflow lands before the transition starts, not mid-animation.
+        if (gridEl) {
+          gridEl.scrollLeft = 0;
+          gridEl.scrollTop = 0;
+          forceWebviewRepaint(gridEl);
+        }
         await afterLayoutFlush();
         if (seq !== revealSeq) return;
         visible = true;
+        overlay.syncDisplayFromCatalog();
         searchBar?.blur();
-        await afterLayoutFlush();
-        if (seq !== revealSeq) return;
         if (hadPendingReload) {
           void overlay.loadEntries(true, false);
         }
@@ -481,6 +615,7 @@
         void loadExcludeCandidate();
         revealed = true;
       } finally {
+        suppressAutoSearchFocus = false;
         if (!revealed) {
           panelMotionMode = "animate";
           if (seq === revealSeq) isRevealing = false;
@@ -489,12 +624,23 @@
     })();
   }
 
+  /** Reverse a focus grab that lands on the search input during reveal (see
+   * `suppressAutoSearchFocus`). Real Cmd+F/`/` shortcuts clear the flag first. */
+  function handleSearchBarFocusGained() {
+    if (suppressAutoSearchFocus) {
+      searchBar?.blur();
+    }
+  }
+
   function startVisualHide() {
     revealSeq += 1;
     clearRevealTimer();
     isRevealing = false;
     panelMotionMode = "animate";
     visible = false;
+    quickLookOpen = false;
+    quickLookReturnFocus = null;
+    suppressAutoSearchFocus = false;
     overlay.resetDisplayStateOnHide();
   }
 
@@ -505,6 +651,17 @@
 
   function forceHideWindow() {
     animateOut();
+  }
+
+  // Drag bottom-right corner to resize the native panel (borderless NSPanel has no
+  // obvious OS resize edge). Horizontal board locks vertical size natively (Rust
+  // min==max height), so this drag is effectively width-only there. Vertical board
+  // allows height drag too, but only width is persisted (see `apply_overlay_size_limits`
+  // in lib.rs) — height always resets to the preferred value on next reveal.
+  function startOverlayResize(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    void getCurrentWindow().startResizeDragging(boardVertical ? "SouthWest" : "SouthEast");
   }
 
   async function loadExcludeCandidate() {
@@ -554,8 +711,6 @@
     void overlay.warmCatalog();
     void loadLayout();
     loadCollections();
-
-    invoke("frontend_ready");
 
     // Background: check for updates on launch, auto-install, and notify.
     void autoUpdateOnLaunch();
@@ -620,6 +775,16 @@
       openSettingsWindow();
     });
 
+    const unlistenSizesReset = listen("overlay-board-sizes-reset", () => {
+      void (async () => {
+        const height = overlayHeightForLayout({
+          showShortcutHints: overlay.overlayShortcutHintsEnabled,
+        });
+        await applyOverlayHeight(height, false);
+        lastLayoutHeight = height;
+      })();
+    });
+
     // Voice transcription failures (e.g. a hub 429 asking to raise the tariff).
     const unlistenVoiceError = listen<string>("voice-error", (e) => {
       void notify("Voice transcription failed", e.payload);
@@ -636,7 +801,20 @@
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        if (overlayEscapeAction(overlay.searchQuery.length > 0) === "clear-search") {
+        const escapeAction = resolveOverlayEscapeAction({
+          cardContextMenuOpen: isCardContextMenuOpen(),
+          quickLookOpen,
+          hasSearchQuery: overlay.searchQuery.length > 0,
+        });
+        if (escapeAction === "close-context-menu") {
+          closeAllCardContextMenus();
+          return;
+        }
+        if (escapeAction === "close-quick-look") {
+          closeQuickLook();
+          return;
+        }
+        if (escapeAction === "clear-search") {
           overlay.clearSearch({ immediate: true });
           searchBar?.blur();
           return;
@@ -654,9 +832,25 @@
         return;
       }
 
+      if (shouldBlockOverlayActionWhileQuickLookOpen(quickLookOpen)) {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") return;
+        if (
+          e.key === "/" &&
+          !searchFocused &&
+          !typingInField &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey
+        ) {
+          return;
+        }
+        if (e.key === "Enter") return;
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         e.stopPropagation();
+        suppressAutoSearchFocus = false;
         searchBar?.focus();
         return;
       }
@@ -670,11 +864,32 @@
         !e.altKey
       ) {
         e.preventDefault();
+        suppressAutoSearchFocus = false;
         searchBar?.focus();
         return;
       }
 
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "y") {
+        if (
+          shouldHandleQuickLookCmdY(
+            e.key,
+            { altKey: e.altKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey },
+            target,
+            {
+              displayListPending: overlay.displayListPending,
+              displayFetchFailed: overlay.displayFetchFailed,
+              selectedIndex,
+              entryCount: filteredEntries.length,
+            },
+          )
+        ) {
+          handleQuickLookShortcut(e);
+        }
+        return;
+      }
+
       if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (tryExitSearchToGrid(e)) return;
         if (typingInField && !searchFocused) return;
         if (overlay.displayListPending || overlay.displayFetchFailed) return;
         e.preventDefault();
@@ -692,15 +907,46 @@
           selectedOffScreen: scrollCtx.selectedOffScreen,
           wrapperMissing: scrollCtx.wrapperMissing,
           entryCount: filteredEntries.length,
+          boardVertical,
+          verticalPosition: scrollCtx.verticalPosition,
         });
         if (direction === "right" && selectedIndex === filteredEntries.length - 1) {
           void overlay.loadNextEntryPage();
         }
-        scrollToSelected({ behavior: "auto", keyboardScroll: true });
+        scrollToSelected({
+          behavior: "auto",
+          keyboardScroll: true,
+          verticalNavDirection:
+            boardVertical && (e.key === "ArrowDown" || e.key === "ArrowUp")
+              ? e.key === "ArrowDown"
+                ? "down"
+                : "up"
+              : undefined,
+        });
+        return;
+      }
+
+      if (
+        shouldHandleQuickLookSpace(
+          e.key,
+          { altKey: e.altKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey },
+          target,
+          {
+            displayListPending: overlay.displayListPending,
+            displayFetchFailed: overlay.displayFetchFailed,
+            selectedIndex,
+            entryCount: filteredEntries.length,
+            searchFocused,
+            typingInField,
+          },
+        )
+      ) {
+        handleQuickLookShortcut(e);
         return;
       }
 
       if (e.key === "Enter") {
+        if (quickLookOpen) return;
         if (overlay.displayListPending || overlay.displayFetchFailed) return;
         if (selectedIndex < 0 || selectedIndex >= filteredEntries.length) return;
         if (typingInField && !searchFocused) return;
@@ -731,6 +977,7 @@
       unlistenHideRequest.then((fn) => fn());
       unlistenHide.then((fn) => fn());
       unlistenOpenSettings.then((fn) => fn());
+      unlistenSizesReset.then((fn) => fn());
       unlistenVoiceError.then((fn) => fn());
       window.removeEventListener("keydown", handleKeydown, true);
     };
@@ -738,6 +985,13 @@
 
   function handleCardSelect(index: number) {
     selectedIndex = index;
+  }
+
+  function handleCardPreview(index: number) {
+    selectedIndex = index;
+    if (!quickLookOpen) {
+      openQuickLook();
+    }
   }
 
   function getGridVerticalScrollInsets(container: HTMLElement) {
@@ -776,15 +1030,6 @@
 
     const { left: padLeft, right: padRight } = getGridScrollInsets(gridEl);
     return indexOfLeadingVisibleCard(viewport, padLeft, padRight, cardRects);
-  }
-
-  /** Select leading visible card and scroll/focus like overlay open. */
-  function selectLeadingVisibleCard() {
-    const index = leadingVisibleCardIndex();
-    if (index < 0) return;
-    selectedIndex = index;
-    if (boardVertical) return;
-    scrollToSelected({ keyboardScroll: false, suppressLeadingSync: false });
   }
 
   function handleGridScroll(event: Event) {
@@ -827,7 +1072,10 @@
       void overlay.loadNextEntryPage();
     }
 
-    if (!boardVertical && shouldScheduleTrackpadLeadingSync({ keyboardBrowseUntil, now })) {
+    if (
+      !boardVertical &&
+      shouldScheduleTrackpadLeadingSync({ keyboardBrowseUntil, now })
+    ) {
       scheduleTrackpadScrollSync();
     }
   }
@@ -840,7 +1088,11 @@
     }, SCROLL_IDLE_SYNC_MS);
   }
 
-  /** Shared by scrollend (primary) and idle debounce when scrollend is late — one leading-sync path. */
+  /**
+   * Shared by scrollend (primary) and idle debounce when scrollend is late.
+   * Mouse/trackpad scrolling never auto-selects a card — it only clears a stale
+   * selection so the next arrow press re-anchors on whatever is now on screen.
+   */
   function finishIdleScrollSync() {
     const result = handleScrollEndBrowseSync({
       suppressSelectionSyncCount,
@@ -848,13 +1100,14 @@
       now: performance.now(),
     });
     suppressSelectionSyncCount = result.nextSuppressCount;
-    if (result.shouldSyncLeading) selectLeadingVisibleCard();
+    if (result.shouldSyncLeading && selectedIndex >= 0) selectedIndex = -1;
   }
 
   function keyboardArrowScrollContext(): {
     leadingIndex: number;
     selectedOffScreen: boolean;
     wrapperMissing: boolean;
+    verticalPosition?: ReturnType<typeof verticalCardViewportPosition>;
   } {
     const leadingIndex = leadingVisibleCardIndex();
     if (!gridEl || filteredEntries.length === 0) {
@@ -866,19 +1119,21 @@
     const wrapperMissing = selectedIndex >= 0 && !(wrapper instanceof HTMLElement);
 
     let selectedOffScreen = false;
+    let verticalPosition: ReturnType<typeof verticalCardViewportPosition> | undefined;
     if (wrapper instanceof HTMLElement) {
       const viewport = gridEl.getBoundingClientRect();
       const rect = wrapper.getBoundingClientRect();
       if (boardVertical) {
         const { top: padTop, bottom: padBottom } = getGridVerticalScrollInsets(gridEl);
         selectedOffScreen = isCardOffScreenVertical(viewport, padTop, padBottom, rect);
+        verticalPosition = verticalCardViewportPosition(viewport, padTop, padBottom, rect);
       } else {
         const { left: padLeft, right: padRight } = getGridScrollInsets(gridEl);
         selectedOffScreen = isCardOffScreen(viewport, padLeft, padRight, rect);
       }
     }
 
-    return { leadingIndex, selectedOffScreen, wrapperMissing };
+    return { leadingIndex, selectedOffScreen, wrapperMissing, verticalPosition };
   }
 
   function touchKeyboardBrowseScroll() {
@@ -902,8 +1157,14 @@
     };
   }
 
+  /**
+   * `.card`'s DOM parent is `ClipboardCard`'s `display: contents` host (kept so the card
+   * context menu can render as an unclipped sibling) — it has no box, so
+   * `getBoundingClientRect()` on it returns an empty rect at (0,0). Walk up to the real
+   * `.card-wrapper` (the scroll/snap unit) instead of trusting `parentElement`.
+   */
   function scrollMeasureEl(card: HTMLElement): HTMLElement {
-    const wrapper = card.parentElement;
+    const wrapper = card.closest(".card-wrapper");
     return wrapper instanceof HTMLElement ? wrapper : card;
   }
 
@@ -936,6 +1197,25 @@
     return true;
   }
 
+  function snapCardIntoPaddedViewportVertical(
+    card: HTMLElement,
+    container: HTMLElement,
+    behavior: ScrollBehavior,
+    navDirection?: "up" | "down",
+  ): boolean {
+    const measureEl = scrollMeasureEl(card);
+    const { top: padTop, bottom: padBottom } = getGridVerticalScrollInsets(container);
+    const containerRect = container.getBoundingClientRect();
+    const cardRect = measureEl.getBoundingClientRect();
+    const delta = navDirection
+      ? verticalScrollDeltaForKeyboardNav(containerRect, padTop, padBottom, cardRect, navDirection)
+      : verticalScrollDeltaToSnapCard(containerRect, padTop, padBottom, cardRect);
+    if (delta === 0) return false;
+
+    container.scrollTo({ top: container.scrollTop + delta, behavior });
+    return true;
+  }
+
   function blurDeselectedCards(cards: NodeListOf<Element>, keepIndex: number) {
     cards.forEach((c, i) => {
       if (i === keepIndex || !(c instanceof HTMLElement)) return;
@@ -950,8 +1230,8 @@
   type ScrollToSelectedOptions = {
     behavior?: ScrollBehavior;
     keyboardScroll?: boolean;
-    /** Blocks one leading-card sync on scrollend when the scroll moves the viewport. Default true. */
-    suppressLeadingSync?: boolean;
+    /** Vertical keyboard ↑/↓ alignment (list browse). */
+    verticalNavDirection?: "up" | "down";
   };
 
   function scrollToSelected(options?: ScrollBehavior | ScrollToSelectedOptions) {
@@ -959,7 +1239,7 @@
       typeof options === "string" ? { behavior: options } : (options ?? {});
     const behaviorOverride = resolved.behavior;
     const keyboardScroll = resolved.keyboardScroll ?? false;
-    const suppressLeadingSync = resolved.suppressLeadingSync ?? true;
+    const verticalNavDirection = resolved.verticalNavDirection;
     const generation = ++scrollToSelectedGeneration;
     const targetIndex = selectedIndex;
 
@@ -975,17 +1255,23 @@
       blurDeselectedCards(cards, targetIndex);
 
       const behavior = behaviorOverride ?? scrollBehavior();
-      if (boardVertical) {
-        const measureEl = scrollMeasureEl(card);
-        measureEl.scrollIntoView({
-          behavior,
-          block: "nearest",
-          inline: "nearest",
-        });
-      } else {
-        const didScroll = snapCardIntoPaddedViewport(card, gridEl, behavior);
-        if (shouldIncrementSuppressOnProgrammaticScroll({ didScroll, suppressLeadingSync })) {
-          suppressSelectionSyncCount += 1;
+      const didScroll = boardVertical
+        ? snapCardIntoPaddedViewportVertical(card, gridEl, behavior, verticalNavDirection)
+        : snapCardIntoPaddedViewport(card, gridEl, behavior);
+      // Blocks one leading-sync clear on scrollend for this programmatic scroll.
+      if (didScroll) suppressSelectionSyncCount += 1;
+
+      if (boardVertical && keyboardScroll && gridEl) {
+        if (
+          shouldLoadNextEntryPage({
+            scrollLeft: gridEl.scrollTop,
+            clientWidth: gridEl.clientHeight,
+            scrollWidth: gridEl.scrollHeight,
+            hasMore: overlay.entriesHasMore && !overlay.displayFetchFailed,
+            loading: overlay.loadingMoreEntries || overlay.displayListPending,
+          })
+        ) {
+          void overlay.loadNextEntryPage();
         }
       }
 
@@ -1006,7 +1292,12 @@
   bind:this={appEl}
 >
   <header class="header overlay-header">
-    <SearchBar bind:this={searchBar} value={overlay.searchQuery} onchange={overlay.debouncedSearch} />
+    <SearchBar
+      bind:this={searchBar}
+      value={overlay.searchQuery}
+      onchange={overlay.debouncedSearch}
+      onfocus={handleSearchBarFocusGained}
+    />
     {#if boardVertical}
       <div class="header-actions">
         {#if platformIsMacOS() && hubEnabled}
@@ -1237,6 +1528,7 @@
             aiTaggingEnabled={overlay.aiTaggingEnabled}
             selected={i === selectedIndex}
             onselect={() => handleCardSelect(i)}
+            onpreview={() => handleCardPreview(i)}
             ondeleted={() => overlay.removeEntry(entry.id)}
             onpinned={() => overlay.handlePinned(entry.id, !entry.is_pinned)}
             onretagged={(tags) => overlay.applyEntryTags(entry.id, tags)}
@@ -1258,6 +1550,24 @@
       <KeyboardHints hints={activeOverlayShortcutHints} />
     </footer>
   {/if}
+  {#if quickLookEntry}
+    <QuickLookPanel
+      entry={quickLookEntry}
+      aiTaggingEnabled={overlay.aiTaggingEnabled}
+      compact={boardVertical}
+      showHints={overlay.overlayShortcutHintsEnabled}
+      onclose={closeQuickLook}
+    />
+  {/if}
+  <button
+    class="resize-grip"
+    class:vertical={boardVertical}
+    type="button"
+    tabindex="-1"
+    aria-label="Resize"
+    title="Drag to resize"
+    onmousedown={startOverlayResize}
+  ></button>
 </div>
 
 <style>
@@ -1292,6 +1602,26 @@
     opacity: 0;
     will-change: transform, opacity;
     transition: none;
+  }
+
+  .resize-grip {
+    position: fixed;
+    right: var(--space-segment-inset);
+    bottom: var(--space-segment-inset);
+    width: var(--size-resize-grip);
+    height: var(--size-resize-grip);
+    padding: 0;
+    border: none;
+    cursor: nwse-resize;
+    background: var(--gradient-resize-grip);
+    z-index: 10;
+  }
+
+  .resize-grip.vertical {
+    right: auto;
+    left: var(--space-segment-inset);
+    cursor: nesw-resize;
+    transform: scaleX(-1);
   }
 
   .app[data-panel-motion="animate"] {
@@ -1463,17 +1793,20 @@
   .grid-container.vertical {
     flex-direction: column;
     overflow: hidden auto;
-    scroll-snap-type: y proximity;
     align-items: stretch;
     padding-inline: var(--overlay-grid-pad-x);
     scroll-padding-inline: 0;
+    scroll-padding-block: var(--overlay-grid-pad-y);
+    /* Base rule snaps the x axis (horizontal board) — vertical board snaps y instead so the
+       top card always sits flush against the top edge instead of scrolling to an arbitrary
+       partial position. */
+    scroll-snap-type: y mandatory;
     min-height: 0;
     scrollbar-gutter: stable;
   }
 
   .grid-container.vertical .card-wrapper {
     width: 100%;
-    scroll-snap-align: center;
   }
 
   /* Compact vertical rows (upstream max-height); preview area shrinks so footer fits. */

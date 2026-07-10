@@ -40,6 +40,7 @@
     testOllamaTagging,
     hubTestConnection,
     hubListModels,
+    resetOverlayBoardSizes,
     type OllamaStatus,
   } from "$lib/api";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
@@ -678,6 +679,7 @@
     patch: ImmediateSettingPatch,
     afterSave?: () => void | Promise<void>,
   ) {
+    settingsNotice = "";
     const previous = settings;
     settings = { ...settings, ...patch };
     const deferredDraft = pickDeferred(settings);
@@ -717,6 +719,15 @@
 
   function handleBoardVerticalToggle(enabled: boolean) {
     void persistImmediate({ board_vertical: enabled });
+  }
+
+  async function handleRestoreOverlayBoardSizes() {
+    try {
+      await resetOverlayBoardSizes();
+      settingsNotice = "Panel size restored to default";
+    } catch (e) {
+      settingsNotice = String(e);
+    }
   }
 
   function handleHubTaggingToggle(enabled: boolean) {
@@ -906,6 +917,16 @@
   function snapshotDeferred() {
     savedDeferredSnapshot = JSON.stringify(pickDeferred(settings));
   }
+
+  // Transient success/error bar — dismiss when navigating away or editing deferred fields.
+  $effect(() => {
+    void activePane;
+    settingsNotice = "";
+  });
+  $effect(() => {
+    if (isDirty) settingsNotice = "";
+  });
+
   async function resetSettings() {
     await loadSettings();
     settingsNotice = "";
@@ -1710,9 +1731,22 @@
               </span>
               <span class="form-checkbox-label ui-selectable-text">
                 <span class="form-pref-label">Keyboard shortcuts</span>
-                <span class="form-pref-hint">Show hint strip along the bottom of the clipboard panel.</span>
+                <span class="form-pref-hint">Show hint strips along the bottom of the clipboard panel and Quick Look preview.</span>
               </span>
             </label>
+            <div class="form-pref-row">
+              <div class="form-pref-copy">
+                <span class="form-pref-label">Restore default size</span>
+                <span class="form-pref-hint">Resets the panel's width and height to their original values.</span>
+              </div>
+              <button
+                class="form-btn form-btn-secondary app-btn"
+                type="button"
+                onclick={() => void handleRestoreOverlayBoardSizes()}
+              >
+                Restore defaults
+              </button>
+            </div>
           </div>
         </div>
       </section>

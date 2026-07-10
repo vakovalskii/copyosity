@@ -16,7 +16,7 @@ node_modules
 /dist
 /.svelte-kit
 /package
-vite.config.js.timestamp-*
+.test-localstorage
 vite.config.ts.timestamp-*
 
 # --- Tauri / Rust ---
@@ -42,6 +42,8 @@ tauri
 copyosity@0.1.0
 icon.png.bak
 .playwright-mcp/
+.pw-*.png
+.playwright-*.png
 theme-check.png
 theme-voice.png
 
@@ -51,6 +53,9 @@ docs/image_2026-07-02_14-00-57.png
 docs/screenshot-app.png
 # --- Local verification artifacts ---
 /outputs/
+
+# --- Git worktrees (isolated feature branches) ---
+.worktrees/
 
 # stray session artifacts at repo root
 /latest.json

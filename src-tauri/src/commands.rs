@@ -49,6 +49,14 @@ pub fn get_entries(
     .map_err(|e| e.to_string())
 }
 
+/// Full entry payload (including full-resolution `image_data`) for Quick Look.
+/// `get_entries` deliberately omits `image_data` for list-fetch cost; this is the
+/// on-demand fetch used only when a single entry's Quick Look preview is opened.
+#[tauri::command]
+pub fn get_entry(db: State<'_, Arc<Database>>, id: i64) -> Result<Option<ClipboardEntry>, String> {
+    db.get_entry_by_id(id).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn get_overlay_tag_counts(
     db: State<'_, Arc<Database>>,
@@ -152,6 +160,22 @@ pub fn resize_main_window(
 }
 
 #[tauri::command]
+pub fn reset_overlay_board_sizes(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    db.clear_overlay_board_sizes().map_err(|e| e.to_string())?;
+    crate::reset_remembered_overlay_height();
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            crate::position_window_bottom(&window, crate::OVERLAY_HEIGHT_COMPACT);
+        }
+    }
+    let _ = app.emit("overlay-board-sizes-reset", ());
+    Ok(())
+}
+
+#[tauri::command]
 pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
     // Frontend played close motion; hide native panel on the main thread.
     crate::finalize_panel_hide(&app);
@@ -159,10 +183,12 @@ pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn activate_for_settings_window() {
+fn activate_for_settings_window(app: &tauri::AppHandle) {
+    // docs/architecture/macos-tray-menu.md §9 — Regular only while Settings is open
     use objc2::MainThreadMarker;
     use objc2_app_kit::NSApplication;
 
+    crate::activation_macos::promote_to_regular(app);
     if let Some(mtm) = MainThreadMarker::new() {
         let app = NSApplication::sharedApplication(mtm);
         app.activate();
@@ -258,7 +284,7 @@ pub fn open_settings_window(
         ensure_settings_window_size(&window);
         crate::present_settings_window(&window);
         #[cfg(target_os = "macos")]
-        activate_for_settings_window();
+        activate_for_settings_window(&app);
         let _ = window.emit("settings-shown", ());
         if let Some(pane) = initial_pane
             .as_deref()
@@ -284,7 +310,7 @@ pub fn open_settings_window(
     let window = builder.build().map_err(|e| e.to_string())?;
     crate::present_settings_window(&window);
     #[cfg(target_os = "macos")]
-    activate_for_settings_window();
+    activate_for_settings_window(&app);
     let _ = window.emit("settings-shown", ());
 
     Ok(())

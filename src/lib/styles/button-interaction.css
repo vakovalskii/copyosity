@@ -61,7 +61,16 @@ button.app-btn.is-busy .app-btn-spinner {
   border: 2px solid var(--spinner-track);
   border-top-color: var(--spinner-head);
   border-radius: 50%;
+  /* Paused (not `animation: none`) so a resumed spin doesn't jump/reset — keeps the current
+     angle. Gated to running only while busy: every card renders this spinner (hidden via the
+     parent's opacity: 0 until `.is-busy`), so an unconditional `infinite` animation here would
+     keep one live animation timeline ticking per card at all times, even fully idle. */
   animation: app-btn-spin var(--duration-spinner) linear infinite;
+  animation-play-state: paused;
+}
+
+button.app-btn.is-busy .app-btn-spinner-icon {
+  animation-play-state: running;
 }
 
 .app-btn-spinner-icon--sm {

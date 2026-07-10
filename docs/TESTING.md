@@ -87,7 +87,7 @@ Legend: ✅ automated · 👁 manual only (native / OS-integration).
 - 👁 With the hub enabled, a new entry gets short tags shortly after capture.
 - 👁 **Retag** re-runs tagging on an entry.
 
-## 8. Command / agent palette  ⚠️ new features
+## 8. Command / agent palette ⚠️ new features
 
 - ✅ `palette-window` (restore size/position), backend `palette_window`, `agent`,
   `macos_window::snapped_position` (edge-snap geometry).

@@ -41,6 +41,11 @@ export async function getEntries(opts?: {
   });
 }
 
+/** Full entry payload (including full-resolution image data) for Quick Look. */
+export async function getEntry(id: number): Promise<ClipboardEntry | null> {
+  return invoke("get_entry", { id });
+}
+
 export async function getOverlayTagCounts(opts?: {
   collection_id?: number | null;
   pinned_only?: boolean;
@@ -296,6 +301,10 @@ export async function openSettingsWindow(initialPane?: string): Promise<void> {
 
 export async function quitApp(): Promise<void> {
   return invoke("quit_app");
+}
+
+export async function resetOverlayBoardSizes(): Promise<void> {
+  return invoke("reset_overlay_board_sizes");
 }
 
 /** @deprecated Use activateEntry for paste-into-target behavior. */

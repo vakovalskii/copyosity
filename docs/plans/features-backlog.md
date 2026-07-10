@@ -12,17 +12,18 @@ Not a feature spec — items with a linked `feature-*.md` keep the full design t
 
 ## Open — features
 
-- [ ] **Shortcut recorder** (voice, overlay, palette)
+- [ ] **Shortcut recorder** (voice, overlay, palette, snippets)
   - Replace text inputs with a shortcut recorder control (System Settings pattern)
   - Cover all global shortcuts:
     - **Voice transcription** — today: text field `voice_shortcut` in Settings
     - **Clipboard overlay** — today: hardcoded `⌘⇧V` / `Ctrl+Shift+V` in Rust
     - **Agent / command palette** — today: hardcoded `⌘⇧Space` / `Ctrl+Shift+Space` in Rust
+    - **Snippets / quick menu** — today: text field `quick_menu_shortcut` in Settings → Quick Menu; default `⌘⇧C` / `Ctrl+Shift+C` in Rust
   - Show symbols in the UI; persist a canonical string for Rust `parse_shortcut`
   - States: idle / recording / invalid / conflict
   - `aria-label`: “Shortcut, click to record”; `aria-live="polite"` while recording
   - Keypress commits the shortcut without requiring Enter on Save
-  - Conflict detection across voice / overlay / palette shortcuts
+  - Conflict detection across voice / overlay / palette / snippets shortcuts
   - Tray menu labels and overlay header tooltips read from the same display helper
 
 - [ ] **Voice HUD accessibility** — full screen-reader lifecycle for the recording capsule; spec: [feature-voice-hud-accessibility.md](feature-voice-hud-accessibility.md)
@@ -34,8 +35,6 @@ Not a feature spec — items with a linked `feature-*.md` keep the full design t
 - [ ] **Custom collections**
   - Backend supports `set_entry_collection`; UI to assign/remove entries from cards is not wired
   - Today: create tab, filter by `collection_id`, delete — new collections stay empty without manual assignment
-
-- [ ] **Quick Look preview on Space** — Finder-style full entry preview; spec: [feature-quick-look-preview.md](feature-quick-look-preview.md)
 
 - [ ] **URL / link recognition** — treat detected URLs as a first-class clipboard kind, with a dedicated **link** tag and filter chips (same product pattern as image format tags). No spec file yet; design mirrors [feature-overlay-content-tag-filters.md](feature-overlay-content-tag-filters.md) image pipeline.
   - **Detection** — on text capture, parse `http(s)://`, `www.`, and common TLD shapes; support single-URL clipboard rows and multi-line text where the primary payload is one URL; normalize (strip trailing punctuation, lowercase host for dedup, keep display URL for cards).
@@ -60,6 +59,12 @@ Not a feature spec — items with a linked `feature-*.md` keep the full design t
 ## Open — fixes
 
 - [ ] **Production build transparency** — verify and fix on macOS 15+ (known Tauri issue [#13415](https://github.com/tauri-apps/tauri/issues/13415))
+
+---
+
+## Shipped — unreleased
+
+- [x] **Quick Look preview** — launcher-style full entry preview for the selected card; in-panel dialog (no separate window), `Space` or `⌘Y` toggles it (`⌘Y` from search), `↓`/`→` exits search to the first visible card, trackpad scroll syncs selection on the horizontal board (vertical: use arrows after scroll). Type-chip eye (clip-path pill collapse) + secondary-click **Preview** on cards; full-resolution image fetch + GIF playback; Image / Recognised text segmented toggle when OCR exists. `←/→`/`↑/↓` keep browsing while preview is open. Spec: [feature-quick-look-preview.md](feature-quick-look-preview.md).
 
 ---
 
@@ -109,11 +114,11 @@ Clipboard overlay and macOS integration:
 
 - [x] **Image capture & card meta** — PNG / JPG / GIF from pasteboard or Finder (~20 MB); format badges and filter chips; dimensions and file size on cards (`image_format`, `image_width`, `image_height`, `image_byte_size`). _Deferred follow-up:_ full image-pipeline reconciliation (legacy rows, retag format-tag drift) — track in a future backlog item if needed.
 
-- [x] **On-device OCR** (macOS Vision) — `ocr_text` in DB, overlay search, live `entry-ocr` updates; recognized text under image thumbnails on cards (`imageOcrPreviewText` / `ClipboardCard`). Quick Look will show the same text when that feature ships.
+- [x] **On-device OCR** (macOS Vision) — `ocr_text` in DB, overlay search, live `entry-ocr` updates; recognized text under image thumbnails on cards (`imageOcrPreviewText` / `ClipboardCard`). Quick Look shows the same OCR text via an **Image / Recognised text** segmented toggle ([feature-quick-look-preview.md](feature-quick-look-preview.md)).
 
 Settings and product policy:
 
-- [x] **AI tagging toggle** — off by default; `is_tagging_ready` IPC; Ollama onboarding per `CLAUDE.md`; tag backfill when enabled.
+- [x] **AI tagging toggle** — off by default; `is_tagging_ready` IPC; Ollama onboarding per [docs/product/ollama-onboarding.md](../product/ollama-onboarding.md); tag backfill when enabled.
 
 - [x] **Voice transcription toggle** — off by default; Whisper fields disabled when off.
 

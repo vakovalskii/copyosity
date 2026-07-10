@@ -1,53 +1,114 @@
-# Git hooks — fast auto-fix on staged files only.
-# Full validation gate: `make check` and CI.
+# Git hooks. Full validation gate is still `make check` / CI — these are fast
+# local nets, not a replacement.
+#
+# Glob note: "**/*.ext" requires a directory segment, so it silently skips
+# root-level files (README.md, package.json, this file, …). Every glob below
+# pairs "*.ext" (root) with "**/*.ext" (nested). Verify: npx lefthook run pre-commit -v
+#
+# After editing this file: `npx lefthook install` to sync `.git/hooks/*`
+# (lefthook does not do this automatically on config change).
 min_version: 2.0.0
 skip_in_ci: true
 
 pre-commit:
   parallel: true
   jobs:
+    - name: no-untracked-src
+      run: |
+        untracked=$(git ls-files --others --exclude-standard src src-tauri)
+        if [ -n "$untracked" ]; then
+          echo "Untracked source files — git add before commit:"
+          echo "$untracked"
+          exit 1
+        fi
+
     - name: js-ts
       glob:
+        - "*.js"
         - "**/*.js"
+        - "*.ts"
         - "**/*.ts"
       group:
         piped: true
         jobs:
-          - run: npx --no-install oxlint --fix {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install oxlint --fix {staged_files}
             stage_fixed: true
-          - run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
             stage_fixed: true
 
     - name: svelte
-      glob: "**/*.svelte"
+      glob:
+        - "*.svelte"
+        - "**/*.svelte"
       group:
         piped: true
         jobs:
-          - run: npx --no-install oxlint --fix {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install oxlint --fix {staged_files}
             stage_fixed: true
-          - run: npx --no-install stylelint --fix {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install stylelint --fix {staged_files}
             stage_fixed: true
-          - run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
             stage_fixed: true
 
     - name: css
-      glob: "**/*.css"
+      glob:
+        - "*.css"
+        - "**/*.css"
       group:
         piped: true
         jobs:
-          - run: npx --no-install stylelint --fix {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install stylelint --fix {staged_files}
             stage_fixed: true
-          - run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+          - run: bash scripts/with-npm.sh npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
             stage_fixed: true
 
     - name: docs
       glob:
+        - "*.json"
         - "**/*.json"
+        - "*.md"
         - "**/*.md"
-      run: npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
+      run: bash scripts/with-npm.sh npx --no-install oxfmt --write --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
 
     - name: rust
       glob: "src-tauri/**/*.rs"
       run: bash scripts/pre-commit-rust.sh {staged_files}
       stage_fixed: true
+
+# Final safety net before the push leaves the machine. Runs in order (not
+# parallel): 1) re-fix every changed file (code or docs), blocking if that
+# changes the tree; 2) typecheck; 3) tests. Catches cross-file breakage
+# (renamed exports, changed signatures, etc.) that staged-only pre-commit
+# fixers cannot see, without waiting for a multi-minute CI run.
+pre-push:
+  jobs:
+    - name: lint-fix-check
+      glob:
+        - "*.js"
+        - "**/*.js"
+        - "*.ts"
+        - "**/*.ts"
+        - "*.svelte"
+        - "**/*.svelte"
+        - "*.css"
+        - "**/*.css"
+        - "*.md"
+        - "**/*.md"
+        - "*.json"
+        - "**/*.json"
+      run: bash scripts/pre-push-lint-fix.sh {push_files}
+
+    - name: typecheck
+      glob:
+        - "*.ts"
+        - "**/*.ts"
+        - "*.svelte"
+        - "**/*.svelte"
+      run: bash scripts/with-npm.sh npm run typecheck
+
+    - name: test
+      glob:
+        - "*.ts"
+        - "**/*.ts"
+      run: bash scripts/with-npm.sh node --localstorage-file=.test-localstorage --test "src/**/*.test.ts"

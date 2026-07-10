@@ -7,10 +7,11 @@ OLLAMA_DEBUG ?= 1
 TAURI_DIR := $(APP_DIR)/src-tauri
 RUST_RUN = bash "$(APP_DIR)/scripts/run-rust.sh"
 
-.PHONY: help dev build install \
+.PHONY: help dev build install preview-readme \
 	check check-frontend check-backend \
 	lint lint-frontend lint-backend \
 	fix fix-frontend fix-backend \
+	verify-tray verify-tray-startup verify-tray-dev \
 	_verify-rust-env _compile-backend _test-backend \
 	clean-cache clean-cache-aggressive clean-all \
 	build-macos build-macos-intel build-macos-arm \
@@ -23,6 +24,7 @@ help:
 	@echo "  make dev              Run the Tauri development app"
 	@echo "  make build            Build the Tauri app"
 	@echo "  make install          Install npm dependencies"
+	@echo "  make preview-readme   GitHub-style README preview (grip, http://localhost:6419)"
 	@echo ""
 	@echo "Validation:"
 	@echo "  make fix              Auto-fix frontend and backend issues"
@@ -34,6 +36,11 @@ help:
 	@echo "  make fix-backend      Auto-fix Rust formatting and Clippy issues"
 	@echo "  make lint-backend     Verify Rust lint and formatting"
 	@echo "  make check-backend    Run Rust compile checks, lint, and tests"
+	@echo ""
+	@echo "macOS smoke (local, requires Accessibility):"
+	@echo "  make verify-tray          Tray menu blink check (debug binary + tauri dev)"
+	@echo "  make verify-tray-startup  Tray menu on cargo-built binary"
+	@echo "  make verify-tray-dev      Tray menu under tauri dev + Vite"
 	@echo ""
 	@echo "Recommended cycles:"
 	@echo "  Frontend-only: make fix-frontend && make check-frontend"
@@ -50,6 +57,9 @@ build:
 
 install:
 	cd $(APP_DIR) && $(NPM) install
+
+preview-readme:
+	cd $(APP_DIR) && grip README.md
 
 # --- Validation workflows ---
 
@@ -86,6 +96,16 @@ _compile-backend:
 
 _test-backend:
 	$(RUST_RUN) 'cargo test'
+
+# --- macOS tray smoke (not part of make check; needs GUI + Accessibility) ---
+
+verify-tray: verify-tray-startup verify-tray-dev
+
+verify-tray-startup:
+	bash "$(APP_DIR)/scripts/verify-tray-startup.sh"
+
+verify-tray-dev:
+	bash "$(APP_DIR)/scripts/verify-tray-dev.sh"
 
 # --- Cache cleanup ---
 

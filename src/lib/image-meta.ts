@@ -1,3 +1,14 @@
+/**
+ * Data URL for a base64-encoded image payload — thumbnail or full-size, card or Quick Look.
+ * GIF bytes (thumb or full) are stored raw so `<img>` plays the animation natively;
+ * everything else is stored as PNG. Magic-byte prefix must stay aligned with
+ * `src-tauri/src/image_format.rs` (`detect_from_b64`).
+ */
+export function imageDataUrl(b64: string): string {
+  const mime = b64.startsWith("R0lGOD") ? "image/gif" : "image/png";
+  return `data:${mime};base64,${b64}`;
+}
+
 /** Recognized text shown under an image thumbnail on overlay cards. Empty when not applicable. */
 export function imageOcrPreviewText(
   contentType: string,

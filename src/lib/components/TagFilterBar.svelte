@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { formatImageFormatBadge } from "$lib/image-meta";
   import type { TagChip } from "$lib/overlay-filters";
 
   const {
@@ -87,12 +88,21 @@
         aria-pressed={activeTag === tag}
         onclick={() => onselect?.(tag)}
       >
-        <svg class="format-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg
+          class="format-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
           <circle cx="8.5" cy="8.5" r="1.5" />
           <polyline points="21 15 16 10 5 21" />
         </svg>
-        <span>{tag}</span>
+        <span>{formatImageFormatBadge(tag) ?? tag}</span>
         <span class="tag-count">{count}</span>
       </button>
     {/each}
@@ -115,11 +125,3 @@
     {/each}
   </div>
 </div>
-
-<style>
-  .format-icon {
-    width: var(--icon-size-chip);
-    height: var(--icon-size-chip);
-    opacity: 0.85;
-  }
-</style>

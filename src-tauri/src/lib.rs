@@ -1,5 +1,7 @@
 #![allow(unexpected_cfgs)]
 
+#[cfg(target_os = "macos")]
+mod activation_macos; // docs/architecture/macos-tray-menu.md §9
 mod agent;
 mod app_exclusion;
 mod clipboard_macos;
@@ -17,14 +19,19 @@ mod ollama;
 mod overlay_dismiss;
 mod palette_window;
 mod quick_menu;
+mod quick_menu_position;
 mod screen;
 mod tagging;
 mod transcription;
+#[cfg(target_os = "macos")]
+mod tray_macos; // docs/architecture/macos-tray-menu.md §4–§5
 mod whisper;
 
 use db::Database;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+#[cfg(target_os = "macos")]
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
@@ -47,12 +54,15 @@ static LAST_SHOW_MS: AtomicU64 = AtomicU64::new(0);
 pub(crate) static PANEL_HIDE_SCHEDULED: AtomicBool = AtomicBool::new(false);
 pub(crate) static PENDING_PASTE_AFTER_HIDE: AtomicBool = AtomicBool::new(false);
 
-/// Main panel level while hidden — below status-bar menu popups.
+/// Main overlay WebviewWindow exists at launch (Handy); NSPanel conversion is deferred.
+/// Agent guardrail: docs/architecture/macos-tray-menu.md §3, §7 — do not convert to NSPanel here.
+///
+/// INVARIANT: `ensure_main_overlay_panel` is **main-thread-only**. All callers reach it through
+/// Tauri's main-thread event loop, so no two callers can be concurrent — the load/store pair is
+/// safe. Do NOT call from a spawned task or background thread: AppKit panel ops are not thread-safe
+/// and `to_panel` would likely panic or corrupt state on re-entry.
 #[cfg(target_os = "macos")]
-const PANEL_LEVEL_IDLE: i64 = 3;
-/// Main panel level while shown — above fullscreen apps.
-#[cfg(target_os = "macos")]
-const PANEL_LEVEL_ACTIVE: i64 = macos_window::FULLSCREEN_AUXILIARY_LEVEL;
+static MAIN_OVERLAY_PANEL: AtomicBool = AtomicBool::new(false);
 
 /// PID of the app that was frontmost when the voice hotkey was pressed.
 /// Used to deliver the synthesized Cmd+V directly to that app instead of
@@ -465,13 +475,6 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-#[tauri::command]
-fn frontend_ready(app: tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = {
@@ -491,12 +494,21 @@ pub fn run() {
         }
     };
 
+    let builder = {
+        #[cfg(target_os = "macos")]
+        {
+            // Agent guardrail: docs/architecture/macos-tray-menu.md §1
+            // Tauri default menubar (Apple/File/Edit) fights NSStatusItem — tray blinks if enabled.
+            builder.enable_macos_default_menu(false)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            builder
+        }
+    };
+
     builder
         .setup(|app| {
-            // Menu-bar app: no Dock icon, no Cmd+Tab entry.
-            #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-
             let app_dir = app
                 .path()
                 .app_data_dir()
@@ -504,50 +516,67 @@ pub fn run() {
             let db = Arc::new(Database::new(app_dir).expect("Failed to initialize database"));
             app.manage(db.clone());
 
-            // Convert main window to NSPanel (non-activating, floating)
+            // --- TRAY STARTUP ---
+            // Agent guardrail: docs/architecture/macos-tray-menu.md — read before editing.
+            // Verified 5× in tauri dev. Combined scheme only; partial fixes break 1st OR 2nd click.
+            // Do not reorder, remove tray_macos defer, or switch to show_menu_on_left_click(true).
+            // Gate: make verify-tray
             #[cfg(target_os = "macos")]
             {
-                use tauri_nspanel::panel::NSWindowStyleMask;
+                // §2 Accessory before tray
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
 
-                let window = app.get_webview_window("main").unwrap();
-                let panel = window
-                    .to_panel::<CopyosityPanel>()
-                    .expect("Failed to convert window to panel");
+            // §3 Hidden main at level 3 before tray (sync on main thread — async defer breaks make dev)
+            ensure_main_overlay_window(app.handle())?;
 
-                // Floating above other windows like Spotlight
-                panel.set_level(PANEL_LEVEL_ACTIVE);
-                panel.set_style_mask(
-                    NSWindowStyleMask::Borderless
-                        | NSWindowStyleMask::NonactivatingPanel
-                        | NSWindowStyleMask::Resizable,
-                );
-                // Show on all spaces including over fullscreen apps
-                panel.set_collection_behavior(
-                    macos_window::fullscreen_auxiliary_collection_behavior(),
-                );
+            let tray_menu = build_tray_menu(app.handle())?;
+            let tray = {
+                let tray_builder = TrayIconBuilder::new()
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .tooltip("Copyosity")
+                    .menu(&tray_menu)
+                    .on_menu_event(|app, event| {
+                        handle_tray_menu_event(app.app_handle(), event.id().as_ref())
+                    });
+                #[cfg(target_os = "macos")]
+                {
+                    // §4 Deferred popup — show_menu_on_left_click(true) regresses 2nd/3rd click
+                    tray_builder
+                        .show_menu_on_left_click(false)
+                        .on_tray_icon_event(|tray, event| {
+                            if let TrayIconEvent::Click {
+                                button: MouseButton::Left,
+                                button_state: MouseButtonState::Down,
+                                ..
+                            } = event
+                            {
+                                #[cfg(target_os = "macos")]
+                                clipboard_macos::remember_paste_target();
+                                tray_macos::set_tray_highlight(tray, true);
+                                tray_macos::schedule_tray_menu_popup(tray.clone());
+                            }
+                        })
+                        .build(app)?
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    tray_builder.show_menu_on_left_click(true).build(app)?
+                }
+            };
+            app.manage(tray);
+
+            #[cfg(target_os = "macos")]
+            {
+                // §5 Warmup — do not replace activateIgnoringOtherApps(true) with activate()
+                tray_macos::warmup_app_for_status_item_menu();
                 overlay_dismiss::install_overlay_dismiss_guards();
                 overlay_dismiss::install_cmd_up_dismiss(app.handle().clone());
                 overlay_dismiss::install_app_switch_dismiss(app.handle().clone());
+                clipboard_macos::install_last_frontmost_observer();
+                eprintln!("[tray] startup: hidden main + deferred tray popup ready");
             }
-
-            let tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Copyosity")
-                .menu(&build_tray_menu(app.handle())?)
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "search" => toggle_command_palette(app.app_handle()),
-                    "overlay" => toggle_window(app.app_handle()),
-                    "snippets" => quick_menu::show(app.app_handle()),
-                    "settings" => {
-                        let _ = commands::open_settings_window(app.app_handle().clone(), None);
-                    }
-                    "quit" => {
-                        let _ = commands::quit_app(app.app_handle().clone());
-                    }
-                    _ => {}
-                })
-                .build(app)?;
-            app.manage(tray);
+            // --- end TRAY STARTUP ---
 
             let shortcut = {
                 #[cfg(target_os = "macos")]
@@ -573,11 +602,6 @@ pub fn run() {
                 eprintln!("Palette shortcut registration failed: {}", e);
             }
 
-            // Pre-create voice overlay panel so it's ready without stealing focus later
-            ensure_voice_overlay(app.handle());
-            #[cfg(target_os = "macos")]
-            ensure_command_palette(app.handle());
-
             // Register voice transcription shortcut from settings
             if let Err(e) = register_voice_shortcut(app.handle()) {
                 eprintln!("Voice shortcut registration failed: {}", e);
@@ -596,6 +620,10 @@ pub fn run() {
                 "copyosity: global shortcut registered = {}",
                 app.global_shortcut().is_registered(shortcut)
             );
+
+            // §8 Agent guardrail: docs/architecture/macos-tray-menu.md — lazy create only.
+            // voice_overlay / command_palette: lazy-created on first hotkey (see show_voice_overlay,
+            // toggle_command_palette). Do NOT pre-create here — regresses tray first-click blink.
 
             let settings = db.get_app_settings().expect("Failed to load app settings");
             ollama::set_active_model(&settings.ollama_model);
@@ -637,8 +665,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            frontend_ready,
             commands::get_entries,
+            commands::get_entry,
             commands::get_overlay_tag_counts,
             commands::delete_entry,
             commands::pin_entry,
@@ -651,6 +679,7 @@ pub fn run() {
             commands::get_history_counts,
             commands::hide_main_window,
             commands::resize_main_window,
+            commands::reset_overlay_board_sizes,
             commands::open_settings_window,
             commands::quit_app,
             commands::get_app_settings,
@@ -711,6 +740,12 @@ pub fn run() {
             tauri::RunEvent::ExitRequested { api, .. } => {
                 api.prevent_exit();
             }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::TrayIconEvent(ref tray_event) => {
+                if std::env::var("COPYOSITY_TRAY_DEBUG").is_ok() {
+                    eprintln!("[tray] TrayIconEvent: {tray_event:?}");
+                }
+            }
             tauri::RunEvent::WindowEvent { label, event, .. } => match (label.as_str(), &event) {
                 ("main", tauri::WindowEvent::CloseRequested { api, .. }) => {
                     api.prevent_close();
@@ -719,12 +754,14 @@ pub fn run() {
                 ("main", tauri::WindowEvent::Focused(false)) => {
                     overlay_dismiss::handle_focus_lost(app);
                 }
+                ("main", tauri::WindowEvent::Resized(_)) => {
+                    persist_main_window_user_resize(app);
+                }
                 ("settings", tauri::WindowEvent::Destroyed) => {
-                    // Settings closed: drop back to a menu-bar-only (Accessory) app so
-                    // there is no lingering Dock icon once the window is gone.
                     #[cfg(target_os = "macos")]
                     {
-                        let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                        // docs/architecture/macos-tray-menu.md §9
+                        activation_macos::maybe_restore_accessory(app);
                     }
                 }
                 _ => {}
@@ -737,50 +774,128 @@ pub(crate) fn present_settings_window(window: &tauri::WebviewWindow) {
     // Settings is a real, focusable window. As an Accessory (menu-bar) app it would
     // have no Dock icon and could vanish behind other apps on focus change, so switch
     // to Regular while it is open. Reverted to Accessory on the window's Destroyed event.
+    // `MoveToActiveSpace` (not `CanJoinAllSpaces` — that's for the always-floating overlay/palette
+    // panels, see macos_window.rs) — without it, focusing Settings while another app (e.g. a
+    // fullscreen IDE) owns the active Space forces macOS to switch the user off that Space to
+    // reveal the window. This relocates Settings to wherever the user currently is *once*, then
+    // leaves it a normal single-Space window again, so it does not keep following the user to
+    // other screens/Spaces afterward.
     #[cfg(target_os = "macos")]
     {
-        let _ = window
-            .app_handle()
-            .set_activation_policy(tauri::ActivationPolicy::Regular);
+        activation_macos::promote_to_regular(window.app_handle());
+        macos_window::apply_move_to_active_space_behavior(window);
     }
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
 }
 
+/// Clipboard overlay WebviewWindow — created hidden at startup (macOS devUrl path); idempotent.
+/// Agent guardrail: docs/architecture/macos-tray-menu.md §3 — must run in setup before tray,
+/// synchronously on main thread; level 3 via apply_hidden_auxiliary_webview.
+pub(crate) fn ensure_main_overlay_window(
+    app: &tauri::AppHandle,
+) -> Result<tauri::WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window("main") {
+        return Ok(window);
+    }
+
+    let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
+        .title("")
+        .inner_size(OVERLAY_WIDTH_MIN, OVERLAY_HEIGHT_COMPACT)
+        .min_inner_size(OVERLAY_WIDTH_MIN, OVERLAY_HEIGHT_MIN)
+        .resizable(true)
+        .decorations(false)
+        .transparent(true)
+        .visible(false)
+        .skip_taskbar(true)
+        .build()
+        .map_err(|e| format!("Failed to create main overlay window: {e}"))?;
+    let _ = window.set_always_on_top(false);
+    #[cfg(target_os = "macos")]
+    macos_window::apply_hidden_auxiliary_webview(&window);
+    eprintln!("[tray] main overlay window ready (hidden auxiliary level)");
+    Ok(window)
+}
+
+/// Convert the lazy main WebviewWindow into a floating NSPanel on first show.
+/// Agent guardrail: docs/architecture/macos-tray-menu.md §7 — not at startup.
+/// Must be called on the main thread only (see INVARIANT on `MAIN_OVERLAY_PANEL`).
+///
+/// **Idempotency:** the `AtomicBool` early-return makes repeated calls a no-op after the first
+/// successful conversion. A unit test would require a full Tauri runtime and is therefore
+/// impractical; the correctness guarantee lives in the `debug_assert` (thread guard) and the
+/// `load → early-return → store` ordering that is safe because all callers are main-thread-only.
+#[cfg(target_os = "macos")]
+fn ensure_main_overlay_panel(app: &tauri::AppHandle) -> Result<(), String> {
+    debug_assert!(
+        objc2::MainThreadMarker::new().is_some(),
+        "ensure_main_overlay_panel must run on the main thread"
+    );
+    if MAIN_OVERLAY_PANEL.load(Ordering::Acquire) {
+        return Ok(());
+    }
+
+    use tauri_nspanel::panel::NSWindowStyleMask;
+
+    let window = ensure_main_overlay_window(app)?;
+    let panel = window
+        .to_panel::<CopyosityPanel>()
+        .map_err(|e| format!("Failed to convert window to panel: {e}"))?;
+    panel.set_style_mask(
+        NSWindowStyleMask::Borderless
+            | NSWindowStyleMask::NonactivatingPanel
+            | NSWindowStyleMask::Resizable,
+    );
+    macos_window::configure_hidden_auxiliary_panel(&*panel);
+    let _ = window.set_always_on_top(false);
+    MAIN_OVERLAY_PANEL.store(true, Ordering::Release);
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ensure_main_overlay_panel(app: &tauri::AppHandle) -> Result<(), String> {
+    ensure_main_overlay_window(app).map(|_| ())
+}
+
 fn toggle_window(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
-        if let Ok(panel) = app.get_webview_panel("main") {
-            if panel.is_visible() {
-                animated_hide_panel(app);
-            } else {
-                if let Some(window) = app.get_webview_window("main") {
-                    position_window_bottom(&window, remembered_overlay_height());
+        if ensure_main_overlay_panel(app).is_ok() {
+            if let Ok(panel) = app.get_webview_panel("main") {
+                if panel.is_visible() {
+                    animated_hide_panel(app);
+                } else {
+                    hide_command_palette(app);
+                    if let Some(window) = app.get_webview_window("main") {
+                        position_window_bottom(&window, remembered_overlay_height());
+                    }
+                    clipboard_macos::remember_paste_target();
+                    PANEL_HIDE_SCHEDULED.store(false, Ordering::Release);
+                    LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
+                    macos_window::configure_fullscreen_auxiliary_panel(&*panel);
+                    panel.show_and_make_key();
+                    overlay_dismiss::set_outside_click_dismiss(app, true);
+                    let _ = app.emit("window-show", ());
                 }
-                clipboard_macos::remember_paste_target();
-                PANEL_HIDE_SCHEDULED.store(false, Ordering::Release);
-                LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
-                panel.set_level(PANEL_LEVEL_ACTIVE);
-                macos_window::configure_fullscreen_auxiliary_panel(&*panel);
-                panel.show_and_make_key();
-                overlay_dismiss::set_outside_click_dismiss(app, true);
-                let _ = app.emit("window-show", ());
+                return;
             }
-            return;
         }
     }
 
-    // Fallback for non-macOS
-    if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
-            animated_hide_panel(app);
-        } else {
-            LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
-            position_window_bottom(&window, remembered_overlay_height());
-            let _ = window.show();
-            let _ = window.set_focus();
-            let _ = app.emit("window-show", ());
+    // Fallback for non-macOS (or before macOS panel conversion)
+    if let Ok(()) = ensure_main_overlay_panel(app) {
+        if let Some(window) = app.get_webview_window("main") {
+            if window.is_visible().unwrap_or(false) {
+                animated_hide_panel(app);
+            } else {
+                hide_command_palette(app);
+                LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
+                position_window_bottom(&window, remembered_overlay_height());
+                let _ = window.show();
+                let _ = window.set_focus();
+                let _ = app.emit("window-show", ());
+            }
         }
     }
 }
@@ -794,16 +909,25 @@ pub(crate) fn animated_hide_panel(app: &tauri::AppHandle) {
 }
 
 fn hide_panel(app: &tauri::AppHandle) {
+    let mut hid = false;
+
     #[cfg(target_os = "macos")]
     {
         overlay_dismiss::set_outside_click_dismiss(app, false);
-        if let Ok(panel) = app.get_webview_panel("main") {
-            if panel.is_visible() {
-                panel.hide();
-                panel.set_level(PANEL_LEVEL_IDLE);
-                let _ = app.emit("window-hide", ());
+        if ensure_main_overlay_panel(app).is_ok() {
+            if let Ok(panel) = app.get_webview_panel("main") {
+                if panel.is_visible() {
+                    panel.hide();
+                    macos_window::configure_hidden_auxiliary_panel(&*panel);
+                    let _ = app.emit("window-hide", ());
+                    hid = true;
+                }
+                if hid {
+                    // §9 Agent guardrail: docs/architecture/macos-tray-menu.md
+                    activation_macos::maybe_restore_accessory(app);
+                }
+                return;
             }
-            return;
         }
     }
 
@@ -811,6 +935,8 @@ fn hide_panel(app: &tauri::AppHandle) {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
             let _ = app.emit("window-hide", ());
+            #[cfg(target_os = "macos")]
+            activation_macos::maybe_restore_accessory(app);
         }
     }
 }
@@ -838,6 +964,39 @@ fn main_panel_visible(app: &tauri::AppHandle) -> bool {
     app.get_webview_window("main")
         .map(|window| window.is_visible().unwrap_or(false))
         .unwrap_or(false)
+}
+
+/// Dismiss the clipboard overlay synchronously when another floating UI takes over.
+pub(crate) fn dismiss_main_panel_if_visible(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    overlay_dismiss::set_outside_click_dismiss(app, false);
+    if main_panel_visible(app) {
+        PANEL_HIDE_SCHEDULED.store(false, Ordering::Release);
+        finalize_panel_hide(app);
+    }
+}
+
+/// Dismiss floating auxiliary UIs before the native quick menu opens its modal loop.
+/// Tray clicks and open overlay/agent panels race with `popup_menu` and make snippets blink.
+#[cfg(target_os = "macos")]
+pub(crate) fn prepare_for_quick_menu(app: &tauri::AppHandle) {
+    dismiss_main_panel_if_visible(app);
+    hide_command_palette(app);
+}
+
+pub(crate) fn hide_command_palette(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::ManagerExt;
+        if let Ok(panel) = app.get_webview_panel("command_palette") {
+            panel.hide();
+            macos_window::configure_hidden_auxiliary_panel(&*panel);
+            return;
+        }
+    }
+    if let Some(win) = app.get_webview_window("command_palette") {
+        let _ = win.hide();
+    }
 }
 
 fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -891,10 +1050,29 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 }
 
 pub fn refresh_tray_menu(app: &tauri::AppHandle) -> Result<(), String> {
-    let tray = app.state::<tauri::tray::TrayIcon<tauri::Wry>>();
     let menu = build_tray_menu(app).map_err(|e| e.to_string())?;
+    let tray = app.state::<tauri::tray::TrayIcon<tauri::Wry>>();
     tray.set_menu(Some(menu))
         .map_err(|e| format!("Failed to refresh tray menu: {e}"))
+}
+
+fn handle_tray_menu_event(app: &tauri::AppHandle, id: &str) {
+    match id {
+        "search" => toggle_command_palette(app),
+        "overlay" => toggle_window(app),
+        "snippets" => quick_menu::show(app),
+        "settings" => {
+            let _ = commands::open_settings_window(app.clone(), None);
+        }
+        "quit" => {
+            let _ = commands::quit_app(app.clone());
+        }
+        _ => {
+            // "version" and any future info-only items are intentionally no-ops.
+            #[cfg(debug_assertions)]
+            eprintln!("[tray] unhandled menu event id: {id}");
+        }
+    }
 }
 
 /// Run the transcription through the hub polish step when enabled, falling back
@@ -1224,7 +1402,7 @@ fn ensure_voice_overlay(app: &tauri::AppHandle) {
                     NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel,
                 );
                 panel.set_becomes_key_only_if_needed(true);
-                macos_window::configure_fullscreen_auxiliary_panel(&*panel);
+                macos_window::configure_hidden_auxiliary_panel(&*panel);
             }
         }
     }
@@ -1237,6 +1415,7 @@ fn show_voice_overlay(app: &tauri::AppHandle) {
     {
         use tauri_nspanel::ManagerExt;
         if let Ok(panel) = app.get_webview_panel("voice_overlay") {
+            macos_window::configure_fullscreen_auxiliary_panel(&*panel);
             panel.order_front_regardless();
         }
     }
@@ -1255,6 +1434,7 @@ fn hide_voice_overlay(app: &tauri::AppHandle) {
         use tauri_nspanel::ManagerExt;
         if let Ok(panel) = app.get_webview_panel("voice_overlay") {
             panel.hide();
+            macos_window::configure_hidden_auxiliary_panel(&*panel);
         }
     }
 
@@ -1392,8 +1572,10 @@ fn toggle_command_palette(app: &tauri::AppHandle) {
         if let Ok(panel) = app.get_webview_panel("command_palette") {
             if panel.is_visible() {
                 panel.hide();
+                macos_window::configure_hidden_auxiliary_panel(&*panel);
                 return;
             }
+            dismiss_main_panel_if_visible(app);
             if let Some(pid) = frontmost_app_pid() {
                 if pid != std::process::id() as i32 {
                     PALETTE_TARGET_PID.store(pid, Ordering::Relaxed);
@@ -1409,6 +1591,7 @@ fn toggle_command_palette(app: &tauri::AppHandle) {
                 let _ = window.hide();
                 return;
             }
+            dismiss_main_panel_if_visible(app);
             macos_window::present_fullscreen_auxiliary_webview(&window);
             let _ = app.emit("palette-show", ());
         }
@@ -1429,7 +1612,10 @@ fn ensure_command_palette(app: &tauri::AppHandle) {
     )
     .title("")
     .inner_size(640.0, 460.0)
-    .min_inner_size(380.0, 160.0)
+    .min_inner_size(
+        palette_window::PALETTE_MIN_WIDTH,
+        palette_window::PALETTE_MIN_HEIGHT,
+    )
     .resizable(true)
     .decorations(false)
     .transparent(true)
@@ -1447,7 +1633,7 @@ fn ensure_command_palette(app: &tauri::AppHandle) {
                     | NSWindowStyleMask::NonactivatingPanel
                     | NSWindowStyleMask::Resizable,
             );
-            macos_window::configure_fullscreen_auxiliary_panel(&*panel);
+            macos_window::configure_hidden_auxiliary_panel(&*panel);
         } else {
             eprintln!("[palette] failed to convert command_palette to NSPanel");
         }
@@ -1637,19 +1823,7 @@ fn palette_is_dot_mode(app: tauri::AppHandle) -> Result<bool, String> {
 /// Hide the command palette.
 #[tauri::command]
 fn palette_hide(app: tauri::AppHandle) {
-    #[cfg(target_os = "macos")]
-    {
-        use tauri_nspanel::ManagerExt;
-        if let Ok(panel) = app.get_webview_panel("command_palette") {
-            panel.hide();
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        if let Some(win) = app.get_webview_window("command_palette") {
-            let _ = win.hide();
-        }
-    }
+    hide_command_palette(&app);
 }
 
 /// Hide the palette and paste `text` into the app that was frontmost when it opened.
@@ -1794,7 +1968,25 @@ pub const OVERLAY_HEIGHT_COMPACT: f64 = 450.0;
 pub const OVERLAY_HEIGHT_MIN: f64 = 360.0;
 pub const OVERLAY_HEIGHT_MAX: f64 = 560.0;
 
+/// Horizontal board: minimum width (logical px); user resize cannot go below this.
+pub(crate) const OVERLAY_WIDTH_MIN: f64 = 900.0;
+pub(crate) const OVERLAY_WIDTH_PREFERRED: f64 = 1200.0;
+
+/// Vertical board: minimum width (logical px); user resize cannot go below this.
+pub(crate) const OVERLAY_WIDTH_MIN_VERTICAL: f64 = 360.0;
+/// Vertical board: default width used until the user resizes it.
+pub(crate) const OVERLAY_WIDTH_PREFERRED_VERTICAL: f64 = OVERLAY_WIDTH_MIN_VERTICAL;
+/// Vertical board: maximum width (logical px).
+pub(crate) const OVERLAY_WIDTH_MAX_VERTICAL: f64 = 720.0;
+const OVERLAY_HEIGHT_PREFERRED_VERTICAL: f64 = 820.0;
+const OVERLAY_HEIGHT_MIN_VERTICAL: f64 = 520.0;
+
 static LAST_OVERLAY_HEIGHT_BITS: AtomicU64 = AtomicU64::new(0);
+/// Physical size `position_window_bottom` last applied to the main window, used by
+/// `persist_main_window_user_resize` to tell an echoed `Resized` event (our own
+/// `set_size` call) apart from an actual user drag on the resize grip.
+static LAST_PROGRAMMATIC_WIDTH: AtomicU32 = AtomicU32::new(0);
+static LAST_PROGRAMMATIC_HEIGHT: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) fn remember_overlay_height(height: f64) {
     let clamped = height.clamp(OVERLAY_HEIGHT_MIN, OVERLAY_HEIGHT_MAX);
@@ -1811,9 +2003,116 @@ pub(crate) fn remembered_overlay_height() -> f64 {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn reset_remembered_overlay_height_for_tests() {
+pub(crate) fn reset_remembered_overlay_height() {
     LAST_OVERLAY_HEIGHT_BITS.store(0, Ordering::Relaxed);
+}
+
+/// Horizontal board: clamp a logical width to the allowed range (no upper bound
+/// other than the active monitor's work area, applied separately).
+fn clamp_horizontal_width(width: f64) -> f64 {
+    width.max(OVERLAY_WIDTH_MIN)
+}
+
+/// Vertical board: clamp a logical width to the allowed range.
+fn clamp_vertical_width(width: f64) -> f64 {
+    width.clamp(OVERLAY_WIDTH_MIN_VERTICAL, OVERLAY_WIDTH_MAX_VERTICAL)
+}
+
+/// Resolve the physical width to apply for the horizontal board, given the
+/// preferred logical width and the active monitor's physical work-area width.
+fn resolve_horizontal_win_width(preferred_logical: f64, scale: f64, work_area_width: u32) -> u32 {
+    let min_width = (OVERLAY_WIDTH_MIN * scale) as u32;
+    let preferred_width = (clamp_horizontal_width(preferred_logical) * scale) as u32;
+    preferred_width.min(work_area_width).max(min_width)
+}
+
+/// Resolve the physical width to apply for the vertical board, given the
+/// preferred logical width and the active monitor's physical work-area width.
+fn resolve_vertical_win_width(preferred_logical: f64, scale: f64, work_area_width: u32) -> u32 {
+    let min_w = (OVERLAY_WIDTH_MIN_VERTICAL * scale) as u32;
+    let max_w = (OVERLAY_WIDTH_MAX_VERTICAL * scale) as u32;
+    let w = (clamp_vertical_width(preferred_logical) * scale) as u32;
+    w.min(work_area_width).max(min_w).min(max_w)
+}
+
+fn overlay_horizontal_width_from_db(window: &tauri::WebviewWindow) -> f64 {
+    window
+        .app_handle()
+        .try_state::<Arc<db::Database>>()
+        .and_then(|db| db.overlay_horizontal_width().ok().flatten())
+        .map(clamp_horizontal_width)
+        .unwrap_or(OVERLAY_WIDTH_PREFERRED)
+}
+
+fn overlay_vertical_width_from_db(window: &tauri::WebviewWindow) -> f64 {
+    window
+        .app_handle()
+        .try_state::<Arc<db::Database>>()
+        .and_then(|db| db.overlay_vertical_width().ok().flatten())
+        .map(clamp_vertical_width)
+        .unwrap_or(OVERLAY_WIDTH_PREFERRED_VERTICAL)
+}
+
+fn apply_overlay_size_limits(
+    window: &tauri::WebviewWindow,
+    vertical: bool,
+    horizontal_height: f64,
+) {
+    use tauri::LogicalSize;
+
+    if vertical {
+        let _ = window.set_min_size(Some(LogicalSize::new(
+            OVERLAY_WIDTH_MIN_VERTICAL,
+            OVERLAY_HEIGHT_MIN_VERTICAL,
+        )));
+        let _ = window.set_max_size(Some(LogicalSize::new(OVERLAY_WIDTH_MAX_VERTICAL, 10_000.0)));
+    } else {
+        // Cards are fixed-height, so vertical drag-resize is locked entirely (min == max);
+        // only the width edges remain draggable. See docs/architecture — horizontal board.
+        // Vertical-board *height* resize (see the `vertical` branch above) is intentionally
+        // never persisted — only width is saved to disk — so it resets to the preferred
+        // height on next reveal.
+        let _ = window.set_min_size(Some(LogicalSize::new(OVERLAY_WIDTH_MIN, horizontal_height)));
+        let _ = window.set_max_size(Some(LogicalSize::new(100_000.0, horizontal_height)));
+    }
+}
+
+/// User dragged the native resize edge/grip; persist the resulting logical width so the next
+/// `position_window_bottom` restores it. Ignores resizes while the panel is hidden (creation,
+/// pre-show `position_window_bottom` calls), and ignores resizes that merely echo the size
+/// `position_window_bottom` itself just applied (e.g. `resize_main_window` height animations),
+/// since neither is a user-driven width change.
+fn persist_main_window_user_resize(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if !window.is_visible().unwrap_or(false) {
+        return;
+    }
+    let Ok(size) = window.inner_size() else {
+        return;
+    };
+    if size.width == LAST_PROGRAMMATIC_WIDTH.load(Ordering::Relaxed)
+        && size.height == LAST_PROGRAMMATIC_HEIGHT.load(Ordering::Relaxed)
+    {
+        return;
+    }
+    let Ok(scale) = window.scale_factor() else {
+        return;
+    };
+    let logical_width = size.width as f64 / scale;
+    let Some(db) = app.try_state::<Arc<db::Database>>() else {
+        return;
+    };
+    let vertical = db
+        .get_app_settings()
+        .map(|s| s.board_vertical)
+        .unwrap_or(false);
+    if vertical {
+        let _ = db.set_overlay_vertical_width(clamp_vertical_width(logical_width));
+    } else {
+        let _ = db.set_overlay_horizontal_width(clamp_horizontal_width(logical_width));
+    }
 }
 
 pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow, height_px: f64) {
@@ -1835,10 +2134,13 @@ pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow, height_px: f
 
     let (win_width, win_height, x, y) = if vertical {
         // Tall narrow panel docked to the right edge of the active screen.
-        let min_h = (520.0 * scale) as u32;
-        let preferred_h = (820.0 * scale) as u32;
-        let w = (360.0 * scale) as u32;
-        let win_width = w.min(work_area.size.width);
+        let min_h = (OVERLAY_HEIGHT_MIN_VERTICAL * scale) as u32;
+        let preferred_h = (OVERLAY_HEIGHT_PREFERRED_VERTICAL * scale) as u32;
+        let win_width = resolve_vertical_win_width(
+            overlay_vertical_width_from_db(window),
+            scale,
+            work_area.size.width,
+        );
         let win_height = preferred_h
             .min(work_area.size.height.saturating_sub(pad as u32 * 2))
             .max(min_h.min(work_area.size.height));
@@ -1847,15 +2149,29 @@ pub(crate) fn position_window_bottom(window: &tauri::WebviewWindow, height_px: f
         (win_width, win_height, x, y)
     } else {
         // Wide bar docked to the bottom-centre of the active screen.
-        let min_width = (900.0 * scale) as u32;
-        let preferred_width = (1180.0 * scale) as u32;
+        let win_width = resolve_horizontal_win_width(
+            overlay_horizontal_width_from_db(window),
+            scale,
+            work_area.size.width,
+        );
         let win_height = (height_px * scale) as u32;
-        let win_width = preferred_width.min(work_area.size.width).max(min_width);
         let x = work_area.position.x + ((work_area.size.width as i32 - win_width as i32) / 2);
         let y = work_area.position.y + work_area.size.height as i32 - win_height as i32 - pad;
         (win_width, win_height, x, y)
     };
 
+    // Record the size we're about to apply *before* calling `set_size`: on macOS,
+    // `setFrame` invokes the `windowDidResize` delegate (our `Resized` handler)
+    // synchronously, before `set_size` returns. Storing these first means that
+    // reentrant handler sees a matching size immediately and skips straight past
+    // the DB lookup, instead of doing a synchronous SQLite round-trip on every
+    // frame of a height-animation loop (`animateOverlayResize`), which caused
+    // visible animation jank.
+    LAST_PROGRAMMATIC_WIDTH.store(win_width, Ordering::Relaxed);
+    LAST_PROGRAMMATIC_HEIGHT.store(win_height, Ordering::Relaxed);
+    // Apply the target min/max constraints before resizing so the OS never clamps
+    // `set_size` against a stale limit left over from the previous call.
+    apply_overlay_size_limits(window, vertical, height_px);
     let _ = window.set_size(PhysicalSize::new(win_width, win_height));
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }
@@ -1870,27 +2186,65 @@ mod overlay_height_tests {
     #[test]
     fn remembered_height_defaults_to_compact() {
         let _guard = TEST_LOCK.lock().unwrap();
-        reset_remembered_overlay_height_for_tests();
+        reset_remembered_overlay_height();
         assert_eq!(remembered_overlay_height(), OVERLAY_HEIGHT_COMPACT);
     }
 
     #[test]
     fn remember_overlay_height_round_trips() {
         let _guard = TEST_LOCK.lock().unwrap();
-        reset_remembered_overlay_height_for_tests();
+        reset_remembered_overlay_height();
         remember_overlay_height(508.0);
         assert_eq!(remembered_overlay_height(), 508.0);
-        reset_remembered_overlay_height_for_tests();
+        reset_remembered_overlay_height();
     }
 
     #[test]
     fn remember_overlay_height_clamps_out_of_range_values() {
         let _guard = TEST_LOCK.lock().unwrap();
-        reset_remembered_overlay_height_for_tests();
+        reset_remembered_overlay_height();
         remember_overlay_height(999.0);
         assert_eq!(remembered_overlay_height(), OVERLAY_HEIGHT_MAX);
         remember_overlay_height(100.0);
         assert_eq!(remembered_overlay_height(), OVERLAY_HEIGHT_MIN);
-        reset_remembered_overlay_height_for_tests();
+        reset_remembered_overlay_height();
+    }
+}
+
+#[cfg(test)]
+mod overlay_width_tests {
+    use super::*;
+
+    #[test]
+    fn clamp_horizontal_width_enforces_min_only() {
+        assert_eq!(clamp_horizontal_width(400.0), OVERLAY_WIDTH_MIN);
+        assert_eq!(clamp_horizontal_width(OVERLAY_WIDTH_MIN), OVERLAY_WIDTH_MIN);
+        assert_eq!(clamp_horizontal_width(2000.0), 2000.0);
+    }
+
+    #[test]
+    fn clamp_vertical_width_enforces_min_and_max() {
+        assert_eq!(clamp_vertical_width(100.0), OVERLAY_WIDTH_MIN_VERTICAL);
+        assert_eq!(clamp_vertical_width(5000.0), OVERLAY_WIDTH_MAX_VERTICAL);
+        assert_eq!(clamp_vertical_width(500.0), 500.0);
+    }
+
+    #[test]
+    fn resolve_horizontal_win_width_clamps_to_work_area() {
+        // Preferred width fits comfortably within a large work area.
+        assert_eq!(resolve_horizontal_win_width(1200.0, 1.0, 2560), 1200);
+        // Work area narrower than preferred width caps the result, but never below min.
+        assert_eq!(resolve_horizontal_win_width(1200.0, 1.0, 1000), 1000);
+        // Below-minimum preferred widths are raised to the minimum.
+        assert_eq!(resolve_horizontal_win_width(100.0, 1.0, 2560), 900);
+    }
+
+    #[test]
+    fn resolve_vertical_win_width_clamps_to_range_and_work_area() {
+        assert_eq!(resolve_vertical_win_width(360.0, 1.0, 2560), 360);
+        // Above-maximum preferred widths are capped.
+        assert_eq!(resolve_vertical_win_width(5000.0, 1.0, 2560), 720);
+        // A narrow work area wins over the preferred width but not below the minimum.
+        assert_eq!(resolve_vertical_win_width(600.0, 1.0, 200), 360);
     }
 }

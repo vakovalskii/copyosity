@@ -202,10 +202,16 @@ body {
 }
 
 .mode-badge {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  height: var(--overlay-header-control-height);
+  min-height: var(--overlay-header-control-height);
+  padding: 0 var(--space-control-x);
   font-size: var(--font-size-xs);
   font-weight: 700;
-  padding: 4px 9px;
   border-radius: var(--radius-control-sm);
   border: 1px solid var(--border-soft);
   background: var(--surface-palette-chat-subtle);
@@ -221,6 +227,29 @@ body {
 .mode-badge.agent {
   background: var(--surface-agent-subtle);
   color: var(--color-agent-text);
+}
+
+/* Agent model picker — compact toolbar form-select (HIG chevron, control tokens). */
+.model-select {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: 9.5rem;
+  height: var(--overlay-header-control-height);
+  min-height: var(--overlay-header-control-height);
+  max-height: var(--overlay-header-control-height);
+  padding-left: var(--space-control-x);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  line-height: calc(var(--overlay-header-control-height) - 2px);
+  color: var(--color-text-secondary);
+  text-overflow: ellipsis;
+}
+
+.model-select.is-unavailable {
+  color: var(--color-text-tertiary);
+  cursor: default;
+  opacity: var(--opacity-disabled);
 }
 
 .query-input {
@@ -250,13 +279,15 @@ body {
   flex-shrink: 0;
 }
 
+/* Query-field icon buttons — 28px circular hit target; full-disc hover / active fill. */
+.shot-btn,
 .mic-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
-  margin: -4px -6px -4px 0;
   padding: 0;
   border: none;
   border-radius: 50%;
@@ -267,11 +298,72 @@ body {
   transition: color var(--duration-fast) var(--ease-interactive);
 }
 
+.shot-btn::before,
+.mic-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: transparent;
+  pointer-events: none;
+  transition: background-color var(--duration-fast) var(--ease-interactive);
+}
+
+.shot-btn {
+  margin: -4px 0;
+}
+
+.mic-btn {
+  margin: -4px -6px -4px 0;
+}
+
+.shot-btn:hover:not(:disabled, .active),
 .mic-btn:hover:not(:disabled, .recording) {
   color: var(--color-text-secondary);
 }
 
-.mic-btn:focus-visible {
+.shot-btn:hover:not(:disabled, .active)::before,
+.mic-btn:hover:not(:disabled, .recording)::before {
+  background: var(--surface-6);
+}
+
+.shot-btn.active {
+  color: var(--color-agent);
+}
+
+.shot-btn.active::before {
+  background: var(--surface-agent-muted);
+}
+
+.shot-btn:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+}
+
+.shot-btn-icon,
+.mic-btn-icon {
+  position: relative;
+  z-index: 1;
+}
+
+.shot-btn-icon {
+  width: var(--icon-size-overlay-header-settings);
+  height: var(--icon-size-overlay-header-settings);
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.query-field .shot-btn:active:not(:disabled),
+.query-field .mic-btn:active:not(:disabled) {
+  filter: none;
+  box-shadow: none;
+}
+
+.mic-btn:focus-visible,
+.shot-btn:focus-visible {
   outline: none;
   box-shadow: var(--ring-accent);
 }
@@ -288,6 +380,10 @@ body {
 
 .mic-btn.recording {
   color: var(--color-recording);
+}
+
+.mic-btn.recording::before {
+  background: rgb(var(--rgb-recording) / 25%);
 }
 
 @keyframes palette-pulse {

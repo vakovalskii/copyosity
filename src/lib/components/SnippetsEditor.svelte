@@ -74,8 +74,11 @@
     persistCollapsedFolders();
   }
 
-  async function reload() {
-    loading = true;
+  async function reload(options?: { silent?: boolean }) {
+    const silent = options?.silent ?? false;
+    if (!silent) {
+      loading = true;
+    }
     error = "";
     try {
       [folders, snippets] = await Promise.all([getSnippetFolders(), getSnippets()]);
@@ -86,7 +89,9 @@
     } catch (e) {
       error = `Failed to load snippets: ${e}`;
     } finally {
-      loading = false;
+      if (!silent) {
+        loading = false;
+      }
     }
   }
 
@@ -101,7 +106,7 @@
     try {
       const folderId = await createSnippetFolder(name);
       newFolderName = "";
-      await reload();
+      await reload({ silent: true });
       expandFolder(folderId);
     } catch (e) {
       error = `${e}`;
@@ -140,7 +145,7 @@
     if (!trimmed || trimmed === folder.name) return;
     try {
       await renameSnippetFolder(folder.id, trimmed);
-      await reload();
+      await reload({ silent: true });
     } catch (e) {
       error = `${e}`;
     }
@@ -156,7 +161,7 @@
     if (!confirmed) return;
     try {
       await deleteSnippetFolder(folder.id);
-      await reload();
+      await reload({ silent: true });
     } catch (e) {
       error = `${e}`;
     }
@@ -170,7 +175,7 @@
     try {
       await createSnippet(folderId, title, draft.content);
       drafts[folderId] = { title: "", content: "" };
-      await reload();
+      await reload({ silent: true });
       expandFolder(folderId);
     } catch (e) {
       error = `${e}`;
@@ -195,7 +200,7 @@
     try {
       await updateSnippet(id, title, draft.content);
       cancelEdit(id);
-      await reload();
+      await reload({ silent: true });
     } catch (e) {
       error = `${e}`;
     }
@@ -204,7 +209,8 @@
   async function removeSnippet(snippet: Snippet) {
     try {
       await deleteSnippet(snippet.id);
-      await reload();
+      snippets = snippets.filter((s) => s.id !== snippet.id);
+      cancelEdit(snippet.id);
     } catch (e) {
       error = `${e}`;
     }
@@ -244,11 +250,12 @@
   {:else if folders.length === 0}
     <p class="form-hint">No folders yet. Create one above to start adding snippets.</p>
   {:else}
-    <div class="inset-list snip-folders-list">
+    <div class="snip-folders-list">
       {#each folders as folder (folder.id)}
         {@const expanded = folderExpanded(folder.id)}
         {@const folderSnippets = snippetsIn(folder.id)}
         {@const renaming = renamingFolderId === folder.id}
+        <div class="inset-list snip-folder">
         <div
           class="snip-folder-header"
           class:snip-folder-header--renaming={renaming}
@@ -482,6 +489,7 @@
           </div>
         {/if}
         </div>
+        </div>
       {/each}
     </div>
   {/if}
@@ -496,6 +504,9 @@
   }
 
   .snip-folders-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-stack);
     min-width: 0;
   }
 
@@ -503,7 +514,12 @@
     display: none;
   }
 
-  .snippets-stack :global(.inset-list > .snip-folder-header) {
+  /* Same row dividers as `.inset-list > * + *` (HIG item 30); panel is nested inside per-folder inset card */
+  .snippets-stack :global(.snip-folder-panel > * + *) {
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .snippets-stack :global(.snip-folder > .snip-folder-header) {
     box-sizing: border-box;
     display: grid;
     grid-template-columns: auto 1fr auto auto;
@@ -597,7 +613,7 @@
     padding: var(--space-control-y) var(--inset-list-pad-inline);
   }
 
-  .snippets-stack :global(.inset-list > .snip-entry-row) {
+  .snippets-stack :global(.snip-folder-panel > .snip-entry-row) {
     box-sizing: border-box;
     display: flex;
     align-items: center;
@@ -607,7 +623,13 @@
     padding: var(--space-control-y) var(--inset-list-pad-inline);
   }
 
-  .snippets-stack :global(.inset-list > .snip-folder-footer) {
+  .snippets-stack :global(.snip-folder-panel > .form-field) {
+    box-sizing: border-box;
+    min-width: 0;
+    padding: var(--inset-list-pad-block) var(--inset-list-pad-inline);
+  }
+
+  .snippets-stack :global(.snip-folder-panel > .snip-folder-footer) {
     box-sizing: border-box;
     padding: var(--space-control-y) var(--inset-list-pad-inline);
   }

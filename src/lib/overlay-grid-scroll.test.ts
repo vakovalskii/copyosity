@@ -8,6 +8,9 @@ import {
   isCardOffScreenVertical,
   nextIndexAfterKeyboardArrow,
   shouldAnchorKeyboardSelectionBeforeArrow,
+  verticalCardViewportPosition,
+  verticalScrollDeltaForKeyboardNav,
+  verticalScrollDeltaToSnapCard,
 } from "./overlay-grid-scroll.ts";
 
 const viewport = { left: 0, right: 400 };
@@ -101,6 +104,75 @@ describe("indexOfLeadingVisibleCardVertical", () => {
   });
 });
 
+describe("verticalScrollDeltaForKeyboardNav", () => {
+  it("aligns the row top to the padded viewport top when moving down", () => {
+    assert.equal(
+      verticalScrollDeltaForKeyboardNav(
+        viewportVertical,
+        16,
+        16,
+        { top: 500, bottom: 620 },
+        "down",
+      ),
+      484,
+    );
+  });
+
+  it("aligns the row bottom to the padded viewport bottom when moving up", () => {
+    assert.equal(
+      verticalScrollDeltaForKeyboardNav(viewportVertical, 16, 16, { top: -80, bottom: 80 }, "up"),
+      -504,
+    );
+  });
+
+  it("returns 0 when the row is already fully visible", () => {
+    assert.equal(
+      verticalScrollDeltaForKeyboardNav(viewportVertical, 16, 16, { top: 32, bottom: 200 }, "down"),
+      0,
+    );
+  });
+});
+
+describe("verticalCardViewportPosition", () => {
+  it("classifies above, inside, and below the padded viewport", () => {
+    assert.equal(
+      verticalCardViewportPosition(viewportVertical, 16, 16, { top: -80, bottom: 10 }),
+      "above",
+    );
+    assert.equal(
+      verticalCardViewportPosition(viewportVertical, 16, 16, { top: 32, bottom: 200 }),
+      "inside",
+    );
+    assert.equal(
+      verticalCardViewportPosition(viewportVertical, 16, 16, { top: 620, bottom: 740 }),
+      "below",
+    );
+  });
+});
+
+describe("verticalScrollDeltaToSnapCard", () => {
+  it("returns 0 when the card is fully inside the padded viewport", () => {
+    assert.equal(
+      verticalScrollDeltaToSnapCard(viewportVertical, 16, 16, { top: 32, bottom: 200 }),
+      0,
+    );
+  });
+
+  it("scrolls down when the card extends below the padded viewport", () => {
+    assert.equal(
+      verticalScrollDeltaToSnapCard(viewportVertical, 16, 16, { top: 500, bottom: 700 }),
+      116,
+    );
+  });
+
+  it("scrolls up when the card extends above the padded viewport", () => {
+    assert.equal(
+      verticalScrollDeltaToSnapCard(viewportVertical, 16, 16, { top: -80, bottom: 80 }),
+      -96,
+    );
+  });
+});
+
 describe("isCardOffScreenVertical", () => {
   it("returns true when the card is fully above the padded viewport", () => {
     assert.equal(
@@ -164,6 +236,62 @@ describe("keyboard arrow anchor policy (intentional)", () => {
     );
   });
 
+  it("does not anchor vertical ↓ when the selection is below the fold", () => {
+    assert.equal(
+      shouldAnchorKeyboardSelectionBeforeArrow({
+        selectedIndex: 8,
+        selectedOffScreen: true,
+        boardVertical: true,
+        direction: "right",
+        verticalPosition: "below",
+      }),
+      false,
+    );
+  });
+
+  it("does not anchor vertical ↑ when the selection is above the fold", () => {
+    assert.equal(
+      shouldAnchorKeyboardSelectionBeforeArrow({
+        selectedIndex: 2,
+        selectedOffScreen: true,
+        boardVertical: true,
+        direction: "left",
+        verticalPosition: "above",
+      }),
+      false,
+    );
+  });
+
+  it("vertical ↓ below the fold advances without snapping back to leading", () => {
+    const next = nextIndexAfterKeyboardArrow({
+      direction: "right",
+      selectedIndex: 8,
+      leadingIndex: 0,
+      selectedOffScreen: true,
+      entryCount: 20,
+      boardVertical: true,
+      verticalPosition: "below",
+    });
+    assert.equal(next, 9);
+  });
+
+  it("vertical loop regression: off-screen below then ↓ never resets to leading+1", () => {
+    let selected = 5;
+    const leading = 0;
+    for (let step = 0; step < 6; step++) {
+      selected = nextIndexAfterKeyboardArrow({
+        direction: "right",
+        selectedIndex: selected,
+        leadingIndex: leading,
+        selectedOffScreen: true,
+        entryCount: 20,
+        boardVertical: true,
+        verticalPosition: "below",
+      });
+    }
+    assert.equal(selected, 11);
+  });
+
   it("rapid → advances 0→1→2→3 while leading stays 0 and cards stay on-screen", () => {
     const context = {
       leadingIndex: 0,
@@ -201,5 +329,58 @@ describe("keyboard arrow anchor policy (intentional)", () => {
   it("anti-pattern: anchoring on leading≠selected sticks index on rapid repeat", () => {
     assert.equal(antiPatternNextAfterArrowRight(0), 1);
     assert.equal(antiPatternNextAfterArrowRight(1), 1, "wrong policy freezes at card 1");
+  });
+
+  it("first → with no prior selection lands on card 0, not card 1", () => {
+    const next = nextIndexAfterKeyboardArrow({
+      direction: "right",
+      selectedIndex: -1,
+      leadingIndex: 0,
+      selectedOffScreen: false,
+      entryCount: 10,
+    });
+    assert.equal(next, 0);
+  });
+
+  it("first ↓ (vertical) with no prior selection lands on card 0, not card 1", () => {
+    const next = nextIndexAfterKeyboardArrow({
+      direction: "right",
+      selectedIndex: -1,
+      leadingIndex: 0,
+      selectedOffScreen: false,
+      entryCount: 10,
+      boardVertical: true,
+    });
+    assert.equal(next, 0);
+  });
+
+  it("first ← with no prior selection pages backward from the leading card", () => {
+    const next = nextIndexAfterKeyboardArrow({
+      direction: "left",
+      selectedIndex: -1,
+      leadingIndex: 5,
+      selectedOffScreen: false,
+      entryCount: 20,
+    });
+    assert.equal(next, 4);
+  });
+
+  it("second → after landing on card 0 from no selection advances to card 1", () => {
+    let selected = -1;
+    selected = nextIndexAfterKeyboardArrow({
+      direction: "right",
+      selectedIndex: selected,
+      leadingIndex: 0,
+      selectedOffScreen: false,
+      entryCount: 10,
+    });
+    selected = nextIndexAfterKeyboardArrow({
+      direction: "right",
+      selectedIndex: selected,
+      leadingIndex: 0,
+      selectedOffScreen: false,
+      entryCount: 10,
+    });
+    assert.equal(selected, 1);
   });
 });

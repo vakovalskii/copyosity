@@ -3,7 +3,9 @@
 //! A global hotkey pops up a native macOS menu (built with Tauri's cross-platform
 //! menu API, which renders as an `NSMenu` on macOS) listing recent clipboard
 //! history and saved snippets. Selecting an item pastes it straight into the app
-//! that was frontmost when the menu opened — two clicks, no overlay browsing.
+//! that should receive the paste — two clicks, no overlay browsing. When opened
+//! from the tray menu Copyosity is already frontmost, so the target falls back to
+//! the last remembered non-Copyosity app (`LAST_NON_SELF_FRONTMOST_PID`).
 
 /// How many recent history entries the quick menu surfaces at most.
 pub const QUICK_MENU_HISTORY_LIMIT: usize = 100;
@@ -20,21 +22,34 @@ const RANGE_SIZE: usize = 20;
 #[cfg(target_os = "macos")]
 const LABEL_MAX_CHARS: usize = 52;
 
-/// Build and pop up the quick menu at the mouse cursor. No-op off macOS.
+/// Resolve the app that should receive a quick-menu paste.
 #[cfg(target_os = "macos")]
-pub fn show(app: &tauri::AppHandle) {
+fn resolve_quick_menu_target() -> i32 {
     use std::sync::atomic::Ordering;
-    use tauri::Manager;
 
-    // Capture the currently-frontmost app *before* we activate ourselves, so the
-    // eventual paste lands back in it.
-    let target = crate::frontmost_app_pid().unwrap_or(0);
-    if target > 0 && target != std::process::id() as i32 {
+    let self_pid = std::process::id() as i32;
+    let target = crate::frontmost_app_pid()
+        .filter(|&pid| pid > 0 && pid != self_pid)
+        .or_else(crate::clipboard_macos::last_remembered_paste_target_pid)
+        .unwrap_or(0);
+
+    if target > 0 {
         crate::QUICK_MENU_TARGET_PID.store(target, Ordering::Relaxed);
         crate::clipboard_macos::remember_paste_target_for_pid(target);
     } else {
         crate::QUICK_MENU_TARGET_PID.store(0, Ordering::Relaxed);
     }
+    target
+}
+
+/// Build and pop up the quick menu at the mouse cursor. No-op off macOS.
+#[cfg(target_os = "macos")]
+pub fn show(app: &tauri::AppHandle) {
+    use tauri::Manager;
+
+    // Capture the app that should receive the paste. When opened from the tray menu
+    // Copyosity is already frontmost, so fall back to the last remembered target.
+    let _target = resolve_quick_menu_target();
 
     let db = app.state::<std::sync::Arc<crate::db::Database>>();
     let entries = db
@@ -55,6 +70,9 @@ pub fn show(app: &tauri::AppHandle) {
     let app = app.clone();
     // Build and present on the main thread; the popup runs a modal loop there.
     let _ = app.clone().run_on_main_thread(move || {
+        // popup_menu blocks the main thread; open overlay/agent panels race it and blink closed.
+        crate::prepare_for_quick_menu(&app);
+
         activate_app();
         let menu = match build_menu(&app, &entries, &folders, &snippets) {
             Ok(m) => m,
@@ -63,12 +81,13 @@ pub fn show(app: &tauri::AppHandle) {
                 return;
             }
         };
-        if let Some(win) = app.get_webview_window("main") {
-            if let Err(e) = win.popup_menu(&menu) {
+        if let Ok(win) = crate::ensure_main_overlay_window(&app) {
+            let row_count = menu_row_count(&menu);
+            if let Err(e) = popup_menu_smart(&win, &menu, row_count) {
                 eprintln!("[quick_menu] popup failed: {}", e);
             }
         } else {
-            eprintln!("[quick_menu] no main window to anchor the menu");
+            eprintln!("[quick_menu] failed to create main window for menu anchor");
         }
     });
 }
@@ -242,6 +261,92 @@ fn truncate(s: &str) -> String {
 }
 
 /// Bring Copyosity to the foreground so the native menu can track input.
+#[cfg(target_os = "macos")]
+fn popup_menu_smart(
+    window: &tauri::WebviewWindow,
+    menu: &tauri::menu::Menu<tauri::Wry>,
+    row_count: usize,
+) -> tauri::Result<()> {
+    use objc2_app_kit::NSEvent;
+    use tauri::LogicalPosition;
+
+    use crate::quick_menu_position::{estimated_menu_height, popup_top_y, should_flip_menu_up};
+
+    let mouse = NSEvent::mouseLocation();
+    let menu_height = estimated_menu_height(row_count);
+    let visible = visible_frame_at_point(mouse.x, mouse.y);
+    let visible_bottom = visible.origin.y;
+    let visible_top = visible.origin.y + visible.size.height;
+
+    if !should_flip_menu_up(mouse.y, menu_height, visible_bottom) {
+        return window.popup_menu(menu);
+    }
+
+    let top_y = popup_top_y(mouse.y, menu_height, visible_bottom, visible_top);
+    let Some(position) = screen_point_to_menu_position(window, mouse.x, top_y) else {
+        return window.popup_menu(menu);
+    };
+    window.popup_menu_at(menu, LogicalPosition::new(position.x, position.y))
+}
+
+#[cfg(target_os = "macos")]
+fn menu_row_count(menu: &tauri::menu::Menu<tauri::Wry>) -> usize {
+    menu.items().map(|items| items.len()).unwrap_or(0)
+}
+
+#[cfg(target_os = "macos")]
+fn visible_frame_at_point(x: f64, y: f64) -> objc2_foundation::NSRect {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSScreen;
+    use objc2_foundation::NSPoint;
+
+    let mtm = MainThreadMarker::new().expect("quick menu popup requires main thread");
+    let screens = NSScreen::screens(mtm);
+    for screen in screens.iter() {
+        let frame = screen.visibleFrame();
+        if crate::overlay_dismiss::point_in_screen_rect(
+            x,
+            y,
+            frame.origin.x,
+            frame.origin.y,
+            frame.size.width,
+            frame.size.height,
+        ) {
+            return frame;
+        }
+    }
+
+    NSScreen::mainScreen(mtm)
+        .map(|screen| screen.visibleFrame())
+        .unwrap_or_else(|| objc2_foundation::NSRect {
+            origin: NSPoint::new(0.0, 0.0),
+            size: objc2_foundation::NSSize::new(0.0, 0.0),
+        })
+}
+
+#[cfg(target_os = "macos")]
+fn screen_point_to_menu_position(
+    window: &tauri::WebviewWindow,
+    screen_x: f64,
+    screen_y: f64,
+) -> Option<objc2_foundation::NSPoint> {
+    use objc2_app_kit::NSWindow;
+    use objc2_foundation::NSPoint;
+
+    let raw = window.ns_window().ok()?;
+    unsafe {
+        let ns_window = &*raw.cast::<NSWindow>();
+        let content_view = ns_window.contentView()?;
+        let view_frame = content_view.frame();
+        let window_point = ns_window.convertPointFromScreen(NSPoint::new(screen_x, screen_y));
+        let view_point = content_view.convertPoint_fromView(window_point, None);
+        Some(NSPoint::new(
+            view_point.x,
+            view_frame.size.height - view_point.y,
+        ))
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn activate_app() {
     use objc::runtime::Object;

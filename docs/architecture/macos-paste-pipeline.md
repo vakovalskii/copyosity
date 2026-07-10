@@ -2,7 +2,7 @@
 
 How Copyosity writes to the system pasteboard and pastes into the target app on macOS.
 
-Applies to **overlay activate**, **voice transcription**, and **command palette insert** flows.
+Applies to **overlay activate**, **voice transcription**, **command palette insert**, and **native quick menu** (history + snippets) flows.
 
 ## End-to-end flow
 
@@ -12,12 +12,14 @@ flowchart TD
         OV[Double-click / Enter]
         VO[Voice transcription]
         PL[Palette Insert]
+        QM[Quick menu item]
     end
 
     subgraph capture [Target capture]
         OV --> R1[remember_paste_target on panel show]
         VO --> R2[remember_paste_target_for_pid on hotkey press + release]
         PL --> R3[remember_paste_target_for_pid on palette open + insert]
+        QM --> R4[resolve_quick_menu_target on menu open]
     end
 
     triggers --> WRITE[clipboard_write Paste mode]
@@ -58,6 +60,7 @@ flowchart TD
 | Enter on selected card       | `activateEntry`           | `commands::activate_entry`                                                | Panel show                                   | Yes                      | `true`                  |
 | Voice transcription complete | —                         | `lib.rs` → `clipboard_write::write_text` + `spawn_automated_paste(false)` | Hotkey press + release (`VOICE_TARGET_PID`)  | No                       | `false`                 |
 | Command palette Insert       | `palette/+page.svelte`    | `lib.rs` → `palette_insert`                                               | Palette open + insert (`PALETTE_TARGET_PID`) | Palette hide only        | `false`                 |
+| Quick menu history / snippet | —                         | `commands::quick_menu_paste_*`                                            | Menu open (`resolve_quick_menu_target`)      | No                       | `false`                 |
 | Legacy text paste API        | `pasteEntry` (deprecated) | `commands::paste_entry`                                                   | Panel show                                   | Yes                      | `true`                  |
 
 **Copy-only** (`copy_entry` / card action menu) writes with `ClipboardWriteMode::Copy` and does **not** run the paste pipeline.
@@ -164,6 +167,8 @@ All macOS synthetic Cmd+V goes through `clipboard_macos/paste.rs::simulate_cmd_v
 
 `AXPaste` is unreliable in Messages (`com.apple.MobileSMS`, legacy `com.apple.iChat`). Those bundle IDs are listed in `KEYBOARD_PASTE_BUNDLE_IDS`; `try_ax_paste_for_pid` skips AX and goes straight to synthetic Cmd+V.
 
+Chromium-based browsers (Brave, Chrome, Edge, …) are in the same list: `AXPaste` often returns success on `AXWebArea` without inserting into the focused web field.
+
 ### Frontmost target → session tap (one tap only)
 
 When the target PID is frontmost after `wait_for_frontmost`, `simulate_cmd_v` posts to **`kCGSessionEventTap` only**.
@@ -192,11 +197,25 @@ When the focused element cannot be read, the AX tree walk picks the best editabl
 Add bundle IDs to `KEYBOARD_PASTE_BUNDLE_IDS` in `accessibility.rs`:
 
 ```rust
-pub(crate) const KEYBOARD_PASTE_BUNDLE_IDS: &[&str] =
-    &["com.apple.MobileSMS", "com.apple.iChat"];
+pub(crate) const KEYBOARD_PASTE_BUNDLE_IDS: &[&str] = &[
+    "com.apple.MobileSMS",
+    "com.apple.iChat",
+    "com.brave.Browser",
+    "com.google.Chrome",
+    // …
+];
 ```
 
 Use `bundle_prefers_keyboard_paste(bundle_id)` in unit tests to verify matching. Prefer confirming in the real app that `AXPaste` fails or is a no-op before adding an ID.
+
+### Quick menu target capture
+
+The native quick menu remembers the paste target when it opens via `resolve_quick_menu_target()`:
+
+1. Frontmost non-Copyosity app (hotkey path while another app is still frontmost).
+2. `LAST_NON_SELF_FRONTMOST_PID` — updated on every non-self `NSWorkspace` activation, tray click Down (`remember_paste_target`), and any `remember_paste_target_for_pid` call.
+
+When Copyosity is already frontmost (tray → **Open Snippets**), tier 2 supplies the app the user was in before the tray interaction.
 
 ## Debugging
 
@@ -233,6 +252,8 @@ Run `cargo test clipboard_macos::` and `cargo test clipboard_write::`.
 | `cmd_v_uses_session_tap_when_pid_unknown`                      | `clipboard_macos::paste::tests`         | Session tap fallback                 |
 | `cmd_v_uses_post_to_pid_when_target_not_frontmost`             | `clipboard_macos::paste::tests`         | Activation in progress               |
 | `bundle_prefers_keyboard_paste_matches_messages`               | `clipboard_macos::accessibility::tests` | Skip AXPaste for SMS/iChat           |
+| `bundle_prefers_keyboard_paste_matches_chromium_browsers`      | `clipboard_macos::accessibility::tests` | Skip AXPaste for Brave/Chrome/Edge   |
+| `note_last_non_self_frontmost_ignores_self_and_invalid`        | `clipboard_macos::tests`                | Quick-menu fallback PID store        |
 | `editable_role_priority_prefers_text_fields_over_scroll_areas` | `clipboard_macos::accessibility::tests` | Compose field discovery              |
 | `own_clipboard_write_is_ignored_once`                          | `clipboard_macos::tests`                | Monitor skip after Paste write       |
 | `write_temp_gif_file_round_trips_bytes`                        | `clipboard_write::tests`                | GIF temp path                        |
@@ -269,6 +290,14 @@ Manual QA after pipeline changes. Run with `COPYOSITY_DEBUG_PASTE=1 npm run taur
 | 11  | Agent answer → Insert in Electron | Full pipeline; webview receives text        |
 | 12  | Insert in Messages                | Session-tap Cmd+V; no double paste          |
 | 13  | Hub disabled                      | Palette does not open (no paste regression) |
+
+### Quick menu (`spawn_automated_paste(false)`)
+
+| #   | Scenario                                     | Expected                                                    |
+| --- | -------------------------------------------- | ----------------------------------------------------------- |
+| 16  | Brave focused → hotkey → paste snippet       | `target prefers keyboard paste`, single insert in web field |
+| 17  | Brave focused → tray → Open Snippets → paste | Same; target from `LAST_NON_SELF_FRONTMOST_PID` fallback    |
+| 18  | Switch Brave → Notes → tray → Snippets       | Paste lands in Notes, not stale Brave PID                   |
 
 ### Cross-cutting
 

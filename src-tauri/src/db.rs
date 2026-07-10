@@ -583,6 +583,35 @@ impl Database {
         Ok(())
     }
 
+    pub fn overlay_horizontal_width(&self) -> Result<Option<f64>, rusqlite::Error> {
+        Ok(self
+            .get_setting("overlay_horizontal_width")?
+            .and_then(|v| v.parse::<f64>().ok()))
+    }
+
+    pub fn overlay_vertical_width(&self) -> Result<Option<f64>, rusqlite::Error> {
+        Ok(self
+            .get_setting("overlay_vertical_width")?
+            .and_then(|v| v.parse::<f64>().ok()))
+    }
+
+    pub fn set_overlay_horizontal_width(&self, width: f64) -> Result<(), rusqlite::Error> {
+        self.set_setting("overlay_horizontal_width", &width.to_string())
+    }
+
+    pub fn set_overlay_vertical_width(&self, width: f64) -> Result<(), rusqlite::Error> {
+        self.set_setting("overlay_vertical_width", &width.to_string())
+    }
+
+    pub fn clear_overlay_board_sizes(&self) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM settings WHERE key IN ('overlay_horizontal_width', 'overlay_vertical_width')",
+            [],
+        )?;
+        Ok(())
+    }
+
     pub fn is_ai_tagging_enabled(&self) -> bool {
         self.get_app_settings()
             .map(|s| s.ai_tagging_enabled)
@@ -2156,6 +2185,23 @@ mod tests {
     }
 
     #[test]
+    fn get_entries_omits_image_data_but_keeps_thumb() {
+        let db = test_db();
+        let entry = make_image_entry("img_hash_list", "PNG");
+        let (id, _) = db.insert_entry(&entry).unwrap();
+
+        let list = db
+            .get_entries(10, 0, None, false, None, None, None, None)
+            .unwrap();
+        let found = list.iter().find(|e| e.id == id).unwrap();
+        assert!(found.image_data.is_none());
+        assert!(found.image_thumb.is_some());
+
+        let full = db.get_entry_by_id(id).unwrap().unwrap();
+        assert!(full.image_data.is_some());
+    }
+
+    #[test]
     fn image_format_round_trips_on_insert_and_fetch() {
         let db = test_db();
         let entry = make_image_entry("img_hash_1", "PNG");
@@ -2532,5 +2578,31 @@ mod tests {
             .get_entries(10, 0, None, false, Some("OCR"), None, None, None)
             .unwrap();
         assert!(filtered.iter().any(|e| e.id == id));
+    }
+
+    #[test]
+    fn overlay_board_widths_default_to_none() {
+        let db = test_db();
+        assert_eq!(db.overlay_horizontal_width().unwrap(), None);
+        assert_eq!(db.overlay_vertical_width().unwrap(), None);
+    }
+
+    #[test]
+    fn overlay_board_widths_round_trip() {
+        let db = test_db();
+        db.set_overlay_horizontal_width(1350.5).unwrap();
+        db.set_overlay_vertical_width(480.0).unwrap();
+        assert_eq!(db.overlay_horizontal_width().unwrap(), Some(1350.5));
+        assert_eq!(db.overlay_vertical_width().unwrap(), Some(480.0));
+    }
+
+    #[test]
+    fn clear_overlay_board_sizes_removes_both_widths() {
+        let db = test_db();
+        db.set_overlay_horizontal_width(1350.5).unwrap();
+        db.set_overlay_vertical_width(480.0).unwrap();
+        db.clear_overlay_board_sizes().unwrap();
+        assert_eq!(db.overlay_horizontal_width().unwrap(), None);
+        assert_eq!(db.overlay_vertical_width().unwrap(), None);
     }
 }

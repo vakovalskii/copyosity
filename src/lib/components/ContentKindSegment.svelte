@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ContentKind } from "$lib/overlay-filters";
+  import SegmentControl from "$lib/components/SegmentControl.svelte";
 
   const {
     value = "all",
@@ -21,15 +22,10 @@
   }
 </script>
 
-<div class="segment-track" role="group" aria-label="Content type">
-  {#each segments as segment (segment.id)}
-    <button
-      type="button"
-      class="segment-item app-btn"
-      aria-pressed={value === segment.id}
-      onclick={() => select(segment.id)}
-    >
-      {segment.label}
-    </button>
-  {/each}
-</div>
+<SegmentControl
+  ariaLabel="Content type"
+  ariaKind="pressed"
+  items={segments.map((segment) => ({ id: segment.id, label: segment.label }))}
+  value={value}
+  onSelect={(id) => select(id as ContentKind)}
+/>
