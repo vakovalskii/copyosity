@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { t, locale, setLocale, LOCALES, type LocaleCode } from "$lib/i18n";
   import type {
     AppSettings,
     AudioInputDevice,
@@ -762,14 +763,15 @@
   }
 
   let activePane = $state<SettingsPane>(coerceSettingsPane(paneFromUrl()));
-  const panes: { id: SettingsPane; label: string; icon: SectionIconName }[] = [
-    { id: "hub", label: "NeuralDeep", icon: "hub" },
-    { id: "voice", label: "Voice", icon: "voice" },
-    { id: "quickmenu", label: "Quick Menu", icon: "clipboard-panel" },
-    { id: "ai", label: "Local AI", icon: "ai-tagging" },
-    { id: "history", label: "History", icon: "clipboard-panel" },
-    { id: "permissions", label: "Permissions", icon: "permissions" },
-    { id: "updates", label: "Updates", icon: "setup" },
+  const panes: { id: SettingsPane; labelKey: string; icon: SectionIconName }[] = [
+    { id: "hub", labelKey: "nav.hub", icon: "hub" },
+    { id: "voice", labelKey: "nav.voice", icon: "voice" },
+    { id: "quickmenu", labelKey: "nav.quickmenu", icon: "clipboard-panel" },
+    { id: "ai", labelKey: "nav.ai", icon: "ai-tagging" },
+    { id: "history", labelKey: "nav.history", icon: "clipboard-panel" },
+    { id: "permissions", labelKey: "nav.permissions", icon: "permissions" },
+    { id: "updates", labelKey: "nav.updates", icon: "setup" },
+    { id: "language", labelKey: "nav.language", icon: "setup" },
   ];
 
   // ---- Quick menu (Clipy-style native menu) ----
@@ -951,7 +953,7 @@
           onclick={() => (activePane = p.id)}
         >
           <SectionIcon name={p.icon} class="nav-section-icon" />
-          <span>{p.label}</span>
+          <span>{$t(p.labelKey)}</span>
         </button>
       {/each}
     </nav>
@@ -1923,6 +1925,29 @@
           >
             {clearHistoryNotice}
           </div>
+        </div>
+      </section>
+    {:else if activePane === "language"}
+      <div class="pane-head">
+        <div class="pane-title">{$t("language.title")}</div>
+        <div class="pane-subtitle">{$t("language.subtitle")}</div>
+      </div>
+
+      <section class="form-section">
+        <div class="form-section-body">
+          <label class="form-field">
+            <span class="form-label">{$t("language.label")}</span>
+            <select
+              class="form-select"
+              value={$locale}
+              onchange={(e) => setLocale((e.currentTarget as HTMLSelectElement).value as LocaleCode)}
+            >
+              {#each LOCALES as l}
+                <option value={l.code}>{l.label}</option>
+              {/each}
+            </select>
+          </label>
+          <div class="form-note form-note-neutral">{$t("language.hint")}</div>
         </div>
       </section>
     {/if}

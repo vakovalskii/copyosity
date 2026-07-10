@@ -7,6 +7,7 @@
     isHistoryCollectionActive,
   } from "$lib/collection-tabs";
   import SegmentControl from "$lib/components/SegmentControl.svelte";
+  import { t } from "$lib/i18n";
 
   const {
     collections = [],
@@ -54,8 +55,8 @@
       ariaLabel="Clipboard view"
       ariaKind="selected"
       items={[
-        { id: "history", label: "History" },
-        { id: "starred", label: "Starred" },
+        { id: "history", label: $t("overlay.tab.history") },
+        { id: "starred", label: $t("overlay.tab.starred") },
       ]}
       value={clipboardViewSegmentValue}
       onSelect={(id) => (id === "starred" ? onselect?.(-1) : onselect?.(null))}

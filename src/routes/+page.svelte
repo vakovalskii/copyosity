@@ -23,6 +23,7 @@
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
   import QuickLookPanel from "$lib/components/QuickLookPanel.svelte";
   import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
+  import { t } from "$lib/i18n";
   import SearchBar from "$lib/components/SearchBar.svelte";
   import CollectionTabs from "$lib/components/CollectionTabs.svelte";
   // TEMP: re-enable with Content Kind segment block below.
@@ -77,25 +78,25 @@
   } from "$lib/overlay-browse-sync";
   import { initPlatform, platformIsMacOS } from "$lib/platform.svelte";
 
-  const overlayShortcutHints: KeyboardHint[] = [
-    { prefix: "Click", action: "copy" },
-    { keys: "Space", action: "preview" },
-    { keys: "⌘Y", action: "preview" },
-    { keys: "↵", action: "paste" },
-    { prefix: "Double-click", action: "paste" },
-    { keys: ["←", "→"], action: "browse" },
-    { keys: "Esc", action: "clear search / dismiss" },
-  ];
+  const overlayShortcutHints = $derived<KeyboardHint[]>([
+    { prefix: "Click", action: $t("overlay.hint.copy") },
+    { keys: "Space", action: $t("overlay.hint.preview") },
+    { keys: "⌘Y", action: $t("overlay.hint.preview") },
+    { keys: "↵", action: $t("overlay.hint.paste") },
+    { prefix: "Double-click", action: $t("overlay.hint.paste") },
+    { keys: ["←", "→"], action: $t("overlay.hint.browse") },
+    { keys: "Esc", action: $t("overlay.hint.dismiss") },
+  ]);
 
-  const overlayVerticalShortcutHints: KeyboardHint[] = [
-    { prefix: "Click", action: "copy" },
-    { keys: "Space", action: "preview" },
-    { keys: "⌘Y", action: "preview" },
-    { keys: "↵", action: "paste" },
-    { prefix: "2× click", action: "paste" },
-    { keys: ["↑", "↓"], action: "browse" },
-    { keys: "Esc", action: "dismiss" },
-  ];
+  const overlayVerticalShortcutHints = $derived<KeyboardHint[]>([
+    { prefix: "Click", action: $t("overlay.hint.copy") },
+    { keys: "Space", action: $t("overlay.hint.preview") },
+    { keys: "⌘Y", action: $t("overlay.hint.preview") },
+    { keys: "↵", action: $t("overlay.hint.paste") },
+    { prefix: "2× click", action: $t("overlay.hint.paste") },
+    { keys: ["↑", "↓"], action: $t("overlay.hint.browse") },
+    { keys: "Esc", action: $t("overlay.hint.dismiss") },
+  ]);
 
   let boardVertical = $state(false);
   let hubEnabled = $state(false);

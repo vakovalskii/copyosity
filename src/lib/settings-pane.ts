@@ -6,6 +6,7 @@ export const SETTINGS_PANE_IDS = [
   "history",
   "permissions",
   "updates",
+  "language",
 ] as const;
 
 export type SettingsPane = (typeof SETTINGS_PANE_IDS)[number];

@@ -5,10 +5,11 @@ All notable changes to Copyosity are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] - 2026-07-10
 
 ### Added
 
+- **Interface language switching** — a new **Settings → Language** pane with 7 languages (English, Русский, Español, 中文, Deutsch, Français, 日本語). The choice applies instantly across the overlay, command palette, and settings; native (system) menus keep the system language. Falls back to English for any untranslated string; auto-detects the system language on first run.
 - **Resizable overlay panel** — drag the bottom-right (bottom-left on the vertical board) corner grip to resize the clipboard panel; the chosen width is remembered across reopens and app restarts. **Settings → History → Restore default size** resets it back to the built-in width/height.
 - **Quick Look preview** — press `Space` or `⌘Y` on a selected overlay card to open a larger, scrollable preview (full text or image with dimensions/OCR); same shortcuts or `Esc` close it; `←/→`/`↑/↓` keep browsing while it's open. `⌘Y` works from the search field (unlike `Space`, which still types a space there). `↓` (or `→` on the horizontal board) from search blurs the field and selects the first visible card. **Mouse:** hover the type chip (PNG / Text) for an eye overlay, or right-click the card → **Preview** (Alfred-style contextual action). Card click still copies. Images load at full resolution (not the small list thumbnail) and animated GIFs now play; images with recognised text get an **Image / Recognised text** toggle instead of a cramped combined view.
 

@@ -227,6 +227,7 @@ const SETTINGS_PANES: &[&str] = &[
     "history",
     "permissions",
     "updates",
+    "language",
 ];
 
 fn is_settings_pane(pane: &str) -> bool {

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from "$lib/i18n";
+
   const {
     value = "",
     onchange,
@@ -53,8 +55,8 @@
   <input
     bind:this={inputEl}
     type="search"
-    placeholder="Search clipboard history..."
-    aria-label="Search clipboard history"
+    placeholder={`${$t("overlay.search")}...`}
+    aria-label={$t("overlay.search")}
     autocomplete="off"
     spellcheck="false"
     {value}

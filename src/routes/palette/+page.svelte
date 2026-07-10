@@ -6,6 +6,7 @@
   import { marked } from "marked";
   import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
   import { getAppSettings, hubListModels } from "$lib/api";
+  import { t } from "$lib/i18n";
   import { invokeErrorMessage } from "$lib/exclusion-label";
   import {
     isPaletteDotLogicalSize,
@@ -111,11 +112,11 @@
   }
 
   const paletteShortcutHints = $derived<KeyboardHint[]>([
-    { keys: "↵", action: mode === "agent" ? "run agent" : "search" },
-    { keys: "Tab", action: "switch mode (Web ⇄ Agent)" },
-    { prefix: "Mic", action: "voice" },
-    { keys: "⌘↵", action: "insert" },
-    { keys: "Esc", action: "close" },
+    { keys: "↵", action: mode === "agent" ? $t("palette.run.agent") : $t("palette.run.search") },
+    { keys: "Tab", action: $t("palette.switchMode") },
+    { prefix: "Mic", action: $t("palette.voice") },
+    { keys: "⌘↵", action: $t("palette.insert") },
+    { keys: "Esc", action: $t("palette.close") },
   ]);
 
   function clearStatusNotice() {
@@ -455,7 +456,7 @@
       aria-pressed={mode === "agent"}
       onclick={toggleMode}
     >
-      {mode === "agent" ? "Agent" : "Web"}
+      {mode === "agent" ? $t("palette.agent") : $t("palette.web")}
     </button>
     {#if mode === "agent"}
       <select
@@ -554,9 +555,7 @@
       class="query-input"
       type="text"
       aria-label={mode === "agent" ? "Ask the agent" : "Search the web"}
-      placeholder={mode === "agent"
-        ? "Ask the agent — it will search and analyze…"
-        : "Search the web via NeuralDeep…"}
+      placeholder={mode === "agent" ? $t("palette.askAgent") : $t("palette.searchWeb")}
       autocomplete="off"
       spellcheck="false"
       disabled={recording}
@@ -620,11 +619,11 @@
           {statusNotice}
         </p>
       {:else if sessions.length === 0}
-        <p class="overlay-status-hint neutral">No history yet — ask a question and it will appear here.</p>
+        <p class="overlay-status-hint neutral">{$t("palette.noHistory")}</p>
       {:else}
         <div class="history-head">
-          <span class="history-count">{sessions.length} recent</span>
-          <button class="history-clear app-btn" type="button" onclick={clearHistory}>Clear</button>
+          <span class="history-count">{$t("palette.recent", { n: sessions.length })}</span>
+          <button class="history-clear app-btn" type="button" onclick={clearHistory}>{$t("common.clear")}</button>
         </div>
         {#each sessions as s}
           <button class="history-item app-btn" type="button" onclick={() => openSession(s)}>
@@ -639,9 +638,9 @@
     <!-- eslint-disable-next-line svelte/no-at-html-tags -->
     <div class="result markdown">{@html answerHtml}</div>
     <div class="actions">
-      <button class="app-btn" onclick={insert}>Insert ⌘↵</button>
-      <button class="app-btn" onclick={copy}>Copy</button>
-      <button class="ghost app-btn" onclick={close}>Close Esc</button>
+      <button class="app-btn" onclick={insert}>{$t("common.insert")} ⌘↵</button>
+      <button class="app-btn" onclick={copy}>{$t("common.copy")}</button>
+      <button class="ghost app-btn" onclick={close}>{$t("common.close")} Esc</button>
     </div>
   {:else if loading && progress.length}
     <div class="progress">
