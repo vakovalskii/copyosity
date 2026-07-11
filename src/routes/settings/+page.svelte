@@ -3,6 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t, locale, setLocale, LOCALES, type LocaleCode } from "$lib/i18n";
+  import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
   import type {
     AppSettings,
     AudioInputDevice,
@@ -407,6 +408,7 @@
     void loadHistoryCounts();
     void loadQuickMenuShortcut();
     void loadPaletteShortcut();
+    void loadLaunchAtLogin();
     refreshOllamaStatus();
     void currentVersion().then((v) => {
       appVersion = v;
@@ -771,7 +773,7 @@
     { id: "history", labelKey: "nav.history", icon: "clipboard-panel" },
     { id: "permissions", labelKey: "nav.permissions", icon: "permissions" },
     { id: "updates", labelKey: "nav.updates", icon: "setup" },
-    { id: "language", labelKey: "nav.language", icon: "setup" },
+    { id: "general", labelKey: "nav.general", icon: "setup" },
   ];
 
   // ---- Quick menu (Clipy-style native menu) ----
@@ -811,6 +813,37 @@
       paletteNotice = "Saved";
     } catch (e) {
       paletteNotice = `${e}`;
+    }
+  }
+
+  // ---- Launch at login (macOS LaunchAgent via tauri-plugin-autostart) ----
+  let launchAtLogin = $state(false);
+  let launchAtLoginBusy = $state(false);
+  async function loadLaunchAtLogin() {
+    try {
+      launchAtLogin = await isAutostartEnabled();
+    } catch {
+      // plugin unavailable — leave as false
+    }
+  }
+  async function toggleLaunchAtLogin(next: boolean) {
+    launchAtLoginBusy = true;
+    try {
+      if (next) {
+        await enableAutostart();
+      } else {
+        await disableAutostart();
+      }
+      launchAtLogin = await isAutostartEnabled();
+    } catch {
+      // revert the visual state to the real one on failure
+      try {
+        launchAtLogin = await isAutostartEnabled();
+      } catch {
+        launchAtLogin = !next;
+      }
+    } finally {
+      launchAtLoginBusy = false;
     }
   }
 
@@ -1927,11 +1960,34 @@
           </div>
         </div>
       </section>
-    {:else if activePane === "language"}
+    {:else if activePane === "general"}
       <div class="pane-head">
-        <div class="pane-title">{$t("language.title")}</div>
-        <div class="pane-subtitle">{$t("language.subtitle")}</div>
+        <div class="pane-title">{$t("general.title")}</div>
+        <div class="pane-subtitle">{$t("general.subtitle")}</div>
       </div>
+
+      <section class="form-section">
+        <div class="form-section-header">
+          <div class="form-section-title form-section-title--with-icon">
+            <SectionIcon name="setup" />{$t("general.launchAtLogin")}
+          </div>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label={$t("general.launchAtLogin")}
+              checked={launchAtLogin}
+              disabled={launchAtLoginBusy}
+              onchange={(e) =>
+                void toggleLaunchAtLogin((e.currentTarget as HTMLInputElement).checked)}
+            />
+            <span class="toggle-slider" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div class="form-section-body">
+          <div class="form-note form-note-neutral">{$t("general.launchAtLoginHint")}</div>
+        </div>
+      </section>
 
       <section class="form-section">
         <div class="form-section-body">

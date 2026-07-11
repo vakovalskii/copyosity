@@ -5,6 +5,12 @@ All notable changes to Copyosity are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-07-11
+
+### Added
+
+- **Launch at login** — a new **Settings → General** toggle starts Copyosity automatically when you log in to your Mac (macOS LaunchAgent via `tauri-plugin-autostart`). The former Language pane is now **General** and holds both launch-at-login and the interface-language picker.
+
 ## [0.8.0] - 2026-07-10
 
 ### Added

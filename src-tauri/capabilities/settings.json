@@ -11,6 +11,7 @@
     "opener:default",
     "settings-window-commands",
     "updater:default",
-    "process:default"
+    "process:default",
+    "autostart:default"
   ]
 }
