@@ -732,6 +732,12 @@ pub fn run() {
             palette_set_dot_mode,
             palette_is_dot_mode,
             palette_snap_to_edges,
+            agent_capture_active_window,
+            commands::agent_web_search,
+            commands::agent_create_note,
+            commands::agent_create_reminder,
+            commands::agent_list_reminders,
+            commands::agent_read_calendar,
             commands::get_palette_shortcut,
             commands::set_palette_shortcut,
         ])
@@ -1708,6 +1714,27 @@ fn palette_agent(
         );
     });
     Ok(())
+}
+
+/// Capture a PNG screenshot of the app that was frontmost when the palette
+/// opened, base64-encoded, for the frontend agent to attach as image context.
+/// Returns None when unavailable (non-macOS, no target, capture failed).
+#[tauri::command]
+fn agent_capture_active_window() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let pid = PALETTE_TARGET_PID.load(Ordering::Relaxed);
+        let png = if pid > 0 {
+            screen::capture_window_png(pid)
+        } else {
+            screen::capture_context_png()
+        };
+        png.map(|b| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &b))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
 }
 
 /// Snap the palette window to the nearest screen work-area edge when the user

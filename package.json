@@ -27,13 +27,17 @@
     "prepare": "lefthook install"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.7",
+    "@ai-sdk/svelte": "^5.0.22",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
-    "marked": "^18.0.5"
+    "ai": "^7.0.22",
+    "marked": "^18.0.5",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",
