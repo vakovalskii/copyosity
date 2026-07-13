@@ -1,6 +1,6 @@
 [package]
 name = "copyosity"
-version = "0.8.2"
+version = "0.9.0"
 description = "Privacy-first clipboard history manager with NeuralDeep Hub, voice, OCR, and local Ollama"
 authors = ["v.kovalskii"]
 edition = "2021"
