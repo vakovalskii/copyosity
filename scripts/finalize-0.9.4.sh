@@ -6,14 +6,14 @@ cd /Users/v.kovalskii/copyosity
 IDENTITY="Developer ID Application: Valeriy Kovalsky (A933C2TJXU)"
 PROFILE="copyosity"
 KEY="$(cat .tauri/copyosity-updater.key)"
-OUT="/private/tmp/claude-502/-Users-v-kovalskii-copyosity/22612add-21ac-4177-a118-4c828696e9cd/scratchpad/release-0.8.1"
+OUT="/private/tmp/claude-502/-Users-v-kovalskii-copyosity/22612add-21ac-4177-a118-4c828696e9cd/scratchpad/release-0.9.4"
 mkdir -p "$OUT"
 
 finalize_arch () {
   local APP="$1" ARCHLABEL="$2" TARBALL="$3"
   local NAME="Copyosity-${ARCHLABEL}"
   local STAGE="$OUT/stage-$ARCHLABEL"
-  local DMG="$OUT/${NAME}_0.8.1.dmg"
+  local DMG="$OUT/${NAME}_0.9.4.dmg"
 
   echo "########## $ARCHLABEL ##########"
   rm -rf "$STAGE"; mkdir -p "$STAGE"
