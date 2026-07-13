@@ -24,8 +24,11 @@
 
   // Explicit window dragging — data-tauri-drag-region is unreliable on the
   // converted NSPanel, so start dragging on mousedown over the top bar.
+  // Skip interactive controls (button, select, input) — otherwise the drag
+  // preventDefault() swallows their clicks (e.g. the model <select> never opens).
   function startDrag(e: MouseEvent) {
-    if ((e.target as HTMLElement).closest("button")) return;
+    if ((e.target as HTMLElement).closest("button, select, input, textarea, a, [role='button']"))
+      return;
     if (e.button === 0) {
       e.preventDefault();
       getCurrentWindow().startDragging();
@@ -180,9 +183,16 @@
     return new Date(ts).toLocaleDateString();
   }
 
+  // The hub /v1/models list mixes chat models with embedding/reranker models;
+  // only chat models make sense for the agent, so drop the non-chat ones.
+  const NON_CHAT_MODEL = /embed|rerank|^bge|^e5-|jina|frida|giga/i;
+  function isChatModel(id: string): boolean {
+    return !NON_CHAT_MODEL.test(id);
+  }
   function modelOptions(): string[] {
     if (!hubEnabled) return [];
-    const base = models.length ? models : [...MODEL_FALLBACKS];
+    const chat = models.filter(isChatModel);
+    const base = chat.length ? chat : [...MODEL_FALLBACKS];
     return agentModel && !base.includes(agentModel) ? [agentModel, ...base] : base;
   }
   function syncAgentModelSelection() {
