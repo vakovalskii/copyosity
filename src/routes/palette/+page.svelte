@@ -354,6 +354,17 @@
     });
   });
 
+  // Refocus the composer once the agent finishes a turn, so a follow-up can be
+  // typed immediately without clicking back into the input.
+  $effect(() => {
+    if (mode === "agent" && chat.status === "ready" && chat.messages.length > 0 && !minimized) {
+      void tick().then(() => {
+        inputEl?.focus();
+        return undefined;
+      });
+    }
+  });
+
   function autoGrow() {
     if (!inputEl) return;
     inputEl.style.height = "auto";
