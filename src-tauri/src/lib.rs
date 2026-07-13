@@ -744,8 +744,19 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
-            tauri::RunEvent::ExitRequested { api, .. } => {
-                api.prevent_exit();
+            tauri::RunEvent::ExitRequested { code, api, .. } => {
+                // Menu-bar app: closing the last window must NOT quit — keep
+                // running in the tray. That implicit exit has `code == None`.
+                //
+                // BUT programmatic exits carry a code: `app.restart()` (used by
+                // the updater's `relaunch()`) triggers ExitRequested with
+                // `RESTART_EXIT_CODE`, and `app.exit(n)` carries `Some(n)`.
+                // Unconditionally preventing exit here swallowed the updater
+                // relaunch, so a downloaded update never applied. Only prevent
+                // the user-driven (code-less) exit; let programmatic ones through.
+                if code.is_none() {
+                    api.prevent_exit();
+                }
             }
             #[cfg(target_os = "macos")]
             tauri::RunEvent::TrayIconEvent(ref tray_event) => {
