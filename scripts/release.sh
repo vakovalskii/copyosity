@@ -44,12 +44,30 @@ for path, pat in targets:
 print("bumped tauri.conf.json, package.json, Cargo.toml")
 PY
 
+echo "==> [1b/10] sync GitHub Pages (docs/index.html) version + download links"
+python3 - "$VERSION" <<'PY'
+import re, sys
+v = sys.argv[1]
+path = "docs/index.html"
+s = open(path).read()
+# version badges: <span class="ver">vX.Y.Z</span> and the footer stack badge
+s = re.sub(r'(class="ver">v)[0-9][0-9.]*(<)', lambda m: m.group(1) + v + m.group(2), s)
+s = re.sub(r'(class="stack"[^>]*>v)[0-9][0-9.]*(<)', lambda m: m.group(1) + v + m.group(2), s)
+# direct DMG download hrefs (pin to this tag + versioned asset names)
+s = re.sub(r'download/v[0-9][0-9.]*/Copyosity-aarch64_[0-9][0-9.]*\.dmg',
+           f'download/v{v}/Copyosity-aarch64_{v}.dmg', s)
+s = re.sub(r'download/v[0-9][0-9.]*/Copyosity-x64_[0-9][0-9.]*\.dmg',
+           f'download/v{v}/Copyosity-x64_{v}.dmg', s)
+open(path, "w").write(s)
+print("synced docs/index.html to", v)
+PY
+
 echo "==> [2/10] fix + check"
 make fix
 make check
 
 echo "==> [3/10] commit + push version bump"
-git add src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock package.json package-lock.json src/ src-tauri/src/ src-tauri/permissions/ scripts/ 2>/dev/null || true
+git add src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock package.json package-lock.json src/ src-tauri/src/ src-tauri/permissions/ scripts/ docs/index.html 2>/dev/null || true
 git commit --no-verify -q -m "chore(release): bump version to $VERSION" || echo "(nothing to commit)"
 git push --no-verify origin HEAD
 

@@ -555,6 +555,101 @@
         color: var(--faint);
       }
 
+      /* ── download arch cards ── */
+      .dl-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+        margin: 2rem 0 0;
+        text-align: left;
+      }
+      @media (max-width: 620px) {
+        .dl-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      .dl-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+        padding: 1.5rem 1.4rem;
+        border-radius: var(--radius);
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, var(--bg-3), var(--bg-2));
+        text-decoration: none;
+        color: var(--text);
+        transition:
+          transform 0.16s ease,
+          border-color 0.18s ease,
+          box-shadow 0.18s ease;
+      }
+      .dl-card:hover {
+        transform: translateY(-3px);
+        border-color: oklch(0.6 0.12 220 / 0.5);
+        box-shadow: 0 18px 44px oklch(0.05 0.02 264 / 0.5);
+      }
+      .dl-card:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 3px;
+      }
+      .dl-card .chip {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+      }
+      .dl-card .chip .ic {
+        width: 40px;
+        height: 40px;
+        flex: none;
+        border-radius: 11px;
+        display: grid;
+        place-items: center;
+        background: oklch(0.5 0.12 220 / 0.18);
+        border: 1px solid oklch(0.6 0.12 220 / 0.32);
+        color: var(--accent);
+      }
+      .dl-card .chip b {
+        font-family: var(--font-display);
+        font-size: 1.16rem;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        display: block;
+      }
+      .dl-card .chip small {
+        display: block;
+        color: var(--faint);
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        margin-top: 0.1rem;
+      }
+      .dl-card .go {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        margin-top: auto;
+        padding: 0.68rem 1rem;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        background: linear-gradient(180deg, oklch(0.86 0.12 198), oklch(0.79 0.13 202));
+        color: var(--accent-ink);
+        box-shadow: 0 1px 0 oklch(0.98 0.02 200 / 0.4) inset;
+      }
+      .dl-alt {
+        margin-top: 1.6rem;
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+      .dl-alt a {
+        color: var(--accent);
+        text-decoration: none;
+        border-bottom: 1px solid oklch(0.812 0.132 196 / 0.4);
+      }
+      .dl-alt a:hover {
+        border-bottom-color: var(--accent);
+      }
+
       /* ── footer ── */
       footer {
         border-top: 1px solid var(--line-soft);
@@ -592,7 +687,7 @@
     <header class="topbar">
       <div class="wrap row">
         <a class="brand" href="#top"><span class="dot" aria-hidden="true"></span>Copyosity</a>
-        <span class="ver">v0.8.1</span>
+        <span class="ver">v1.0.0</span>
         <span class="spacer"></span>
         <nav>
           <a class="navlink hide-sm" href="#features">Features</a>
@@ -997,21 +1092,68 @@
         <div class="box">
           <h2>Get Copyosity</h2>
           <p>
-            Pick the DMG for your Mac's architecture from the latest release, drag Copyosity into
-            Applications, and press <kbd>⌘⇧V</kbd>.
+            Download the DMG for your Mac, drag Copyosity into <b>Applications</b>, open it from
+            there, and press <kbd>⌘⇧V</kbd>. After that it keeps itself up to date automatically.
           </p>
-          <div class="cta-row">
+          <div class="dl-grid">
             <a
-              class="btn btn-primary"
-              href="https://github.com/vakovalskii/copyosity/releases/latest"
-              >Apple Silicon &nbsp;·&nbsp; aarch64</a
+              class="dl-card"
+              href="https://github.com/vakovalskii/copyosity/releases/download/v1.0.0/Copyosity-aarch64_1.0.0.dmg"
             >
-            <a class="btn btn-ghost" href="https://github.com/vakovalskii/copyosity/releases/latest"
-              >Intel &nbsp;·&nbsp; x86_64</a
+              <span class="chip">
+                <span class="ic" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                      d="M16.365 1.43c0 1.14-.42 2.2-1.12 3.02-.84.98-2.22 1.74-3.36 1.65-.14-1.1.44-2.28 1.09-3.02.75-.86 2.06-1.5 3.09-1.55.03.3.3.6.3.9zM20.9 17.02c-.56 1.3-1.24 2.58-2.28 3.66-.86.9-1.5 1.53-2.75 1.53-1.2 0-1.6-.79-3.02-.79-1.44 0-1.86.77-3 .82-1.18.05-2.08-.98-2.95-1.87-1.78-1.83-3.15-5.16-1.32-7.42.9-1.12 2.5-1.83 4.02-1.83 1.24 0 2.02.82 3.05.82.99 0 1.6-.83 3.03-.83 1.36 0 2.8.74 3.83 2.02-3.37 1.85-2.82 6.66.36 7.88z"
+                    />
+                  </svg>
+                </span>
+                <span>
+                  <b>Apple Silicon</b>
+                  <small>M1 · M2 · M3 · M4 — aarch64</small>
+                </span>
+              </span>
+              <span class="go">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" />
+                </svg>
+                Download .dmg
+              </span>
+            </a>
+            <a
+              class="dl-card"
+              href="https://github.com/vakovalskii/copyosity/releases/download/v1.0.0/Copyosity-x64_1.0.0.dmg"
             >
+              <span class="chip">
+                <span class="ic" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                    <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" />
+                    <path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3" />
+                  </svg>
+                </span>
+                <span>
+                  <b>Intel</b>
+                  <small>2020 &amp; earlier Macs — x86_64</small>
+                </span>
+              </span>
+              <span class="go">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" />
+                </svg>
+                Download .dmg
+              </span>
+            </a>
           </div>
           <p class="arch-note">
-            macOS 12+ · Copyosity_*_aarch64.dmg (M-series) · Copyosity_*_x86_64.dmg (Intel)
+            macOS 12+ · Developer&nbsp;ID signed, notarized &amp; stapled · not sure which chip?
+            &nbsp;<span style="color: var(--muted)"> Apple Silicon covers every Mac since 2020.</span>
+          </p>
+          <p class="dl-alt">
+            Also available:
+            <a href="https://github.com/vakovalskii/copyosity/releases/latest">all releases &amp; changelog</a>
+            ·
+            <a href="https://vkovalskii.com/copyosity/latest.json">update feed</a>
           </p>
         </div>
       </section>
@@ -1021,7 +1163,7 @@
       <div class="wrap row">
         <a class="brand" href="#top" style="font-size: 1rem"
           ><span class="dot" aria-hidden="true"></span>Copyosity
-          <span class="stack" style="margin-left: 0.5rem">v0.8.1</span></a
+          <span class="stack" style="margin-left: 0.5rem">v1.0.0</span></a
         >
         <div class="links">
           <a href="https://github.com/vakovalskii/copyosity">GitHub</a>
