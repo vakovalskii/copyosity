@@ -1,21 +1,32 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Finalize a macOS release: build DMG, notarize + staple, and produce signed,
+# CLEAN updater tarballs for both arches. Assumes both .app bundles are already
+# built and Developer-ID signed (see scripts/build-macos.sh with RELEASE_CONFIG=1).
+#
+# Usage: scripts/finalize.sh <version> [out-dir]
+#   out-dir defaults to dist/updater/<version> (git-ignored).
+#
+# Prereqs: .tauri/copyosity-updater.key present; notarytool keychain profile
+# (default "copyosity", override with KEYCHAIN_PROFILE). Run under
+# `dangerouslyDisableSandbox` on this machine (hdiutil/notarytool/stapler).
 set -euo pipefail
+cd "$(dirname "$0")/.."
 
-cd /Users/v.kovalskii/copyosity
-
+VERSION="${1:?usage: finalize.sh <version> [out-dir]}"
+OUT="${2:-$PWD/dist/updater/$VERSION}"
 IDENTITY="Developer ID Application: Valeriy Kovalsky (A933C2TJXU)"
-PROFILE="copyosity"
+PROFILE="${KEYCHAIN_PROFILE:-copyosity}"
 KEY="$(cat .tauri/copyosity-updater.key)"
-OUT="/private/tmp/claude-502/-Users-v-kovalskii-copyosity/22612add-21ac-4177-a118-4c828696e9cd/scratchpad/release-0.8.1"
 mkdir -p "$OUT"
 
 finalize_arch () {
   local APP="$1" ARCHLABEL="$2" TARBALL="$3"
   local NAME="Copyosity-${ARCHLABEL}"
   local STAGE="$OUT/stage-$ARCHLABEL"
-  local DMG="$OUT/${NAME}_0.8.1.dmg"
+  local DMG="$OUT/${NAME}_${VERSION}.dmg"
 
   echo "########## $ARCHLABEL ##########"
+  [ -d "$APP" ] || { echo "ERROR: app bundle not found: $APP (build it first)" >&2; exit 1; }
   rm -rf "$STAGE"; mkdir -p "$STAGE"
   cp -R "$APP" "$STAGE/Copyosity.app"
   ln -s /Applications "$STAGE/Applications"
@@ -41,9 +52,7 @@ finalize_arch () {
   rm -rf "$TDIR"; mkdir -p "$TDIR"
   cp -R "$APP" "$TDIR/Copyosity.app"
   # COPYFILE_DISABLE + --no-mac-metadata/--no-xattrs: macOS tar otherwise embeds
-  # AppleDouble `._*` entries (from codesign/staple xattrs) that the updater's
-  # Rust tar unpacker chokes on ("failed to unpack ._Copyosity.app") — which
-  # silently broke auto-update install. Keep the tarball free of them.
+  # AppleDouble `._*` entries that the updater's Rust unpacker chokes on.
   ( cd "$TDIR" && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -czf "$OUT/$TARBALL" Copyosity.app )
   rm -rf "$TDIR"
   npx tauri signer sign -k "$KEY" -p "" "$OUT/$TARBALL"
@@ -54,5 +63,5 @@ finalize_arch () {
 finalize_arch "src-tauri/target/release/bundle/macos/Copyosity.app" "aarch64" "Copyosity_aarch64.app.tar.gz"
 finalize_arch "src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Copyosity.app" "x64" "Copyosity_x64.app.tar.gz"
 
-echo "ALL DONE"
+echo "ALL DONE — artifacts in $OUT"
 ls -la "$OUT"

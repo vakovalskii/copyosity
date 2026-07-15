@@ -41,6 +41,18 @@ After macOS tray, overlay, or activation-policy changes, also run `make verify-t
 - Commit completed fixes and features with descriptive messages.
 - If process or workflow changes, update `AGENTS.md` and keep `CLAUDE.md` in sync when the docs index changes.
 
+## Releasing (macOS only)
+
+- One command: `scripts/release.sh <version> "notes"` — bump → fix+check →
+  commit+push → build both arches (signed) → notarize+staple+clean tarballs →
+  GitHub `latest.json` → tag → GitHub release → vkovalskii.com mirror → verify.
+- Run it via the Bash tool with `dangerouslyDisableSandbox` (hdiutil/notarytool);
+  export `HTTPS_PROXY` first (gh's API needs it on this network).
+- Ship macOS aarch64 + x86_64 only, notarized. No Windows/Linux (inert stubs).
+- Updater invariants: tarballs must have **0 AppleDouble (`._*`)** entries;
+  install runs with `TMPDIR` on the app's own volume (EXDEV). Full details +
+  prereqs in **CLAUDE.md → "Releasing the app"**.
+
 ## Load by task
 
 Read the linked doc when the task touches that area — do not load everything up front.
@@ -48,6 +60,7 @@ Read the linked doc when the task touches that area — do not load everything u
 | Topic                                             | File                                                                                   |
 | ------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | **macOS menu-bar tray (blink fix — read first)**  | [docs/architecture/macos-tray-menu.md](docs/architecture/macos-tray-menu.md)           |
+| Command palette agent chat (Vercel AI SDK)        | [docs/architecture/palette-agent-chat.md](docs/architecture/palette-agent-chat.md)     |
 | macOS paste automation (AXPaste, Cmd+V, Messages) | [docs/architecture/macos-paste-pipeline.md](docs/architecture/macos-paste-pipeline.md) |
 | UI icons (stroke SVG)                             | [docs/architecture/ui-icons.md](docs/architecture/ui-icons.md)                         |
 | Local AI / Ollama onboarding                      | [docs/product/ollama-onboarding.md](docs/product/ollama-onboarding.md)                 |

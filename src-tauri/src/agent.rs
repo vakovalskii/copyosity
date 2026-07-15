@@ -52,7 +52,7 @@ fn normalize_base(url: &str) -> String {
 }
 
 /// Parse an ISO-ish due date into seconds-from-now (None if past/unparseable).
-fn parse_due_offset_secs(iso: &str) -> Option<i64> {
+pub fn parse_due_offset_secs(iso: &str) -> Option<i64> {
     use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
     let target_ts = if let Ok(dt) = DateTime::parse_from_rfc3339(iso) {
         dt.timestamp()

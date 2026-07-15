@@ -1004,6 +1004,54 @@ pub fn get_platform() -> &'static str {
     }
 }
 
+// --- Agent tools (invoke bridges for the frontend AI SDK ReAct loop) ---------
+//
+// The palette agent loop runs client-side (Vercel AI SDK). Its tools call back
+// into these commands so native actions and the hub Search API stay in Rust.
+
+/// Web search via the hub Search API. Hub creds come from settings (never JS).
+#[tauri::command]
+pub fn agent_web_search(
+    db: State<'_, Arc<Database>>,
+    query: String,
+    limit: Option<u32>,
+) -> Result<String, String> {
+    let s = db.get_app_settings().map_err(|e| e.to_string())?;
+    if !s.hub_enabled {
+        return Err("NeuralDeep hub is disabled in Settings".to_string());
+    }
+    crate::hub::web_search(&s.hub_url, &s.hub_token, &query, limit.unwrap_or(5))
+}
+
+/// Create a note in the user's macOS Notes app.
+#[tauri::command]
+pub fn agent_create_note(title: String, body: String) -> Result<String, String> {
+    crate::mactools::create_note(&title, &body)
+}
+
+/// Create a reminder in the user's macOS Reminders app. `due` is optional
+/// ISO 8601 (e.g. 2026-06-20T10:00:00).
+#[tauri::command]
+pub fn agent_create_reminder(title: String, due: Option<String>) -> Result<String, String> {
+    let due_offset = due
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .and_then(crate::agent::parse_due_offset_secs);
+    crate::mactools::create_reminder(&title, due_offset)
+}
+
+/// List the user's open (incomplete) reminders.
+#[tauri::command]
+pub fn agent_list_reminders() -> Result<String, String> {
+    crate::mactools::list_reminders()
+}
+
+/// Read the user's upcoming macOS Calendar events for the next N days.
+#[tauri::command]
+pub fn agent_read_calendar(days: Option<i64>) -> Result<String, String> {
+    crate::mactools::read_calendar(days.unwrap_or(7).clamp(1, 60))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

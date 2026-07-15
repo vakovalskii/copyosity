@@ -81,7 +81,9 @@
   } from "$lib/exclusion-label";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { initPlatform, platformIsMacOS } from "$lib/platform.svelte";
-  import { checkForUpdate, currentVersion, relaunch, type Update } from "$lib/updater";
+  import { invoke } from "@tauri-apps/api/core";
+  import { checkForUpdate, currentVersion, type Update } from "$lib/updater";
+  import { appendUpdateLog, readUpdateLog, clearUpdateLog, errorToString } from "$lib/update-log";
 
   let settings = $state<AppSettings>({
     ollama_model: "qwen3:4b-instruct-2507-q4_K_M",
@@ -414,6 +416,7 @@
       appVersion = v;
       return undefined;
     });
+    refreshUpdateLog();
     void checkUpdates();
     listMicrophones().then((m) => {
       microphones = m;
@@ -869,23 +872,34 @@
   let updateMessage = $state("");
   let updateInstalling = $state(false);
   let updateProgress = $state(0); // 0..100, -1 = indeterminate
+  let updateLog = $state<string[]>([]);
+  let updateLogCopied = $state(false);
+
+  function refreshUpdateLog() {
+    updateLog = readUpdateLog();
+  }
 
   async function checkUpdates() {
     updateChecking = true;
     updateMessage = "";
     update = null;
+    appendUpdateLog(`check: looking for updates (current ${appVersion || "?"})…`);
     try {
       const u = await checkForUpdate();
       if (u) {
         update = u;
         updateMessage = `Update available: ${u.version}`;
+        appendUpdateLog(`check: update ${u.version} available`);
       } else {
         updateMessage = "You're on the latest version.";
+        appendUpdateLog("check: already up to date");
       }
     } catch (e) {
-      updateMessage = `Check failed: ${e}`;
+      updateMessage = `Check failed: ${errorToString(e)}`;
+      appendUpdateLog(`check: ERROR — ${errorToString(e)}`);
     } finally {
       updateChecking = false;
+      refreshUpdateLog();
     }
   }
 
@@ -893,26 +907,42 @@
     if (!update) return;
     updateInstalling = true;
     updateProgress = -1;
-    let total = 0;
-    let downloaded = 0;
+    updateMessage = "Installing…";
+    appendUpdateLog(`install: downloading + installing ${update.version} (same-volume temp)…`);
+    refreshUpdateLog();
+    // Progress is emitted from the Rust install command.
+    const unlisten = await listen<number | null>("update-progress", (e) => {
+      updateProgress = typeof e.payload === "number" ? e.payload : -1;
+    });
     try {
-      await update.downloadAndInstall((event) => {
-        if (event.event === "Started") {
-          total = event.data.contentLength ?? 0;
-          updateProgress = total ? 0 : -1;
-        } else if (event.event === "Progress") {
-          downloaded += event.data.chunkLength;
-          updateProgress = total ? Math.round((downloaded / total) * 100) : -1;
-        } else if (event.event === "Finished") {
-          updateProgress = 100;
-        }
-      });
-      updateMessage = "Installed — restarting…";
-      await relaunch();
+      // Runs the whole install in Rust: temp dirs on the app's own volume
+      // (avoids EXDEV), then relaunch. On success the process restarts and this
+      // never returns; any thrown value is the real, actionable error.
+      await invoke("install_update");
+      appendUpdateLog("install: bundle replaced OK — relaunching…");
     } catch (e) {
-      updateMessage = `Install failed: ${e}`;
+      updateMessage = `Install failed: ${errorToString(e)}`;
+      appendUpdateLog(`install: ERROR — ${errorToString(e)}`);
       updateInstalling = false;
+    } finally {
+      unlisten();
+      refreshUpdateLog();
     }
+  }
+
+  async function copyUpdateLog() {
+    try {
+      await navigator.clipboard.writeText(updateLog.join("\n"));
+      updateLogCopied = true;
+      setTimeout(() => (updateLogCopied = false), 1500);
+    } catch {
+      // ignore
+    }
+  }
+
+  function clearUpdateLogAndRefresh() {
+    clearUpdateLog();
+    refreshUpdateLog();
   }
   const visiblePanes = $derived(
     platformIsMacOS() ? panes : panes.filter((p) => p.id !== "permissions"),
@@ -1457,7 +1487,7 @@
     {:else if activePane === "updates"}
       <div class="pane-head">
         <div class="pane-title">Updates</div>
-        <div class="pane-subtitle">Copyosity updates itself from GitHub Releases — signed and verified.</div>
+        <div class="pane-subtitle">Copyosity updates itself from vkovalskii.com (mirror) with GitHub Releases as fallback — signed and verified.</div>
       </div>
 
       <section class="form-section">
@@ -1495,6 +1525,27 @@
               {/if}
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="form-section">
+        <div class="form-section-header">
+          <div class="form-section-title form-section-title--with-icon"><SectionIcon name="setup" />Update log</div>
+          <div class="update-log-actions">
+            <button class="app-btn" type="button" onclick={refreshUpdateLog}>Refresh</button>
+            <button class="app-btn" type="button" disabled={updateLog.length === 0} onclick={copyUpdateLog}>
+              {updateLogCopied ? "Copied ✓" : "Copy"}
+            </button>
+            <button class="app-btn" type="button" disabled={updateLog.length === 0} onclick={clearUpdateLogAndRefresh}>Clear</button>
+          </div>
+        </div>
+        <div class="form-section-body">
+          <p class="pane-subtitle" style="margin-top:0">Every update step and error is recorded here (including the automatic check on launch). Copy this if an update fails.</p>
+          {#if updateLog.length === 0}
+            <div class="status-hint">No update activity logged yet.</div>
+          {:else}
+            <pre class="update-log">{updateLog.join("\n")}</pre>
+          {/if}
         </div>
       </section>
     {:else if activePane === "ai"}
@@ -2255,5 +2306,28 @@
     background: linear-gradient(90deg, #10b981, #34d399);
     border-radius: 999px;
     transition: width 0.2s ease;
+  }
+
+  .update-log-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .update-log {
+    margin: 8px 0 0;
+    max-height: 220px;
+    overflow: auto;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--surface-code-block, rgba(0, 0, 0, 0.28));
+    border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.08));
+    font-family: var(--font-family-mono, ui-monospace, monospace);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--color-text-subtle, #b8b8b8);
+    white-space: pre-wrap;
+    word-break: break-word;
+    user-select: text;
+    -webkit-user-select: text;
   }
 </style>

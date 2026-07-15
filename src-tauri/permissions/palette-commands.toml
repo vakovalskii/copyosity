@@ -2,7 +2,7 @@
 
 [[permission]]
 identifier = "palette-window-commands"
-description = "Command palette: hub search, agent, voice, insert"
+description = "Command palette: hub search, client-side agent loop + tools, voice, insert"
 commands.allow = [
   "get_platform",
   "palette_search",
@@ -14,4 +14,17 @@ commands.allow = [
   "palette_voice_stop",
   "palette_set_dot_mode",
   "palette_is_dot_mode",
+  "palette_snap_to_edges",
+  "get_palette_shortcut",
+  "set_palette_shortcut",
+  # Hub config for the client-side AI SDK loop (model list + endpoint/token).
+  "get_app_settings",
+  "hub_list_models",
+  # Agent tool bridges (native actions + hub Search) invoked by the loop.
+  "agent_capture_active_window",
+  "agent_web_search",
+  "agent_create_note",
+  "agent_create_reminder",
+  "agent_list_reminders",
+  "agent_read_calendar",
 ]

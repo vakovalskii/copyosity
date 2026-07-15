@@ -41,4 +41,5 @@ commands.allow = [
   "list_microphones",
   "quit_app",
   "reset_overlay_board_sizes",
+  "install_update",
 ]

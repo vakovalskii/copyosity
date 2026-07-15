@@ -732,14 +732,32 @@ pub fn run() {
             palette_set_dot_mode,
             palette_is_dot_mode,
             palette_snap_to_edges,
+            install_update,
+            agent_capture_active_window,
+            commands::agent_web_search,
+            commands::agent_create_note,
+            commands::agent_create_reminder,
+            commands::agent_list_reminders,
+            commands::agent_read_calendar,
             commands::get_palette_shortcut,
             commands::set_palette_shortcut,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
-            tauri::RunEvent::ExitRequested { api, .. } => {
-                api.prevent_exit();
+            tauri::RunEvent::ExitRequested { code, api, .. } => {
+                // Menu-bar app: closing the last window must NOT quit — keep
+                // running in the tray. That implicit exit has `code == None`.
+                //
+                // BUT programmatic exits carry a code: `app.restart()` (used by
+                // the updater's `relaunch()`) triggers ExitRequested with
+                // `RESTART_EXIT_CODE`, and `app.exit(n)` carries `Some(n)`.
+                // Unconditionally preventing exit here swallowed the updater
+                // relaunch, so a downloaded update never applied. Only prevent
+                // the user-driven (code-less) exit; let programmatic ones through.
+                if code.is_none() {
+                    api.prevent_exit();
+                }
             }
             #[cfg(target_os = "macos")]
             tauri::RunEvent::TrayIconEvent(ref tray_event) => {
@@ -1708,6 +1726,112 @@ fn palette_agent(
         );
     });
     Ok(())
+}
+
+/// Capture a PNG screenshot of the app that was frontmost when the palette
+/// opened, base64-encoded, for the frontend agent to attach as image context.
+/// Returns None when unavailable (non-macOS, no target, capture failed).
+#[tauri::command]
+fn agent_capture_active_window() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let pid = PALETTE_TARGET_PID.load(Ordering::Relaxed);
+        let png = if pid > 0 {
+            screen::capture_window_png(pid)
+        } else {
+            screen::capture_context_png()
+        };
+        png.map(|b| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &b))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// Install the pending update, then relaunch.
+///
+/// The updater plugin extracts the new bundle into `$TMPDIR` (usually
+/// `/var/folders/...`) and `rename()`s it over the running app. When the app and
+/// `$TMPDIR` live on different volumes that rename fails with EXDEV ("Cross-device
+/// link", os error 18) — the download succeeds but the install never applies.
+/// Pointing `TMPDIR` at the app bundle's own directory keeps every rename
+/// intra-volume. Also refuses to run from an App Translocation sandbox (a
+/// read-only quarantine mount) or a read-only volume (a mounted `.dmg`, which
+/// lives under `/Volumes/…`) where self-update is impossible — in either case
+/// the user must drag Copyosity into /Applications first.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    #[cfg(target_os = "macos")]
+    {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let p = exe.to_string_lossy().to_string();
+        if p.contains("/AppTranslocation/") {
+            return Err(
+                "Copyosity is running from a quarantine sandbox (App Translocation). \
+                 Move Copyosity to /Applications, reopen it, then update."
+                    .to_string(),
+            );
+        }
+        // exe = <bundle>/Contents/MacOS/copyosity → nth(3) = <bundle>, parent = its folder.
+        let parent = exe
+            .ancestors()
+            .nth(3)
+            .and_then(|b| b.parent())
+            .ok_or_else(|| "Could not locate the Copyosity app bundle.".to_string())?;
+
+        // The updater extracts the new bundle next to the app and renames it into
+        // place. If that folder isn't writable — the classic case being the app
+        // still running from the read-only mounted disk image (/Volumes/…) — the
+        // install dies with a cryptic "Read-only file system (os error 30)".
+        // Probe for writability up front and return an actionable message instead.
+        let probe = parent.join(".copyosity-update-probe");
+        match std::fs::create_dir(&probe) {
+            Ok(()) => {
+                let _ = std::fs::remove_dir(&probe);
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Copyosity can't update itself from “{}” ({}). It looks like you're \
+                     running Copyosity straight from the disk image (a read-only location). \
+                     Quit Copyosity, drag it onto the Applications folder, then open it from \
+                     Applications and update again.",
+                    parent.display(),
+                    e
+                ));
+            }
+        }
+        std::env::set_var("TMPDIR", parent);
+    }
+
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No update available".to_string())?;
+
+    let progress_app = app.clone();
+    let mut downloaded: u64 = 0;
+    update
+        .download_and_install(
+            move |chunk, total| {
+                downloaded += chunk as u64;
+                let pct = total
+                    .filter(|t| *t > 0)
+                    .map(|t| (downloaded * 100 / t) as u32);
+                let _ = progress_app.emit("update-progress", pct);
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let _ = app.emit("update-progress", Some(100u32));
+    app.restart();
 }
 
 /// Snap the palette window to the nearest screen work-area edge when the user
