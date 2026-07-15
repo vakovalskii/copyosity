@@ -75,8 +75,15 @@
 }
 
 .ui-selectable-text--indented,
-.form-section .status-hint {
+.form-section .status-hint:not(.field-status-footer) {
   max-width: calc(100% - 18px);
+}
+
+.form-section .status-hint.field-status-footer {
+  width: 100%;
+  max-width: 100%;
+  margin-left: 0;
+  box-sizing: border-box;
 }
 
 .form-section {
@@ -281,11 +288,11 @@
   transform: translate(14px, -50%);
 }
 
-.toggle input:focus-visible + .toggle-slider {
+[data-input-modality="keyboard"] .toggle input:focus + .toggle-slider {
   box-shadow: var(--ring-accent);
 }
 
-.toggle input:checked:focus-visible + .toggle-slider {
+[data-input-modality="keyboard"] .toggle input:checked:focus + .toggle-slider {
   box-shadow: var(--ring-success-control);
 }
 
@@ -379,7 +386,7 @@
   opacity: 1;
 }
 
-.form-checkbox-leading input:focus-visible + .form-checkbox-box {
+[data-input-modality="keyboard"] .form-checkbox-leading input:focus + .form-checkbox-box {
   box-shadow: var(--ring-checkbox-focus);
 }
 
@@ -897,6 +904,61 @@
 
 .form-section-body > .form-actions {
   margin-top: 0;
+}
+
+.inset-list > .form-field.form-field--with-status-footer,
+.inset-list > label.form-field.form-field--with-status-footer {
+  padding: 0;
+  gap: 0;
+}
+
+.form-field--with-status-footer .form-field-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-field);
+  padding: var(--inset-list-pad-block) var(--inset-list-pad-inline);
+}
+
+.form-field--with-status-footer .form-field-main .form-hint:last-child {
+  padding-bottom: 0;
+}
+
+/* Animated status footer — full-bleed row divider (same as inset-list > * + *) */
+.field-status-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-standard) var(--ease-interactive);
+}
+
+.field-status-reveal.visible {
+  grid-template-rows: 1fr;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.field-status-reveal-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.field-status-footer {
+  margin: 0;
+  opacity: 0;
+  transition: opacity var(--duration-standard) var(--ease-interactive);
+}
+
+.field-status-reveal.visible .field-status-footer {
+  opacity: 1;
+}
+
+.inset-list > .field-status-reveal:not(.visible) {
+  border-top: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field-status-reveal,
+  .field-status-footer {
+    transition: none;
+  }
 }
 
 /* Storage clear-history notice: no layout gap until a message is shown */

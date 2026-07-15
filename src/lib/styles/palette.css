@@ -3,6 +3,7 @@
  * Colors: tokens.css; shared buttons: overlay-chrome.css
  */
 
+html,
 body {
   background: transparent;
   overflow: hidden;
@@ -12,6 +13,7 @@ body {
 }
 
 .palette {
+  --palette-mode-accent: rgb(var(--rgb-accent));
   display: flex;
   flex-direction: column;
   width: 100vw;
@@ -25,6 +27,10 @@ body {
   color: var(--color-text-primary);
   padding: 12px var(--overlay-grid-pad-x) var(--space-panel-inline);
   gap: var(--space-subsection);
+}
+
+.palette.mode-agent {
+  --palette-mode-accent: var(--color-agent);
 }
 
 /* Chrome + primary query — grouped like Spotlight / Raycast (toolbar → search). */
@@ -65,10 +71,8 @@ body {
   border-color: var(--border-emphasis);
 }
 
-.mode-badge:focus-visible,
-[data-input-modality="keyboard"] .mode-badge:focus {
-  outline: 2px solid var(--ring-accent);
-  outline-offset: 2px;
+.mode-badge:focus {
+  outline: none;
 }
 
 .history-item:hover:not(:disabled, [aria-busy="true"]) {
@@ -76,10 +80,8 @@ body {
   color: var(--color-text-primary);
 }
 
-.history-item:focus-visible,
-[data-input-modality="keyboard"] .history-item:focus {
-  outline: 2px solid var(--ring-accent);
-  outline-offset: 2px;
+.history-item:focus {
+  outline: none;
 }
 
 .history {
@@ -309,14 +311,6 @@ body {
   transition: background-color var(--duration-fast) var(--ease-interactive);
 }
 
-.shot-btn {
-  margin: -4px 0;
-}
-
-.mic-btn {
-  margin: -4px -6px -4px 0;
-}
-
 .shot-btn:hover:not(:disabled, .active),
 .mic-btn:hover:not(:disabled, .recording) {
   color: var(--color-text-secondary);
@@ -362,15 +356,14 @@ body {
   box-shadow: none;
 }
 
-.mic-btn:focus-visible,
-.shot-btn:focus-visible {
+.shot-btn:focus,
+.mic-btn:focus {
   outline: none;
-  box-shadow: var(--ring-accent);
 }
 
 .mic-btn-icon {
-  width: var(--icon-size-voice-mic);
-  height: var(--icon-size-voice-mic);
+  width: var(--icon-size-overlay-header-settings);
+  height: var(--icon-size-overlay-header-settings);
   fill: none;
   stroke: currentcolor;
   stroke-width: 1.75;
@@ -486,7 +479,29 @@ body {
   padding: 3px 0;
 }
 
-/* Status hints/errors — same offset from query field as other body content (palette gap only). */
+/* Status hints/errors — zero-height rail above composer; message is absolute so transcript never jumps. */
+.palette-status-rail {
+  position: relative;
+  flex-shrink: 0;
+  height: 0;
+  overflow: visible;
+  z-index: 2;
+}
+
+.palette-status-rail .palette-status-msg,
+.palette-status-rail .overlay-status-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  padding: 0 2px var(--space-stack);
+  font-size: var(--font-size-palette-status);
+  line-height: var(--line-height-body);
+  text-align: center;
+  pointer-events: none;
+}
+
 .palette .overlay-status-hint {
   font-size: var(--font-size-palette-status);
   line-height: var(--line-height-body);

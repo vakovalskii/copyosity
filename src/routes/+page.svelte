@@ -37,6 +37,7 @@
     type TagChip,
   } from "$lib/overlay-filters";
   import { createOverlayEntriesStore } from "$lib/overlay-entries.svelte";
+  import { shouldShowOverlayEntryGrid } from "$lib/overlay-entries-logic";
   import { closeAllCardContextMenus, isCardContextMenuOpen } from "$lib/overlay-card-context-menu";
   import {
     canToggleQuickLook,
@@ -46,7 +47,7 @@
     shouldHandleQuickLookCmdY,
     shouldHandleQuickLookSpace,
   } from "$lib/quick-look-keyboard";
-  import { setInputModality } from "$lib/input-modality";
+  import { setInputModality, resetFocusState } from "$lib/input-modality";
   import { overlayHeightForLayout } from "$lib/overlay-layout";
   import {
     animateOverlayResize,
@@ -197,6 +198,8 @@
       activeTag: overlay.activeTag,
       displayTagCounts: overlay.searchQuery ? overlay.searchTagCounts : overlay.catalogTagCounts,
       layoutTagCounts: overlay.catalogTagCounts,
+      searchQuery: overlay.searchQuery,
+      searchPending: overlay.displayListPending,
     }),
   );
 
@@ -212,6 +215,13 @@
   );
 
   const filteredEntries = $derived(overlay.entries);
+  const showEntryGrid = $derived(
+    shouldShowOverlayEntryGrid(
+      filteredEntries.length,
+      overlay.displayListPending,
+      overlay.searchQuery,
+    ),
+  );
 
   /** Quick Look always mirrors the current selection — arrow keys refresh it while open. */
   const quickLookEntry = $derived(
@@ -532,6 +542,7 @@
     visible = false;
     quickLookOpen = false;
     quickLookReturnFocus = null;
+    resetFocusState();
     overlay.resetDisplayStateOnHide();
     overlay.clearSearch({ reload: false });
     overlay.resetOverlayFilters();
@@ -564,6 +575,7 @@
     const seq = ++revealSeq;
     panelTransitionEpoch.bump();
     const pendingNativeHide = nativeHidePending;
+    resetFocusState();
     window.getSelection()?.removeAllRanges();
     clearRevealTimer();
     overlay.clearSearch({ reload: false });
@@ -642,6 +654,7 @@
     quickLookOpen = false;
     quickLookReturnFocus = null;
     suppressAutoSearchFocus = false;
+    resetFocusState();
     overlay.resetDisplayStateOnHide();
   }
 
@@ -985,10 +998,12 @@
   });
 
   function handleCardSelect(index: number) {
+    if (overlay.displayListPending) return;
     selectedIndex = index;
   }
 
   function handleCardPreview(index: number) {
+    if (overlay.displayListPending) return;
     selectedIndex = index;
     if (!quickLookOpen) {
       openQuickLook();
@@ -1476,7 +1491,7 @@
     onscroll={handleGridScroll}
     onscrollend={handleGridScrollEnd}
   >
-    {#if filteredEntries.length === 0}
+    {#if !showEntryGrid}
       {@const empty = emptyStateCopy()}
       {@const listPending = overlay.displayListPending}
       {@const searchingMore = overlay.loadingMoreEntries}
@@ -1538,7 +1553,7 @@
       {/each}
     {/if}
   </div>
-  {#if filteredEntries.length > 0 && overlay.loadMoreFailed}
+  {#if showEntryGrid && overlay.loadMoreFailed}
     <div class="load-more-banner overlay-footer-strip" role="status" aria-live="polite">
       <p class="hint">Couldn't load more entries</p>
       <button class="empty-retry-btn" type="button" onclick={() => overlay.retryLoadMore()}>
@@ -1572,6 +1587,7 @@
 </div>
 
 <style>
+  :global(html),
   :global(body) {
     background: transparent;
     font-family: var(--font-family-system);
@@ -1760,13 +1776,8 @@
     color: var(--color-text-body);
   }
 
-  .exclude-app-btn:focus-visible {
+  .exclude-app-btn:focus {
     outline: none;
-    opacity: 1;
-    background: var(--surface-warning-subtle);
-    border-color: var(--border-warning-hover);
-    color: var(--color-text-body);
-    box-shadow: var(--ring-accent-input);
   }
 
   .exclude-app-btn-text {
@@ -1903,9 +1914,8 @@
     background: var(--surface-3);
   }
 
-  .empty-retry-btn:focus-visible {
+  .empty-retry-btn:focus {
     outline: none;
-    box-shadow: var(--ring-accent);
   }
 
   .load-more-banner {

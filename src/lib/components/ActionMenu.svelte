@@ -411,8 +411,7 @@
     cursor: pointer;
   }
 
-  .action-menu-item:hover:not(:disabled),
-  .action-menu-item:focus-visible {
+  .action-menu-item:hover:not(:disabled) {
     background: var(--surface-menu-hover);
   }
 
@@ -420,10 +419,13 @@
     color: var(--color-danger-text);
   }
 
-  .action-menu-item.destructive:hover:not(:disabled),
-  .action-menu-item.destructive:focus-visible {
+  .action-menu-item.destructive:hover:not(:disabled) {
     background: var(--surface-menu-hover-destructive);
     color: var(--color-danger-text-hover);
+  }
+
+  .action-menu-item:focus {
+    outline: none;
   }
 
   .action-menu-item:disabled {

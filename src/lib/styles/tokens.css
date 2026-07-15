@@ -260,7 +260,7 @@
   --border-success-control: rgb(var(--rgb-success-control) / 40%);
   --shadow-success: rgb(var(--rgb-success) / 20%);
   --shadow-success-dot: rgb(var(--rgb-success) / 22%);
-  --ring-success-control: 0 0 0 3px rgb(var(--rgb-success-control) / 18%);
+  --ring-success-control: 0 0 0 1px rgb(var(--rgb-success-control) / 18%);
 
   /* ── Warning surfaces ──────────────────────────────── */
   --surface-warning-subtle: rgb(var(--rgb-warning) / 8%);
@@ -364,8 +364,8 @@
   --ring-control-focus: 0 0 0 1px rgb(var(--rgb-accent-border) / 28%);
 
   /* ── Focus rings ───────────────────────────────────── */
-  --ring-accent: 0 0 0 3px rgb(var(--rgb-accent-border) / 22%);
-  --ring-accent-input: 0 0 0 3px rgb(var(--rgb-accent-focus) / 15%);
+  --ring-accent: 0 0 0 1px rgb(var(--rgb-accent-border) / 22%);
+  --ring-accent-input: 0 0 0 1px rgb(var(--rgb-accent-focus) / 15%);
 
   /* ── Text selection (brand accent — global ::selection below) ─ */
   --selection-bg: rgb(var(--rgb-accent-focus) / 42%);
@@ -501,7 +501,7 @@ html {
     --border-control-hover: rgb(var(--rgb-white) / 24%);
     --border-control-focus: rgb(var(--rgb-accent-border) / 50%);
     --ring-control-focus: 0 0 0 1px rgb(var(--rgb-accent-border) / 40%);
-    --ring-accent-input: 0 0 0 3px rgb(var(--rgb-accent-focus) / 28%);
+    --ring-accent-input: 0 0 0 1px rgb(var(--rgb-accent-focus) / 28%);
     --border-warning-pinned: rgb(var(--rgb-warning-bright) / 65%);
     --border-warning-pinned-hover: rgb(var(--rgb-warning-bright) / 75%);
   }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { listen } from "@tauri-apps/api/event";
+  import { emit, listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t, locale, setLocale, LOCALES, type LocaleCode } from "$lib/i18n";
   import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
@@ -48,6 +48,7 @@
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import SectionIcon, { type SectionIconName } from "$lib/components/SectionIcon.svelte";
+  import FieldStatusFooter from "$lib/components/FieldStatusFooter.svelte";
   import HotkeySettingsSection from "$lib/components/HotkeySettingsSection.svelte";
   import SnippetsEditor from "$lib/components/SnippetsEditor.svelte";
   import { confirmDestructive } from "$lib/confirm";
@@ -485,6 +486,7 @@
         rebindPaletteShortcut(),
         loadModelCatalog(),
         refreshOllamaStatus(),
+        emit("hub-settings-changed"),
       ]);
     } finally {
       savingSettings = false;
@@ -701,7 +703,7 @@
   }
 
   function handleHubToggle(enabled: boolean) {
-    void persistImmediate({ hub_enabled: enabled });
+    void persistImmediate({ hub_enabled: enabled }, () => emit("hub-settings-changed"));
   }
 
   function handleVoiceToggle(enabled: boolean) {
@@ -737,11 +739,11 @@
   }
 
   function handleHubTaggingToggle(enabled: boolean) {
-    void persistImmediate({ hub_tagging_enabled: enabled });
+    void persistImmediate({ hub_tagging_enabled: enabled }, () => emit("hub-settings-changed"));
   }
 
   function handleHubTranscribeToggle(enabled: boolean) {
-    void persistImmediate({ hub_transcribe_enabled: enabled });
+    void persistImmediate({ hub_transcribe_enabled: enabled }, () => emit("hub-settings-changed"));
   }
 
   function handleVoicePolishToggle(enabled: boolean) {
@@ -775,13 +777,14 @@
     { id: "ai", labelKey: "nav.ai", icon: "ai-tagging" },
     { id: "history", labelKey: "nav.history", icon: "clipboard-panel" },
     { id: "permissions", labelKey: "nav.permissions", icon: "permissions" },
-    { id: "updates", labelKey: "nav.updates", icon: "setup" },
-    { id: "general", labelKey: "nav.general", icon: "setup" },
+    { id: "updates", labelKey: "nav.updates", icon: "updates" },
+    { id: "general", labelKey: "nav.general", icon: "general" },
   ];
 
   // ---- Quick menu (Clipy-style native menu) ----
   let quickMenuShortcut = $state("cmd+shift+c");
   let quickMenuNotice = $state("");
+  let quickMenuNoticeTone = $state<"ok" | "fail">("ok");
   async function loadQuickMenuShortcut() {
     try {
       quickMenuShortcut = await getQuickMenuShortcut();
@@ -794,14 +797,17 @@
     try {
       quickMenuShortcut = await setQuickMenuShortcut(quickMenuShortcut);
       quickMenuNotice = "Saved";
+      quickMenuNoticeTone = "ok";
     } catch (e) {
       quickMenuNotice = `${e}`;
+      quickMenuNoticeTone = "fail";
     }
   }
 
   // ---- Command / agent palette hotkey ----
   let paletteShortcut = $state("cmd+shift+space");
   let paletteNotice = $state("");
+  let paletteNoticeTone = $state<"ok" | "fail">("ok");
   async function loadPaletteShortcut() {
     try {
       paletteShortcut = await getPaletteShortcut();
@@ -814,8 +820,10 @@
     try {
       paletteShortcut = await setPaletteShortcut(paletteShortcut);
       paletteNotice = "Saved";
+      paletteNoticeTone = "ok";
     } catch (e) {
       paletteNotice = `${e}`;
+      paletteNoticeTone = "fail";
     }
   }
 
@@ -851,6 +859,7 @@
   }
 
   let voiceShortcutNotice = $state("");
+  let voiceShortcutNoticeTone = $state<"ok" | "fail">("ok");
   async function saveVoiceShortcut() {
     voiceShortcutNotice = "";
     try {
@@ -860,8 +869,10 @@
       await rebindVoiceShortcut();
       snapshotDeferred();
       voiceShortcutNotice = "Saved";
+      voiceShortcutNoticeTone = "ok";
     } catch (e) {
       voiceShortcutNotice = `${e}`;
+      voiceShortcutNoticeTone = "fail";
     }
   }
 
@@ -983,10 +994,20 @@
     savedDeferredSnapshot = JSON.stringify(pickDeferred(settings));
   }
 
-  // Transient success/error bar — dismiss when navigating away or editing deferred fields.
+  function clearTransientPaneNotices() {
+    settingsNotice = "";
+    quickMenuNotice = "";
+    paletteNotice = "";
+    voiceShortcutNotice = "";
+    excludedAppsNotice = "";
+    clearHistoryNotice = "";
+    accessibilityNotice = "";
+  }
+
+  // Transient feedback — dismiss when switching sidebar panes or editing deferred fields.
   $effect(() => {
     void activePane;
-    settingsNotice = "";
+    clearTransientPaneNotices();
   });
   $effect(() => {
     if (isDirty) settingsNotice = "";
@@ -1057,7 +1078,7 @@
           </div>
 
           <div class="form-subsection">
-            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="setup" />Connection</div>
+            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="connection" />Connection</div>
             <div class="inset-list">
               <div class="form-field">
                 <span class="form-label">3 steps</span>
@@ -1167,6 +1188,7 @@
             examples={["cmd+shift+space"]}
             detail="Opens the command / agent palette. The agent can search the web, act on your apps, use the selected model, and see a screenshot of the active window. Registered only while the hub is enabled."
             notice={paletteNotice || undefined}
+            noticeTone={paletteNoticeTone}
             onSave={savePaletteShortcut}
           />
         </div>
@@ -1206,6 +1228,7 @@
             examples={["option+space", "cmd+shift+r", "ctrl+alt+space"]}
             detail="Hold to record, release to transcribe and paste at the cursor."
             notice={voiceShortcutNotice || undefined}
+            noticeTone={voiceShortcutNoticeTone}
             onSave={saveVoiceShortcut}
           />
 
@@ -1420,6 +1443,7 @@
             examples={["cmd+shift+c"]}
             detail="Press anywhere to pop the menu at your cursor with history and snippets; items 1–9 have number keys."
             notice={quickMenuNotice || undefined}
+            noticeTone={quickMenuNoticeTone}
             onSave={saveQuickMenuShortcut}
           />
 
@@ -1491,7 +1515,7 @@
       </div>
 
       <section class="form-section">
-        <div class="form-section-title form-section-title--with-icon"><SectionIcon name="setup" />Version</div>
+        <div class="form-section-title form-section-title--with-icon"><SectionIcon name="version" />Version</div>
         <div class="form-section-body">
           <div class="inset-list">
             <div class="status-step">
@@ -1509,18 +1533,22 @@
                 <div class="status-hint">{updateMessage}</div>
               {/if}
               {#if update}
-                <div class="status-hint">
-                  {#if update.body}{update.body}{/if}
+                {#if update.body}
+                  <div class="status-hint">{update.body}</div>
+                {/if}
+                <div class="update-install-actions">
+                  <button class="form-btn form-btn-primary app-btn" type="button" disabled={updateInstalling} onclick={installUpdate}>
+                    {#if updateInstalling}
+                      {updateProgress >= 0 ? `Installing… ${updateProgress}%` : "Installing…"}
+                    {:else}
+                      Download &amp; install, then restart
+                    {/if}
+                  </button>
                 </div>
-                <button class="app-btn" type="button" disabled={updateInstalling} onclick={installUpdate}>
-                  {#if updateInstalling}
-                    {updateProgress >= 0 ? `Installing… ${updateProgress}%` : "Installing…"}
-                  {:else}
-                    Download &amp; install, then restart
-                  {/if}
-                </button>
                 {#if updateInstalling && updateProgress >= 0}
-                  <div class="update-progress"><div class="update-progress-fill" style="width: {updateProgress}%"></div></div>
+                  <div class="update-progress" aria-hidden="true">
+                    <div class="update-progress-fill" style="width: {updateProgress}%"></div>
+                  </div>
                 {/if}
               {/if}
             </div>
@@ -1530,21 +1558,22 @@
 
       <section class="form-section">
         <div class="form-section-header">
-          <div class="form-section-title form-section-title--with-icon"><SectionIcon name="setup" />Update log</div>
+          <div class="form-section-title form-section-title--with-icon"><SectionIcon name="update-log" />Update log</div>
           <div class="update-log-actions">
-            <button class="app-btn" type="button" onclick={refreshUpdateLog}>Refresh</button>
-            <button class="app-btn" type="button" disabled={updateLog.length === 0} onclick={copyUpdateLog}>
-              {updateLogCopied ? "Copied ✓" : "Copy"}
-            </button>
-            <button class="app-btn" type="button" disabled={updateLog.length === 0} onclick={clearUpdateLogAndRefresh}>Clear</button>
+            <button class="form-btn form-btn-secondary app-btn" type="button" onclick={refreshUpdateLog}>Refresh</button>
+            <button class="form-btn form-btn-secondary app-btn" type="button" disabled={updateLog.length === 0} onclick={copyUpdateLog}>Copy</button>
+            <button class="form-btn form-btn-danger app-btn" type="button" disabled={updateLog.length === 0} onclick={clearUpdateLogAndRefresh}>Clear</button>
           </div>
         </div>
         <div class="form-section-body">
-          <p class="pane-subtitle" style="margin-top:0">Every update step and error is recorded here (including the automatic check on launch). Copy this if an update fails.</p>
+          <div class="form-hint">Every update step and error is recorded here (including the automatic check on launch). Copy this if an update fails.</div>
           {#if updateLog.length === 0}
             <div class="status-hint">No update activity logged yet.</div>
           {:else}
-            <pre class="update-log">{updateLog.join("\n")}</pre>
+            <pre class="update-log ui-selectable-text">{updateLog.join("\n")}</pre>
+          {/if}
+          {#if updateLogCopied}
+            <div class="status-hint ok" aria-live="polite">Copied to clipboard.</div>
           {/if}
         </div>
       </section>
@@ -1579,7 +1608,7 @@
           </div>
 
           <div class="form-subsection">
-            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="setup" />Setup</div>
+            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="gauge" />Setup</div>
             <div class="inset-list">
               {#if ollamaStatus === null}
                 <div class="status-step">
@@ -1913,6 +1942,8 @@
               {#if !excludedAppsPanelHasRows}
                 <div class="excluded-apps-empty" role="status">No apps excluded yet</div>
               {/if}
+
+              <FieldStatusFooter message={excludedAppsNotice} tone={excludedAppsNoticeTone} />
             </div>
 
             <button
@@ -1962,17 +1993,6 @@
               </button>
             </div>
           </div>
-
-          {#if excludedAppsNotice}
-            <div
-              class="status-hint excluded-apps-notice"
-              class:neutral={excludedAppsNoticeTone === "neutral"}
-              class:warn={excludedAppsNoticeTone === "warn"}
-              aria-live="polite"
-            >
-              {excludedAppsNotice}
-            </div>
-          {/if}
         </div>
       {:else}
         <div class="form-hint">App exclusion is available on macOS only.</div>
@@ -2020,7 +2040,7 @@
       <section class="form-section">
         <div class="form-section-header">
           <div class="form-section-title form-section-title--with-icon">
-            <SectionIcon name="setup" />{$t("general.launchAtLogin")}
+            <SectionIcon name="login" />{$t("general.launchAtLogin")}
           </div>
           <label class="toggle">
             <input
@@ -2036,25 +2056,31 @@
           </label>
         </div>
         <div class="form-section-body">
-          <div class="form-note form-note-neutral">{$t("general.launchAtLoginHint")}</div>
+          <div class="form-hint">{$t("general.launchAtLoginHint")}</div>
         </div>
       </section>
 
       <section class="form-section">
+        <div class="form-section-title form-section-title--with-icon">
+          <SectionIcon name="globe" />{$t("language.title")}
+        </div>
         <div class="form-section-body">
-          <label class="form-field">
-            <span class="form-label">{$t("language.label")}</span>
-            <select
-              class="form-select"
-              value={$locale}
-              onchange={(e) => setLocale((e.currentTarget as HTMLSelectElement).value as LocaleCode)}
-            >
-              {#each LOCALES as l}
-                <option value={l.code}>{l.label}</option>
-              {/each}
-            </select>
-          </label>
-          <div class="form-note form-note-neutral">{$t("language.hint")}</div>
+          <div class="form-hint">{$t("language.subtitle")}</div>
+          <div class="inset-list">
+            <label class="form-field">
+              <span class="form-label">{$t("language.label")}</span>
+              <select
+                class="form-select"
+                value={$locale}
+                onchange={(e) => setLocale((e.currentTarget as HTMLSelectElement).value as LocaleCode)}
+              >
+                {#each LOCALES as l}
+                  <option value={l.code}>{l.label}</option>
+                {/each}
+              </select>
+            </label>
+          </div>
+          <div class="form-hint">{$t("language.hint")}</div>
         </div>
       </section>
     {/if}
@@ -2226,10 +2252,6 @@
     color: var(--color-warning-text);
   }
 
-  .excluded-apps-notice {
-    margin: 0;
-  }
-
   .dirty-bar {
     position: fixed;
     left: 184px;
@@ -2293,41 +2315,53 @@
     cursor: default;
   }
 
+  .update-install-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-stack);
+  }
+
   .update-progress {
-    margin-top: 10px;
+    margin-top: var(--space-stack);
     height: 6px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-pill);
+    background: var(--surface-7);
     overflow: hidden;
   }
 
   .update-progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #10b981, #34d399);
-    border-radius: 999px;
-    transition: width 0.2s ease;
+    background: var(--color-success);
+    border-radius: var(--radius-pill);
+    transition: width var(--duration-standard) var(--ease-interactive);
   }
 
   .update-log-actions {
     display: flex;
-    gap: 6px;
+    flex-shrink: 0;
+    gap: var(--space-stack);
+  }
+
+  .update-log-actions :global(.form-btn) {
+    min-height: var(--size-hit-target-sm);
+    padding-inline: var(--space-control-x);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
   }
 
   .update-log {
-    margin: 8px 0 0;
+    margin: 0;
     max-height: 220px;
     overflow: auto;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: var(--surface-code-block, rgba(0, 0, 0, 0.28));
-    border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.08));
-    font-family: var(--font-family-mono, ui-monospace, monospace);
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--color-text-subtle, #b8b8b8);
+    padding: var(--inset-list-pad-block) var(--inset-list-pad-inline);
+    border-radius: var(--radius-control);
+    background: var(--surface-code-block);
+    border: 1px solid var(--border-default);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-2xs-sm);
+    line-height: var(--line-height-relaxed);
+    color: var(--color-text-subtle);
     white-space: pre-wrap;
     word-break: break-word;
-    user-select: text;
-    -webkit-user-select: text;
   }
 </style>

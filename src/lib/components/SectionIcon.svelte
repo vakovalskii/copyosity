@@ -13,7 +13,15 @@
     | "clipboard-panel"
     | "hub"
     | "hotkey"
-    | "snippets";
+    | "snippets"
+    | "general"
+    | "globe"
+    | "updates"
+    | "version"
+    | "update-log"
+    | "connection"
+    | "gauge"
+    | "login";
 
   const {
     name,
@@ -93,5 +101,44 @@
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
     <path d="M14 2v6h6" />
     <path d="M8 13h8M8 17h5M8 9h2" />
+  {:else if name === "general"}
+    <path d="M4 21v-7" />
+    <path d="M4 10V3" />
+    <circle cx="4" cy="14" r="2" />
+    <path d="M12 21v-9" />
+    <path d="M12 8V3" />
+    <circle cx="12" cy="12" r="2" />
+    <path d="M20 21v-5" />
+    <path d="M20 12V3" />
+    <circle cx="20" cy="17" r="2" />
+  {:else if name === "globe"}
+    <circle cx="12" cy="12" r="10" />
+    <path d="M2 12h20" />
+    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+  {:else if name === "updates"}
+    <path d="M12 3v10" />
+    <path d="m7 10 5 5 5-5" />
+    <path d="M5 21h14" />
+  {:else if name === "version"}
+    <circle cx="12" cy="12" r="10" />
+    <path d="m9 12 2 2 4-4" />
+  {:else if name === "update-log"}
+    <polyline points="4 17 10 11 4 5" />
+    <line x1="12" x2="20" y1="19" y2="19" />
+    <line x1="12" x2="20" y1="15" y2="15" />
+    <line x1="12" x2="20" y1="11" y2="11" />
+  {:else if name === "connection"}
+    <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+    <path d="M15 7h2a5 5 0 1 1 0 10h-2" />
+    <line x1="8" x2="16" y1="12" y2="12" />
+  {:else if name === "gauge"}
+    <path d="m12 14 4-4" />
+    <path d="M3.34 19a10 10 0 1 1 17.32 0" />
+  {:else if name === "login"}
+    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+    <polyline points="10 17 15 12 10 7" />
+    <line x1="15" x2="3" y1="12" y2="12" />
+  {:else}
+    {@const exhaustive: never = name}
   {/if}
 </svg>

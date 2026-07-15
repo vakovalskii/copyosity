@@ -15,6 +15,7 @@ import {
 import { displayQueryKey, tagCountsQueryKey } from "$lib/overlay-display-query";
 import {
   isReconcileDepthExhausted,
+  isSearchPageReadyBeforeFetch,
   shouldBackfillEntriesAfterShrink,
   shouldRefetchTagCounts,
   shouldRefreshUnfilteredDisplayFromCatalog,
@@ -843,22 +844,18 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
 
   function setSearchQuery(q: string, options: { reload?: boolean; immediate?: boolean } = {}) {
     const { reload = true, immediate = false } = options;
-    searchQuery = q;
+    searchQuery = q.trim() === "" ? "" : q;
     clearTimeout(debounceTimer);
     if (!reload) {
-      if (q === "") syncDisplayFromCatalog();
+      if (searchQuery === "") syncDisplayFromCatalog();
       return;
     }
-    searchPageReady = q === "";
     displayFetchFailed = false;
+    searchPageReady = isSearchPageReadyBeforeFetch(searchQuery);
 
-    if (!immediate && q) {
-      invalidateInFlightFetches();
-      entries = [];
-      entriesHasMore = false;
-      searchTagCounts = null;
-      searchTagCountsQueryKey = "";
+    if (!immediate && searchQuery) {
       debounceTimer = setTimeout(() => {
+        invalidateInFlightFetches();
         const gen = beginFreshFetch();
         void loadDisplayEntries(true, true, gen);
       }, 150);

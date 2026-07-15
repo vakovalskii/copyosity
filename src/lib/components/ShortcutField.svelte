@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FieldStatusFooter from "./FieldStatusFooter.svelte";
   import ShortcutModifierHint from "./ShortcutModifierHint.svelte";
 
   let {
@@ -8,6 +9,7 @@
     examples,
     detail,
     notice,
+    noticeTone = "ok",
     onSave,
     saveLabel = "Save",
     saveDisabled = false,
@@ -18,6 +20,7 @@
     examples: string[];
     detail?: string;
     notice?: string;
+    noticeTone?: "ok" | "warn" | "neutral" | "fail";
     onSave?: () => void | Promise<void>;
     saveLabel?: string;
     saveDisabled?: boolean;
@@ -30,26 +33,29 @@
   }
 </script>
 
-<div class="form-field">
-  <div class="form-inline">
-    <input
-      class="form-input"
-      type="text"
-      {placeholder}
-      aria-label={ariaLabel}
-      bind:value={value}
-      onkeydown={handleKeydown}
-    />
-    {#if onSave}
-      <button
-        class="form-btn form-btn-secondary app-btn"
-        type="button"
-        disabled={saveDisabled}
-        onclick={() => void onSave()}
-      >
-        {saveLabel}
-      </button>
-    {/if}
+<div class="form-field form-field--with-status-footer">
+  <div class="form-field-main">
+    <div class="form-inline">
+      <input
+        class="form-input"
+        type="text"
+        {placeholder}
+        aria-label={ariaLabel}
+        bind:value={value}
+        onkeydown={handleKeydown}
+      />
+      {#if onSave}
+        <button
+          class="form-btn form-btn-secondary app-btn"
+          type="button"
+          disabled={saveDisabled}
+          onclick={() => void onSave()}
+        >
+          {saveLabel}
+        </button>
+      {/if}
+    </div>
+    <ShortcutModifierHint {examples} {detail} />
   </div>
-  <ShortcutModifierHint {examples} {detail} {notice} />
+  <FieldStatusFooter message={notice} tone={noticeTone} />
 </div>

@@ -269,6 +269,10 @@ export function buildTagBarModel(options: {
   displayTagCounts?: OverlayTagCounts | null;
   /** DB-wide tag totals for catalog scope (no search), used for row layout. */
   layoutTagCounts?: OverlayTagCounts | null;
+  /** Active search query — when set and `entries` is empty, hide the tag row. */
+  searchQuery?: string;
+  /** True while the search result list is still loading (keep tags visible). */
+  searchPending?: boolean;
 }): TagBarModel {
   const { entries, contentKind, aiTaggingEnabled, activeTag = null } = options;
   const layoutPool = options.layoutEntries ?? entries;
@@ -306,7 +310,15 @@ export function buildTagBarModel(options: {
     (isFormatTag(activeTag) ? imagesAvailable : aiTaggingEnabled && textAvailable);
   const stickySegment = showRowA && contentKind !== "all";
 
-  const showRowB = display.hasChips || layout.hasChips || stickyActiveTag || stickySegment;
+  const hideForEmptySearch =
+    (options.searchQuery?.trim() ?? "") !== "" &&
+    entries.length === 0 &&
+    !options.searchPending &&
+    activeTag === null;
+
+  const showRowB =
+    !hideForEmptySearch &&
+    (display.hasChips || layout.hasChips || stickyActiveTag || stickySegment);
 
   return {
     showRowA,
@@ -425,7 +437,7 @@ export function reconcileOverlayFilters(
   } = options;
   if (!catalogHasData || filteredEntries.length > 0) return null;
   if (hasMore) return null;
-  if (searchQuery) return null;
+  if (searchQuery.trim()) return null;
 
   if (activeTag) {
     return { activeTag: null, contentKind };

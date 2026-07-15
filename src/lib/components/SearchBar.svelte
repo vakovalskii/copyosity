@@ -182,9 +182,8 @@
     z-index: 1;
   }
 
-  .clear-btn:focus-visible {
+  .clear-btn:focus {
     outline: none;
-    box-shadow: var(--ring-accent);
   }
 
   .clear-btn.hidden {

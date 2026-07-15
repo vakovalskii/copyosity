@@ -220,10 +220,8 @@
     color: var(--color-text-primary);
   }
 
-  .collection-tab:focus-visible {
+  .collection-tab:focus {
     outline: none;
-    box-shadow: var(--ring-accent);
-    z-index: 1;
   }
 
   .tab-label {
@@ -269,8 +267,7 @@
   }
 
   .collection-tab-item:hover .tab-delete,
-  .collection-tab-item:focus-within .tab-delete,
-  .tab-delete:focus-visible {
+  .collection-tab-item:focus-within .tab-delete {
     opacity: 1;
   }
 
@@ -282,9 +279,8 @@
     color: var(--color-danger-text-hover);
   }
 
-  .tab-delete:focus-visible {
+  .tab-delete:focus {
     outline: none;
-    box-shadow: var(--ring-accent);
   }
 
   .add-tab {
@@ -322,9 +318,8 @@
     border-color: var(--border-default);
   }
 
-  .add-tab:focus-visible {
+  .add-tab:focus {
     outline: none;
-    box-shadow: var(--ring-accent-input);
   }
 
   .add-form {

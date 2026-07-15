@@ -123,15 +123,8 @@ button.app-btn:active:not(.is-busy, .is-locked, :disabled) {
   }
 }
 
-button.app-btn:focus-visible,
-[data-input-modality="keyboard"] button.app-btn:focus {
+button.app-btn:focus {
   outline: none;
-  box-shadow: var(--ring-accent);
-}
-
-button.app-btn:focus-visible:active:not(.is-busy, .is-locked, :disabled),
-[data-input-modality="keyboard"] button.app-btn:focus:active:not(.is-busy, .is-locked, :disabled) {
-  box-shadow: var(--shadow-inset-press), var(--ring-accent);
 }
 
 button.app-btn:disabled {

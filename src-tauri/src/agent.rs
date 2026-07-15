@@ -351,4 +351,20 @@ mod tests {
         let m = json!({ "content": "hello" });
         assert!(tool_calls_of(&m).is_empty());
     }
+
+    #[test]
+    fn reminder_due_parser_accepts_future_rfc3339() {
+        use chrono::{Duration, Local};
+        let due = (Local::now() + Duration::hours(1)).to_rfc3339();
+        let offset = parse_due_offset_secs(&due).expect("future due date should parse");
+        assert!((3_590..=3_600).contains(&offset));
+    }
+
+    #[test]
+    fn reminder_due_parser_rejects_past_and_invalid_values() {
+        use chrono::{Duration, Local};
+        let past = (Local::now() - Duration::hours(1)).to_rfc3339();
+        assert_eq!(parse_due_offset_secs(&past), None);
+        assert_eq!(parse_due_offset_secs("not-a-date"), None);
+    }
 }

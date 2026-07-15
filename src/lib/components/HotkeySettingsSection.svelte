@@ -8,6 +8,7 @@
     examples,
     detail,
     notice,
+    noticeTone = "ok",
     onSave,
   }: {
     value?: string;
@@ -15,6 +16,7 @@
     examples: string[];
     detail?: string;
     notice?: string;
+    noticeTone?: "ok" | "warn" | "neutral" | "fail";
     onSave: () => void | Promise<void>;
   } = $props();
 </script>
@@ -31,6 +33,7 @@
       {examples}
       {detail}
       {notice}
+      {noticeTone}
       {onSave}
     />
   </div>

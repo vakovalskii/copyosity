@@ -698,7 +698,7 @@
     display: none;
   }
 
-  .card.selected:focus-visible {
+  .card.selected:focus {
     outline: none;
   }
 
@@ -915,15 +915,8 @@
     background: var(--surface-10);
   }
 
-  .type-preview-btn:focus-visible,
-  :global([data-input-modality="keyboard"]) .type-preview-btn:focus:not(:disabled) {
+  .type-preview-btn:focus {
     outline: none;
-    box-shadow: var(--ring-accent-input);
-  }
-
-  .type-preview-btn:focus-visible:active:not(:disabled),
-  :global([data-input-modality="keyboard"]) .type-preview-btn:focus:active:not(:disabled) {
-    box-shadow: var(--shadow-inset-press), var(--ring-accent-input);
   }
 
   .time {
@@ -971,11 +964,14 @@
   }
 
   .action-btn.paste:hover:not(:disabled, [aria-busy="true"]),
-  .action-btn.paste:focus-visible:not(:disabled, [aria-busy="true"]),
   :global([data-input-modality="keyboard"]) .action-btn.paste:focus:not(:disabled, [aria-busy="true"]) {
     background: var(--surface-accent-muted);
     border-color: var(--border-accent-soft);
     color: var(--color-accent-text-soft);
+  }
+
+  .action-btn.paste:focus {
+    outline: none;
   }
 
   .action-btn.paste:hover:not(:disabled, [aria-busy="true"]) {
@@ -1340,9 +1336,11 @@
     cursor: pointer;
   }
 
-  .card-context-item:hover:not(:disabled),
-  .card-context-item:focus-visible {
+  .card-context-item:hover:not(:disabled) {
     background: var(--surface-menu-hover);
+  }
+
+  .card-context-item:focus {
     outline: none;
   }
 </style>

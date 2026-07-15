@@ -5,6 +5,108 @@ All notable changes to Copyosity are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - Unreleased
+
+### Changed
+
+- **Keyboard focus rings** — focus rings appear only when navigating by keyboard (`Tab` / shortcuts), not after mouse clicks; slimmer ring styling via shared `focus-rings.css`; the overlay and command palette reset focus when hidden or minimized so rings do not linger.
+- **Overlay tag filters during search** — the tag chip row hides when a search returns no matches (it stays visible while results are still loading); catalog cards are hidden during that pending window so a stale row cannot be pasted.
+- **Command palette** — Agent vs Web mode tint the send button and empty-state icon; status and errors sit in a fixed rail above the composer (center placeholders hide while a message is shown); empty states use stroke icons instead of emoji; the hub model list refreshes when the palette reopens or Settings emits `hub-settings-changed` (skips refetch when hub credentials are unchanged).
+- **Settings hotkey fields** — save confirmation and errors slide in below the field in an animated footer (hints and inputs stay fixed); a full-width inset-list divider separates the status row; ok/fail tone; transient notices clear when you switch sidebar panes. The same footer pattern applies to excluded-app feedback in **History → Privacy**.
+- **Settings icons** — **General** uses its own sidebar icon; launch-at-login and language subsections pick up matching section icons.
+
+### Fixed
+
+- **Tray menu first click** — after the upstream merge, the first tray click could fail to open the menu reliably because tray Down reused full paste-target capture that raced deferred `show_menu()`. Tray Down now records the frontmost app PID only, without AX/mouse capture.
+- **Settings → NeuralDeep palette hotkey** — saving the command-palette shortcut from Settings failed with an IPC ACL error (`get_palette_shortcut` / `set_palette_shortcut` were missing from the settings window capability).
+- **Agent chat failed turns** — a failed send no longer leaves an orphaned user bubble in the transcript; the composer text is restored, and a disabled or misconfigured hub shows an upfront message instead of failing mid-request.
+- **Agent session history** — sessions are saved only after the assistant has replied (user-only threads are not stored).
+
+## [1.0.0] - 2026-07-15
+
+First stable release — reliable in-app auto-update, full multi-turn agent chat with tools and reasoning, and the macOS menu-bar experience from 0.8.x onward.
+
+### Fixed
+
+- **Auto-update from a mounted DMG** — if Copyosity still runs from the read-only disk image (`/Volumes/…`), the updater now detects the non-writable location up front and tells you to quit, drag the app to **Applications**, and update from there — instead of failing with a cryptic “Read-only file system (os error 30)”.
+
+## [0.9.9] - 2026-07-15
+
+### Changed
+
+- **Update log on launch** — the startup auto-check now records the running version (`launch: running 0.9.9, checking for updates…`) in **Settings → Updates → Update log**, so support reports can tell which build was active when a silent check ran.
+
+## [0.9.8] - 2026-07-15
+
+### Fixed
+
+- **In-app install across volumes (EXDEV)** — the updater extracted to `$TMPDIR` on a different APFS volume than the app bundle, so `rename()` failed with “Cross-device link (os error 18)” and downloads never replaced the bundle. A new Rust `install_update` command sets `TMPDIR` to the app’s own folder (intra-volume renames), emits progress, then relaunches; **Settings → Updates → Download & install** now uses it instead of the JS plugin flow.
+
+## [0.9.7] - 2026-07-15
+
+### Changed
+
+- **Settings → Updates** copy now says updates come from the [vkovalskii.com](https://vkovalskii.com/copyosity/latest.json) mirror with GitHub Releases as fallback (was “GitHub Releases” only).
+
+## [0.9.6] - 2026-07-15
+
+### Added
+
+- **In-app update log** — **Settings → Updates → Update log** records every step of the updater (launch check, manual check, download, unpack/install, relaunch) plus the full text of any error, with **Copy** / **Clear**; persisted in `localStorage` so silent launch-time failures are visible afterward.
+
+## [0.9.5] - 2026-07-13
+
+### Changed
+
+- **Command palette** — after the agent finishes a turn, focus returns to the composer so you can type a follow-up immediately.
+
+## [0.9.4] - 2026-07-13
+
+### Fixed
+
+- **Updater tarballs contained AppleDouble (`._*`) entries** — macOS `tar czf` after codesign/staple embedded resource-fork sidecars that the Rust unpacker rejected (`failed to unpack`), so downloads succeeded but the bundle was never replaced. Release tarballs are now packed with `COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs` (0 AppleDouble entries verified end-to-end).
+
+## [0.9.3] - 2026-07-13
+
+### Fixed
+
+- **Palette model picker** — the hub model `<select>` lived inside the drag header; mousedown started a window drag instead of opening the menu, so the model could not be changed. Interactive controls (`select` / `input` / `textarea` / links) are now excluded from drag initiation.
+- **Model list noise** — the hub `/v1/models` dropdown now shows chat models only (embedding / reranker entries like `bge-*`, `e5-*`, `*embedding*`, `frida`, `giga-*` are hidden).
+
+## [0.9.2] - 2026-07-13
+
+### Fixed
+
+- **Agent chat blocked by CSP** — the client-side AI SDK loop fetches the NeuralDeep hub directly from the webview, but `connect-src` only allowed `ipc:` / `localhost`, so every send was blocked. The hub host is now allowed in the palette CSP; streaming + tool loop verified against the live hub.
+
+## [0.9.1] - 2026-07-13
+
+### Fixed
+
+- **Auto-update restart swallowed** — the menu-bar app prevented every `ExitRequested` (so closing the last window keeps it in the tray), but the updater’s `relaunch()` uses `app.restart()` with `RESTART_EXIT_CODE`, which was blocked too — “Download & install” downloaded the build but never applied it. Only user-driven, code-less exits are prevented now; programmatic restart/exit passes through.
+
+## [0.9.0] - 2026-07-13
+
+### Added — Agent chat rebuild (Vercel AI SDK)
+
+- **Multi-turn streaming chat** — Agent mode is a proper conversation assistant (not single-shot Q→A): input at the **bottom** (auto-grow textarea, `Enter` = send / `Shift+Enter` = newline), transcript scrolls above it; follow-ups keep context in an AI SDK `Chat`.
+- **Client-side ReAct loop** — `streamText` + `@ai-sdk/openai-compatible` against the NeuralDeep hub, with tools bridged to Rust (`web_search`, Notes, Reminders, Calendar, screenshot capture); up to 12 steps per turn.
+- **Visible tool calls** — collapsible chips with input/output and running / done / error state.
+- **Visible reasoning** — models that return `reasoning_content` (e.g. qwen3.6) show a collapsible **Reasoning** block.
+- **Stop while streaming** — **Stop** button cancels an in-flight turn; typing indicator before the first token.
+- **Session history** — restores full AI SDK message arrays (whole conversations, not just the last answer).
+- **Minimized palette** — collapsed state is an amorphous morphing blob, not a dark square dot.
+
+### Fixed
+
+- **Palette capability gaps** — `get_app_settings` / `hub_list_models` and the new agent tool commands are allowed for the palette window; missing ACL entries had silently forced the model picker into “Hub disabled”.
+
+## [0.8.2] - 2026-07-11
+
+### Added
+
+- **Release mirror for auto-update** — the Tauri updater tries [vkovalskii.com/copyosity/latest.json](https://vkovalskii.com/copyosity/latest.json) first (nginx static, no redirect hop), then GitHub Releases `latest.json` as fallback. GitHub asset URLs redirect to `objects.githubusercontent.com`, which was intermittently failing under the updater’s rustls stack.
+
 ## [0.8.1] - 2026-07-11
 
 ### Added

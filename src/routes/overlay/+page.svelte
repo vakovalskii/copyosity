@@ -72,6 +72,7 @@
 </div>
 
 <style>
+  :global(html),
   :global(body) {
     background: transparent;
     overflow: hidden;

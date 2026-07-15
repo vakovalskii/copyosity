@@ -15,10 +15,11 @@ Not a feature spec — items with a linked `feature-*.md` keep the full design t
 - [ ] **Shortcut recorder** (voice, overlay, palette, snippets)
   - Replace text inputs with a shortcut recorder control (System Settings pattern)
   - Cover all global shortcuts:
-    - **Voice transcription** — today: text field `voice_shortcut` in Settings
+    - **Voice transcription** — today: text field `voice_shortcut` in Settings → Voice (shipped **0.6.1**)
     - **Clipboard overlay** — today: hardcoded `⌘⇧V` / `Ctrl+Shift+V` in Rust
-    - **Agent / command palette** — today: hardcoded `⌘⇧Space` / `Ctrl+Shift+Space` in Rust
-    - **Snippets / quick menu** — today: text field `quick_menu_shortcut` in Settings → Quick Menu; default `⌘⇧C` / `Ctrl+Shift+C` in Rust
+    - **Agent / command palette** — today: text field in Settings → NeuralDeep (shipped **0.7.0**; default `⌘⇧Space`)
+    - **Snippets / quick menu** — today: text field `quick_menu_shortcut` in Settings → Quick Menu (shipped **0.6.1**; default `⌘⇧C`)
+  - _Partial (**0.6.1**–**1.0.1**):_ text-field hotkeys + `ShortcutField` / `FieldStatusFooter` save feedback for voice, palette, and quick menu; overlay shortcut still hardcoded; no recorder UI, conflict detection, or symbol display yet
   - Show symbols in the UI; persist a canonical string for Rust `parse_shortcut`
   - States: idle / recording / invalid / conflict
   - `aria-label`: “Shortcut, click to record”; `aria-live="polite"` while recording
@@ -48,11 +49,10 @@ Not a feature spec — items with a linked `feature-*.md` keep the full design t
 
 - [ ] **Appearance — Light / Dark / Automatic** — system theme switching; cool blue-gray light palette; persistence + live sync across all windows. Upstream emerald accent is separate. Spec: [feature-appearance-theme.md](feature-appearance-theme.md)
 
-- [ ] **Command palette polish** (remainder) — baseline shipped in **0.6.0**; open:
-  - **Accessibility:** `aria-live="polite"` for agent progress, errors, and terminal states; richer mic labels (recording vs idle)
-  - **Hub-disabled UX:** visible empty/disabled state when `hub_enabled=false` (backend already gates palette IPC)
-  - **Min-dot keyboard access:** restore via keyboard (today mouse-only drag/double-click)
-  - **Error recovery:** retry action on agent/search failure (today error text only)
+- [ ] **Command palette polish** (remainder) — baseline shipped in **0.6.0**; more in **1.0.1** (see below); open:
+  - **Min-dot keyboard access:** reposition/restore via keyboard (today: `Enter` expands after drag, but drag and double-click are mouse-only)
+  - **Error recovery:** explicit retry action on agent/search failure (today: status text + composer restore on failed send)
+  - **Mic labels:** richer screen-reader labels for recording vs idle voice input
 
 ---
 
@@ -62,7 +62,7 @@ Not a feature spec — items with a linked `feature-*.md` keep the full design t
 
 ---
 
-## Shipped — unreleased
+## Shipped — 0.8.0
 
 - [x] **Quick Look preview** — launcher-style full entry preview for the selected card; in-panel dialog (no separate window), `Space` or `⌘Y` toggles it (`⌘Y` from search), `↓`/`→` exits search to the first visible card, trackpad scroll syncs selection on the horizontal board (vertical: use arrows after scroll). Type-chip eye (clip-path pill collapse) + secondary-click **Preview** on cards; full-resolution image fetch + GIF playback; Image / Recognised text segmented toggle when OCR exists. `←/→`/`↑/↓` keep browsing while preview is open. Spec: [feature-quick-look-preview.md](feature-quick-look-preview.md).
 
@@ -70,7 +70,7 @@ Not a feature spec — items with a linked `feature-*.md` keep the full design t
 
 ## Shipped — 0.6.0
 
-Fork merge release: upstream **v0.5.1** integrated with fork overlay, paste pipeline, security hardening, and HIG polish. Release details: [CHANGELOG.md](../../CHANGELOG.md#060---unreleased).
+Fork merge release: upstream **v0.5.1** integrated with fork overlay, paste pipeline, security hardening, and HIG polish. Release details: [CHANGELOG.md](../../CHANGELOG.md#060---2026-07-02).
 
 ### Fork — security hardening
 
@@ -162,3 +162,9 @@ Completed in **0.6.0** (open remainder tracked above):
 - [x] Keyboard hints footer; voice input; Insert / Copy / Close actions
 - [x] Shared `overlay-icon-btn` + HIG hover on palette controls
 - [x] Overlay header hub icon for palette launch (distinct from clipboard search)
+
+Completed in **1.0.1**:
+
+- [x] **Accessibility** — `aria-live="polite"` status rail for agent progress, errors, and terminal states
+- [x] **Hub-disabled UX** — upfront block message when hub is off or misconfigured (no mid-request failure)
+- [x] **Failed-turn recovery** — composer text restored; no orphan user bubble on agent failure
