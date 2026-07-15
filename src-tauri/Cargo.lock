@@ -623,6 +623,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "ureq",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
