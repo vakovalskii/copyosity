@@ -26,6 +26,8 @@ mod transcription;
 #[cfg(target_os = "macos")]
 mod tray_macos; // docs/architecture/macos-tray-menu.md §4–§5
 mod whisper;
+#[cfg(target_os = "windows")]
+mod win_platform; // Windows paste-back + foreground tracking (macOS parity)
 
 use db::Database;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
@@ -579,6 +581,9 @@ pub fn run() {
             }
             // --- end TRAY STARTUP ---
 
+            #[cfg(target_os = "windows")]
+            win_platform::install_last_frontmost_observer();
+
             let shortcut = {
                 #[cfg(target_os = "macos")]
                 {
@@ -969,6 +974,8 @@ pub(crate) fn finalize_panel_hide(app: &tauri::AppHandle) {
     if PENDING_PASTE_AFTER_HIDE.swap(false, Ordering::AcqRel) {
         #[cfg(target_os = "macos")]
         crate::clipboard_macos::spawn_automated_paste(true);
+        #[cfg(target_os = "windows")]
+        crate::win_platform::spawn_automated_paste(true);
     }
 }
 

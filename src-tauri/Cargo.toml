@@ -93,6 +93,17 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 objc2-vision = { version = "0.3", features = ["VNRequest", "VNRecognizeTextRequest", "VNRequestHandler", "VNObservation", "VNTypes"] }
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e89" }
 
+# Windows native layer (paste-back, foreground tracking). windows-sys 0.52 keeps
+# HWND/handles as plain `isize` so they store directly in atomics. See
+# src/win_platform.rs. macOS crates above and these are mutually exclusive by cfg.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.52", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_System_Threading",
+] }
+
 # §6 Agent guardrail: docs/architecture/macos-tray-menu.md — do not remove pin without upstream merge.
 # tray-icon#318: popUpStatusItemMenu inside on_tray_click (macOS; patch applies on all targets).
 [patch.crates-io]
