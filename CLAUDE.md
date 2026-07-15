@@ -47,6 +47,7 @@ verify both endpoints + assert 0 AppleDouble entries. Artifacts land in
 Windows/Linux are inert stubs — do not ship them. "Notarization" is Apple-only.
 
 **Prereqs / environment (this machine):**
+
 - Updater signing key: `.tauri/copyosity-updater.key` (git-ignored, empty
   password; also GitHub secret `TAURI_SIGNING_PRIVATE_KEY`). Losing it breaks all
   future auto-updates.
@@ -62,12 +63,10 @@ Windows/Linux are inert stubs — do not ship them. "Notarization" is Apple-only
 order: (1) `https://vkovalskii.com/copyosity/latest.json` (mirror, static, no
 redirects), (2) GitHub `releases/latest/download/latest.json` (fallback). The
 mirror origin is ssh `srv-rnd-demos-mcp` (DNS → Yandex Cloud, **not** the Hetzner
-box); reload its nginx with `docker kill -s HUP vkovalskii-nginx`. Full runbook +
-the three updater gotchas we hit (AppleDouble unpack, EXDEV cross-volume rename,
-menu-bar exit guard vs relaunch, webview CSP) live in the auto-update memory and
-`docs/architecture/palette-agent-chat.md` is unrelated — see commit history.
+box); reload its nginx with `docker kill -s HUP vkovalskii-nginx`.
 
 **Hard-won updater invariants (do not regress):**
+
 - Updater tarballs must have **0 AppleDouble (`._*`) entries** — always pack with
   `COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs` (finalize.sh does this).
   Verify with `python3 -c "import tarfile;..."` — `tar tzf` hides them.
@@ -76,7 +75,7 @@ menu-bar exit guard vs relaunch, webview CSP) live in the auto-update memory and
   handles this; the Settings button uses it.
 - The menu-bar exit guard only prevents code-less `ExitRequested` so the updater
   relaunch (which carries `RESTART_EXIT_CODE`) can restart the app.
-- The fix ships in the *installing* build, so each of these required one manual
+- The fix ships in the _installing_ build, so each of these required one manual
   install before in-app updates worked.
 
 ## Product & architecture docs

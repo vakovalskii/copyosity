@@ -79,7 +79,7 @@ sig_x = open(f"{out}/Copyosity_x64.app.tar.gz.sig").read().strip()
 manifest = {
     "version": version,
     "notes": notes,
-    "pub_date": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "platforms": {
         "darwin-aarch64": {"signature": sig_a, "url": f"{base}/Copyosity_aarch64.app.tar.gz"},
         "darwin-x86_64":  {"signature": sig_x, "url": f"{base}/Copyosity_x64.app.tar.gz"},
