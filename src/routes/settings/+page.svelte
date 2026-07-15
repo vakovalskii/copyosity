@@ -1493,7 +1493,7 @@
     {:else if activePane === "updates"}
       <div class="pane-head">
         <div class="pane-title">Updates</div>
-        <div class="pane-subtitle">Copyosity updates itself from GitHub Releases — signed and verified.</div>
+        <div class="pane-subtitle">Copyosity updates itself from vkovalskii.com (mirror) with GitHub Releases as fallback — signed and verified.</div>
       </div>
 
       <section class="form-section">
