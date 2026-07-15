@@ -553,7 +553,7 @@ pub fn run() {
                             } = event
                             {
                                 #[cfg(target_os = "macos")]
-                                clipboard_macos::remember_paste_target();
+                                clipboard_macos::note_tray_menu_paste_target();
                                 tray_macos::set_tray_highlight(tray, true);
                                 tray_macos::schedule_tray_menu_popup(tray.clone());
                             }

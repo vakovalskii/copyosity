@@ -262,6 +262,16 @@ pub fn remember_paste_target() {
     }
 }
 
+/// Tray menu Down: store frontmost non-self PID only — no AX/mouse capture.
+/// `remember_paste_target()` in the same event cycle races deferred `show_menu()` and
+/// regresses the first tray click (docs/architecture/macos-tray-menu.md §4).
+#[cfg(target_os = "macos")]
+pub fn note_tray_menu_paste_target() {
+    if let Some(pid) = frontmost_pid_excluding_self() {
+        note_last_non_self_frontmost(pid);
+    }
+}
+
 /// Track the last non-Copyosity app that became frontmost (lightweight PID only).
 #[cfg(target_os = "macos")]
 pub(crate) fn note_last_non_self_frontmost(pid: i32) {
