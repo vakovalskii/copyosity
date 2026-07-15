@@ -81,7 +81,8 @@
   } from "$lib/exclusion-label";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { initPlatform, platformIsMacOS } from "$lib/platform.svelte";
-  import { checkForUpdate, currentVersion, relaunch, type Update } from "$lib/updater";
+  import { invoke } from "@tauri-apps/api/core";
+  import { checkForUpdate, currentVersion, type Update } from "$lib/updater";
   import { appendUpdateLog, readUpdateLog, clearUpdateLog, errorToString } from "$lib/update-log";
 
   let settings = $state<AppSettings>({
@@ -906,32 +907,25 @@
     if (!update) return;
     updateInstalling = true;
     updateProgress = -1;
-    let total = 0;
-    let downloaded = 0;
-    appendUpdateLog(`install: downloading ${update.version}…`);
+    updateMessage = "Installing…";
+    appendUpdateLog(`install: downloading + installing ${update.version} (same-volume temp)…`);
     refreshUpdateLog();
+    // Progress is emitted from the Rust install command.
+    const unlisten = await listen<number | null>("update-progress", (e) => {
+      updateProgress = typeof e.payload === "number" ? e.payload : -1;
+    });
     try {
-      await update.downloadAndInstall((event) => {
-        if (event.event === "Started") {
-          total = event.data.contentLength ?? 0;
-          updateProgress = total ? 0 : -1;
-          appendUpdateLog(`install: download started (${total} bytes)`);
-        } else if (event.event === "Progress") {
-          downloaded += event.data.chunkLength;
-          updateProgress = total ? Math.round((downloaded / total) * 100) : -1;
-        } else if (event.event === "Finished") {
-          updateProgress = 100;
-          appendUpdateLog("install: download finished, unpacking + replacing bundle…");
-        }
-      });
-      updateMessage = "Installed — restarting…";
+      // Runs the whole install in Rust: temp dirs on the app's own volume
+      // (avoids EXDEV), then relaunch. On success the process restarts and this
+      // never returns; any thrown value is the real, actionable error.
+      await invoke("install_update");
       appendUpdateLog("install: bundle replaced OK — relaunching…");
-      refreshUpdateLog();
-      await relaunch();
     } catch (e) {
       updateMessage = `Install failed: ${errorToString(e)}`;
       appendUpdateLog(`install: ERROR — ${errorToString(e)}`);
       updateInstalling = false;
+    } finally {
+      unlisten();
       refreshUpdateLog();
     }
   }

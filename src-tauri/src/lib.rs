@@ -732,6 +732,7 @@ pub fn run() {
             palette_set_dot_mode,
             palette_is_dot_mode,
             palette_snap_to_edges,
+            install_update,
             agent_capture_active_window,
             commands::agent_web_search,
             commands::agent_create_note,
@@ -1746,6 +1747,64 @@ fn agent_capture_active_window() -> Option<String> {
     {
         None
     }
+}
+
+/// Install the pending update, then relaunch.
+///
+/// The updater plugin extracts the new bundle into `$TMPDIR` (usually
+/// `/var/folders/...`) and `rename()`s it over the running app. When the app and
+/// `$TMPDIR` live on different volumes that rename fails with EXDEV ("Cross-device
+/// link", os error 18) — the download succeeds but the install never applies.
+/// Pointing `TMPDIR` at the app bundle's own directory keeps every rename
+/// intra-volume. Also refuses to run from an App Translocation sandbox (a
+/// read-only quarantine mount) where self-update is impossible.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    #[cfg(target_os = "macos")]
+    {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let p = exe.to_string_lossy().to_string();
+        if p.contains("/AppTranslocation/") {
+            return Err(
+                "Copyosity is running from a quarantine sandbox (App Translocation). \
+                 Move Copyosity to /Applications, reopen it, then update."
+                    .to_string(),
+            );
+        }
+        // exe = <bundle>/Contents/MacOS/copyosity → nth(3) = <bundle>, parent = its folder.
+        if let Some(parent) = exe.ancestors().nth(3).and_then(|b| b.parent()) {
+            std::env::set_var("TMPDIR", parent);
+        }
+    }
+
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No update available".to_string())?;
+
+    let progress_app = app.clone();
+    let mut downloaded: u64 = 0;
+    update
+        .download_and_install(
+            move |chunk, total| {
+                downloaded += chunk as u64;
+                let pct = total
+                    .filter(|t| *t > 0)
+                    .map(|t| (downloaded * 100 / t) as u32);
+                let _ = progress_app.emit("update-progress", pct);
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let _ = app.emit("update-progress", Some(100u32));
+    app.restart();
 }
 
 /// Snap the palette window to the nearest screen work-area edge when the user
