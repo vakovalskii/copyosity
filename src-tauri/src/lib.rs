@@ -1757,7 +1757,9 @@ fn agent_capture_active_window() -> Option<String> {
 /// link", os error 18) — the download succeeds but the install never applies.
 /// Pointing `TMPDIR` at the app bundle's own directory keeps every rename
 /// intra-volume. Also refuses to run from an App Translocation sandbox (a
-/// read-only quarantine mount) where self-update is impossible.
+/// read-only quarantine mount) or a read-only volume (a mounted `.dmg`, which
+/// lives under `/Volumes/…`) where self-update is impossible — in either case
+/// the user must drag Copyosity into /Applications first.
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
@@ -1774,9 +1776,34 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
             );
         }
         // exe = <bundle>/Contents/MacOS/copyosity → nth(3) = <bundle>, parent = its folder.
-        if let Some(parent) = exe.ancestors().nth(3).and_then(|b| b.parent()) {
-            std::env::set_var("TMPDIR", parent);
+        let parent = exe
+            .ancestors()
+            .nth(3)
+            .and_then(|b| b.parent())
+            .ok_or_else(|| "Could not locate the Copyosity app bundle.".to_string())?;
+
+        // The updater extracts the new bundle next to the app and renames it into
+        // place. If that folder isn't writable — the classic case being the app
+        // still running from the read-only mounted disk image (/Volumes/…) — the
+        // install dies with a cryptic "Read-only file system (os error 30)".
+        // Probe for writability up front and return an actionable message instead.
+        let probe = parent.join(".copyosity-update-probe");
+        match std::fs::create_dir(&probe) {
+            Ok(()) => {
+                let _ = std::fs::remove_dir(&probe);
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Copyosity can't update itself from “{}” ({}). It looks like you're \
+                     running Copyosity straight from the disk image (a read-only location). \
+                     Quit Copyosity, drag it onto the Applications folder, then open it from \
+                     Applications and update again.",
+                    parent.display(),
+                    e
+                ));
+            }
         }
+        std::env::set_var("TMPDIR", parent);
     }
 
     let update = app
