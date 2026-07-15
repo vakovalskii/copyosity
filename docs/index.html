@@ -558,15 +558,10 @@
       /* ── download arch cards ── */
       .dl-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
         gap: 1rem;
         margin: 2rem 0 0;
         text-align: left;
-      }
-      @media (max-width: 620px) {
-        .dl-grid {
-          grid-template-columns: minmax(0, 1fr);
-        }
       }
       .dl-card {
         display: flex;
@@ -636,6 +631,38 @@
         color: var(--accent-ink);
         box-shadow: 0 1px 0 oklch(0.98 0.02 200 / 0.4) inset;
       }
+      /* coming-soon (non-clickable) card */
+      .dl-card.soon {
+        cursor: default;
+        opacity: 0.72;
+        background: linear-gradient(180deg, var(--bg-2), var(--bg));
+        border-style: dashed;
+      }
+      .dl-card.soon:hover {
+        transform: none;
+        border-color: var(--line);
+        box-shadow: none;
+      }
+      .dl-card.soon .ic {
+        background: var(--bg-3);
+        border-color: var(--line);
+        color: var(--faint);
+      }
+      .dl-card .soon-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.45rem;
+        margin-top: auto;
+        padding: 0.68rem 1rem;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: var(--muted);
+        background: var(--bg-3);
+        border: 1px solid var(--line);
+      }
+
       .dl-alt {
         margin-top: 1.6rem;
         font-size: 0.9rem;
@@ -1144,6 +1171,28 @@
                 Download .dmg
               </span>
             </a>
+            <div class="dl-card soon" aria-disabled="true">
+              <span class="chip">
+                <span class="ic" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                      d="M3 5.4l7.5-1.02v7.2H3V5.4zm0 13.2l7.5 1.02v-7.1H3v6.08zM11.3 4.26L21 3v8.58h-9.7V4.26zm0 15.48L21 21v-8.5h-9.7v7.24z"
+                    />
+                  </svg>
+                </span>
+                <span>
+                  <b>Windows</b>
+                  <small>x64 — in the works</small>
+                </span>
+              </span>
+              <span class="soon-pill">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+                Coming soon
+              </span>
+            </div>
           </div>
           <p class="arch-note">
             macOS 12+ · Developer&nbsp;ID signed, notarized &amp; stapled · not sure which chip?
