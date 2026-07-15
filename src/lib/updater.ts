@@ -38,7 +38,7 @@ export async function notify(title: string, body: string): Promise<void> {
  */
 export async function autoUpdateOnLaunch(): Promise<void> {
   try {
-    appendUpdateLog("launch: checking for updates…");
+    appendUpdateLog(`launch: running ${await getVersion()}, checking for updates…`);
     const update = await check();
     if (!update) {
       appendUpdateLog("launch: already up to date");
