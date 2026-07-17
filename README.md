@@ -12,7 +12,7 @@ A fast, native macOS clipboard manager with on-device intelligence.
 
 Copyosity keeps a searchable history of everything you copy, reads text out of
 copied images on-device, turns your voice into clean ready-to-paste text, and
-exposes a command palette for web search and a research agent — all from a
+exposes a command palette for web search and multi-turn agent chat — all from a
 floating panel you summon with a hotkey. It runs as a menu-bar app and stays out
 of your way until you need it.
 
@@ -66,18 +66,18 @@ Image entries with recognised text get an **Image / Recognised text** toggle:
 
 ### Command / agent palette
 
-Web search and a streaming research agent when NeuralDeep Hub is enabled
+Web search and a multi-turn streaming research agent when NeuralDeep Hub is enabled
 (`⌘⇧Space`, tray menu, or the sparkles button in the overlay):
 
-<img src="docs/screenshots/command-palette-agent.png" alt="Command palette in Agent mode" width="640">
+<img src="docs/screenshots/command-palette-agent.png" alt="Command palette in Agent mode with streaming chat" width="640">
 
 Web mode — quick lookups without leaving the palette:
 
 <img src="docs/screenshots/command-palette-web.png" alt="Command palette in Web search mode" width="640">
 
-Minimize-to-dot — drag the palette out of the way without closing the session:
+Minimize-to-blob — drag the palette out of the way without closing the session:
 
-<img src="docs/screenshots/command-palette-dot.png" alt="Command palette minimized to a draggable dot" width="240">
+<img src="docs/screenshots/command-palette-dot.png" alt="Command palette minimized to a draggable blob" width="240">
 
 ### Settings
 
@@ -103,8 +103,8 @@ download model / ready):
 
 <img src="docs/screenshots/settings-local-ai.png" alt="Local AI settings with Ollama onboarding steps" width="640">
 
-History settings — resizable overlay size, and clear-history controls with a
-confirmation dialog:
+History settings — resizable overlay size, excluded apps, and clear-history
+controls with a confirmation dialog:
 
 <img src="docs/screenshots/setting-history.png" alt="History settings pane" width="640">
 <img src="docs/screenshots/setting-history-dialogue.png" alt="History settings clear confirmation dialog" width="480">
@@ -116,15 +116,13 @@ at a glance:
 
 <img src="docs/screenshots/settings-permissions.png" alt="Settings permissions status pane" width="640">
 
-Updates — check for and install new releases from within the app:
+Updates — check for and install new releases, plus a persistent update log for troubleshooting:
 
-<img src="docs/screenshots/settings-updates.png" alt="Settings updates pane" width="640">
+<img src="docs/screenshots/settings-updates.png" alt="Settings updates pane with update log" width="640">
 
-### Menu bar
+General settings — launch at login and interface language (7 locales):
 
-Tray icon and menu — quick access without opening the overlay:
-
-<img src="docs/screenshots/tray.png" alt="Menu-bar tray icon and menu" width="320">
+<img src="docs/screenshots/settings-general.png" alt="General settings with launch at login and language picker" width="640">
 
 </details>
 
@@ -147,9 +145,17 @@ Shipped capabilities, grouped by area:
 - **Image clipboard** — PNG, JPG, and GIF from the pasteboard or Finder (~20 MB);
   animated GIFs; format badges; dimensions and file size on cards; OCR preview
   under thumbnails.
-- **Smart paste actions** — copy, paste into the frontmost app, and open a
-  Quick Look preview without leaving the keyboard or reaching for the mouse
-  — see [Keyboard shortcuts](#keyboard-shortcuts) for the full list.
+- **Quick Look preview** — `Space` or `⌘Y` on a selected card opens a larger,
+  scrollable preview (full text or image with dimensions/OCR); browse with arrow
+  keys while it stays open; hover the type chip or right-click → **Preview** for
+  mouse access; animated GIFs play at full resolution.
+- **Resizable overlay** — drag the corner grip to resize the panel; width and
+  height persist across reopens; **Settings → History → Restore default size**
+  resets to the built-in dimensions.
+- **Vertical board layout** — optional single-column scrolling list instead of
+  the horizontal grid.
+- **Smart paste actions** — copy, paste into the frontmost app, and Quick Look
+  without leaving the keyboard — see [Keyboard shortcuts](#keyboard-shortcuts).
 
 ### 🖼 On-device intelligence
 
@@ -171,6 +177,9 @@ Shipped capabilities, grouped by area:
 - **Context-aware polishing** — raw transcription is cleaned into natural,
   typed‑style text, taking the target app (and optionally a screenshot of the
   target window) into account so the output fits where it lands.
+- **Transcripts in history** — every voice transcription is saved to clipboard
+  history and written to the pasteboard with retries, so nothing is lost if paste
+  into the target app fails.
 
 ### ⚡ Quick access
 
@@ -182,20 +191,38 @@ Shipped capabilities, grouped by area:
 - **Snippets** — reusable text templates (email, address, prompts, …) in
   folders; edit them in **Settings → Quick Menu**; they appear in the quick menu
   for two-click paste; **Edit Snippets…** in the menu opens that settings pane.
-- **Command / agent palette** — Agent and Web modes, session history, streaming
-  agent progress, markdown answers, voice input, and Insert / Copy / Close
-  actions; draggable, resizable window with minimize-to-dot.
+- **Command / agent palette** — **Agent** mode is a multi-turn streaming chat
+  (Vercel AI SDK): bottom textarea (`Enter` send / `Shift+Enter` newline),
+  markdown answers, collapsible tool-call chips (web search, Notes, Reminders,
+  Calendar, screenshot), optional **Reasoning** blocks, **Stop** while streaming,
+  voice input, and session history that restores whole conversations. **Web** mode
+  stays single-shot search. Configurable hotkey (default `⌘⇧Space` in **Settings →
+  NeuralDeep**); in-palette model picker (chat models only); attach a screenshot
+  of the frontmost app; draggable, resizable window with sticky-to-edges,
+  transparency (glass) toggle, and minimize-to-blob.
 
 ### 🍎 macOS integration & trust
 
-- **App exclusions** — native app picker for excluded apps (e.g. password
-  managers); **Exclude [App]** from the overlay when a sensitive app is
-  frontmost.
+- **App exclusions** — native app picker in **Settings → History** for excluded
+  apps (e.g. password managers); **Exclude [App]** from the overlay when a
+  sensitive app is frontmost.
 - **Native macOS actions** — the assistant can create Notes, create and list
   Reminders, and read upcoming Calendar events via AppleScript / Apple Events.
-- **Menu-bar native UI** — a transparent, non‑activating floating panel
-  (`NSPanel`) that appears over your current app without stealing focus, plus a
-  tray icon and global shortcuts.
+- **Menu-bar native UI** — runs as a menu-bar app (no Dock icon or Cmd+Tab
+  entry); a transparent, non‑activating floating panel (`NSPanel`) appears over
+  your current app without stealing focus; switching apps dismisses the overlay;
+  global shortcuts summon it when you need it.
+- **Interface language** — **Settings → General** offers 7 languages (English,
+  Русский, Español, 中文, Deutsch, Français, 日本語); applies instantly across
+  the overlay, command palette, and settings.
+- **Launch at login** — optional **Settings → General** toggle starts Copyosity
+  when you log in (macOS LaunchAgent).
+- **Auto-updates** — checks [vkovalskii.com](https://vkovalskii.com/copyosity/latest.json)
+  first, then GitHub Releases; downloads signed builds in the background on
+  launch and notifies you when a new version is ready. **Settings → Updates**
+  offers manual check, **Download & install**, and an **Update log** (every
+  step + errors, with Copy/Clear). Copyosity must run from **Applications**, not
+  the mounted DMG, for in-app install to succeed.
 - **Privacy** — clear unpinned or all history with confirmation; concealed
   clipboard content is ignored; Copyosity's own copy/paste does not pollute
   history.
@@ -251,8 +278,9 @@ Requires **macOS 12+** on **Apple Silicon** (M1 and later) or **Intel** (x86_64)
 
 1. Pick the DMG for your architecture (for example `Copyosity_<version>_aarch64.dmg` or `Copyosity_<version>_x64.dmg`, where `<version>` is the latest release version).
 2. Open the DMG and drag **Copyosity** into **Applications**.
-3. Launch it. On first run macOS will ask for **Accessibility** permission
-   (needed to paste into other apps) and, depending on the features you use,
+3. Launch it **from Applications** (not the mounted disk image — in-app auto-update
+   requires a writable install location). On first run macOS will ask for **Accessibility**
+   permission (needed to paste into other apps) and, depending on the features you use,
    **Microphone**, **Automation** (Notes/Reminders/Calendar), and screen access.
 
 The build is signed with a Developer ID certificate and notarized + stapled by
@@ -283,6 +311,7 @@ installs and launches, but most clipboard-manager features are not implemented y
 | 📂  | `Cmd + Shift + V`       | Open / close clipboard history                                 |
 | ⚡  | `Cmd + Shift + C`       | Open quick menu at cursor (history + snippets)                 |
 | ✨  | `Cmd + Shift + Space`   | Open command / agent palette (when hub is on)                  |
+| 💬  | `Enter` in palette      | Send agent message (`Shift+Enter` = new line)                  |
 | 🔍  | `Cmd + F` or `/`        | Focus search in the overlay                                    |
 | 👁  | `Space` or `⌘Y` on card | Quick Look preview (toggle); `⌘Y` from search                  |
 | 👁  | Hover type chip · eye   | Open Quick Look preview                                        |
@@ -292,6 +321,7 @@ installs and launches, but most clipboard-manager features are not implemented y
 | 📤  | Double click on card    | Paste into active cursor                                       |
 | 📤  | `Enter` on card         | Paste selected entry                                           |
 | ✖️  | `Escape`                | Close Quick Look if open, then clear search, then hide overlay |
+| ⬆️  | `Cmd + ↑`               | Hide overlay (with or without focus)                           |
 | ⬇️  | `↓` from search         | Leave search and select first visible card                     |
 | ⬅️  | Arrow keys              | Navigate cards                                                 |
 | 📤  | Click paste button      | Paste into active cursor                                       |
@@ -305,7 +335,7 @@ installs and launches, but most clipboard-manager features are not implemented y
 
 - All data stored locally in `~/Library/Application Support/com.vkovalskii.copyosity/`
 - AI tagging runs on `127.0.0.1` via Ollama — nothing leaves your machine when the hub is off
-- Exclude sensitive apps in Settings → Privacy, or from the overlay when that app is frontmost
+- Exclude sensitive apps in **Settings → History**, or from the overlay when that app is frontmost
 - Clear unpinned or all history anytime from Settings → History
 
 <a id="build-from-source"></a>
@@ -347,7 +377,11 @@ To enable it, open **Settings → NeuralDeep** and provide:
 - your **own** API token (an `sk-...` style key).
 
 Turn on the **NeuralDeep Hub** master switch to enable hub tagging,
-transcription, web search, voice polishing, and the `⌘⇧Space` agent shortcut.
+transcription, web search, voice polishing, and the `⌘⇧Space` agent chat shortcut.
+
+The agent runs a client-side streaming chat loop (Vercel AI SDK) against your hub;
+tool calls (web search, Notes, Reminders, Calendar, screenshot) execute via Rust
+on your Mac. Web search mode in the palette uses the same hub credentials.
 
 These credentials are yours: you supply them, and they are stored locally in the
 app's settings. **No tokens, keys, or endpoints are bundled with Copyosity.** If

@@ -30,6 +30,8 @@ commands.allow = [
   "rebind_palette_shortcut",
   "get_quick_menu_shortcut",
   "set_quick_menu_shortcut",
+  "get_palette_shortcut",
+  "set_palette_shortcut",
   "get_snippet_folders",
   "get_snippets",
   "create_snippet_folder",

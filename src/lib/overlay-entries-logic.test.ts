@@ -3,12 +3,41 @@ import { describe, it } from "node:test";
 
 import {
   isReconcileDepthExhausted,
+  isSearchPageReadyBeforeFetch,
   MAX_RECONCILE_ADJUSTMENT_DEPTH,
   shouldBackfillEntriesAfterShrink,
   shouldRefetchTagCounts,
   shouldRefreshUnfilteredDisplayFromCatalog,
+  shouldShowOverlayEntryGrid,
   shouldSyncDisplayFromCatalog,
 } from "./overlay-entries-logic.ts";
+
+describe("isSearchPageReadyBeforeFetch", () => {
+  it("marks a non-empty query pending before its debounced fetch starts", () => {
+    assert.equal(isSearchPageReadyBeforeFetch("api"), false);
+  });
+
+  it("treats an empty or whitespace-only query as ready", () => {
+    assert.equal(isSearchPageReadyBeforeFetch(""), true);
+    assert.equal(isSearchPageReadyBeforeFetch("   "), true);
+  });
+});
+
+describe("shouldShowOverlayEntryGrid", () => {
+  it("hides catalog cards while a search page is pending", () => {
+    assert.equal(shouldShowOverlayEntryGrid(12, true, "api"), false);
+  });
+
+  it("keeps cards visible when search is idle", () => {
+    assert.equal(shouldShowOverlayEntryGrid(12, false, "api"), true);
+    assert.equal(shouldShowOverlayEntryGrid(12, true, ""), true);
+    assert.equal(shouldShowOverlayEntryGrid(12, true, "   "), true);
+  });
+
+  it("stays empty when there are no entries", () => {
+    assert.equal(shouldShowOverlayEntryGrid(0, false, ""), false);
+  });
+});
 
 describe("isReconcileDepthExhausted", () => {
   it("returns false below the depth cap", () => {

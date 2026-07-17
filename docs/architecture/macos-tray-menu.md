@@ -97,13 +97,27 @@ On left mouse **Down**:
 2. `tray_macos::schedule_tray_menu_popup(tray)` — 1 ms tokio sleep, then `run_on_main_thread`:
    `highlight(true)` → `inner.show_menu()` → `highlight(false)`.
 
-Implementation: [`tray_macos.rs`](../../src-tauri/src/tray_macos.rs).
+**Paste target on tray Down (lightweight only):** use
+`clipboard_macos::note_tray_menu_paste_target()` — stores the frontmost non-self PID in
+`LAST_NON_SELF_FRONTMOST_PID` for quick-menu fallback. Do **not** call `remember_paste_target()`
+or `remember_paste_target_for_pid()` here: those walk Accessibility (AX focus, mouse position)
+and run in the **same event cycle** as the deferred popup, which regresses the **1st click**
+(`ccc9504` / post-merge App Store builds).
+
+Full paste capture (`remember_paste_target_for_pid`) stays in `quick_menu::show` when the user
+picks **Snippets** from the tray menu — that path runs after the menu is already open.
+
+Implementation: [`tray_macos.rs`](../../src-tauri/src/tray_macos.rs),
+[`clipboard_macos/mod.rs`](../../src-tauri/src/clipboard_macos/mod.rs) (`note_tray_menu_paste_target`).
 
 **If switched to `show_menu_on_left_click(true)`:** 2nd/3rd click blink returns.
 
 **If defer removed but `show_menu_on_left_click(false)` kept:** 1st click blinks.
 
 **If highlight re-assert before `show_menu()` removed:** menu works but icon looks unpressed.
+
+**If any AX / panel / activation work added to the Down handler:** 1st click blinks (keep Down
+handler to highlight + schedule popup + PID note only).
 
 ### 5. Warmup activation
 
@@ -150,38 +164,87 @@ not `is_visible()`).
 
 Plain `.show_menu_on_left_click(true)` — no `tray_macos` handler.
 
+### 11. Startup webview stays minimal (no extra AppKit on hidden `main`)
+
+`macos_window::apply_hidden_auxiliary_webview` (called from `ensure_main_overlay_window` at startup)
+may only set collection behavior, level **3**, and `hidesOnDeactivate`. Do **not** call
+`apply_transparent_webview` (WKWebView tree walk) or `to_panel` there — release/DMG transparency
+fixes belong in **lazy** panel paths (`ensure_main_overlay_panel`, voice/palette first create).
+
+**If `apply_transparent_webview` runs at startup on hidden main:** 1st click blink (touches
+NSWindow during the tray click window).
+
+### 12. `tauri.conf.json` must not declare `main`
+
+Keep `"windows": []`. A static `main` entry (especially with `"alwaysOnTop": true`) creates a
+second startup path that fights the programmatic hidden window and regressed tray after upstream
+merges.
+
+**If `main` reappears in `tauri.conf.json`:** unpredictable 1st/2nd click; remove it and rely on
+`ensure_main_overlay_window` only.
+
+---
+
+## Post-merge / upstream drift (repeated regressions)
+
+When merging from upstream or App Store release branches, diff **`TRAY STARTUP`** in
+[`lib.rs`](../../src-tauri/src/lib.rs) first. These upstream patterns **fully break** the fix and
+have landed multiple times (`cb8563c`, `069689b` era):
+
+| Upstream “simplification”                                       | Symptom          |
+| --------------------------------------------------------------- | ---------------- |
+| `app.get_webview_window("main").unwrap().to_panel()` in `setup` | 1st click blink  |
+| `panel.set_level(24)` (or `PANEL_LEVEL_ACTIVE`) at startup      | 1st click blink  |
+| Plain `TrayIconBuilder::…build()` without `tray_macos` defer    | 2nd+ click blink |
+| No `enable_macos_default_menu(false)`                           | Menubar / blink  |
+| `ensure_voice_overlay` / `ensure_command_palette` in `setup`    | 1st click blink  |
+| `remember_paste_target()` on tray Down                          | 1st click blink  |
+
+After every merge that touches `lib.rs` setup or `macos_window.rs`, run **`make verify-tray`** or
+manual 5 clicks in `make dev` before shipping.
+
 ---
 
 ## Key files (agent map)
 
-| File                                                             | Role                                                           |
-| ---------------------------------------------------------------- | -------------------------------------------------------------- |
-| [`lib.rs`](../../src-tauri/src/lib.rs)                           | `TRAY STARTUP` block, `ensure_main_overlay_window`, lazy panel |
-| [`tray_macos.rs`](../../src-tauri/src/tray_macos.rs)             | Deferred popup, highlight, warmup                              |
-| [`activation_macos.rs`](../../src-tauri/src/activation_macos.rs) | Accessory ↔ Regular                                            |
-| [`macos_window.rs`](../../src-tauri/src/macos_window.rs)         | `HIDDEN_AUXILIARY_LEVEL` (3) vs 24                             |
-| [`Cargo.toml`](../../src-tauri/Cargo.toml)                       | `tray-icon` patch, `NSStatusItem` features                     |
-| [`tauri.conf.json`](../../src-tauri/tauri.conf.json)             | `"windows": []`                                                |
-| [`verify-tray-startup.sh`](../../scripts/verify-tray-startup.sh) | Debug binary, 3 clicks                                         |
-| [`verify-tray-dev.sh`](../../scripts/verify-tray-dev.sh)         | `tauri dev` + Vite, 3 clicks                                   |
+| File                                                                   | Role                                                                  |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| [`lib.rs`](../../src-tauri/src/lib.rs)                                 | `TRAY STARTUP` block, `ensure_main_overlay_window`, lazy panel        |
+| [`tray_macos.rs`](../../src-tauri/src/tray_macos.rs)                   | Deferred popup, highlight, warmup                                     |
+| [`activation_macos.rs`](../../src-tauri/src/activation_macos.rs)       | Accessory ↔ Regular                                                   |
+| [`macos_window.rs`](../../src-tauri/src/macos_window.rs)               | `HIDDEN_AUXILIARY_LEVEL` (3) vs 24                                    |
+| [`clipboard_macos/mod.rs`](../../src-tauri/src/clipboard_macos/mod.rs) | `note_tray_menu_paste_target` (tray Down); full capture in quick menu |
+| [`Cargo.toml`](../../src-tauri/Cargo.toml)                             | `tray-icon` patch, `NSStatusItem` features                            |
+| [`tauri.conf.json`](../../src-tauri/tauri.conf.json)                   | `"windows": []`                                                       |
+| [`verify-tray-startup.sh`](../../scripts/verify-tray-startup.sh)       | Debug binary, 3 clicks                                                |
+| [`verify-tray-dev.sh`](../../scripts/verify-tray-dev.sh)               | `tauri dev` + Vite, 3 clicks                                          |
 
 ---
 
 ## Do not reintroduce (review regressions)
 
-| Change                                                      | What breaks                                          |
-| ----------------------------------------------------------- | ---------------------------------------------------- |
-| Plain `show_menu_on_left_click(true)` on macOS              | 2nd/3rd click blink                                  |
-| Remove deferred popup (`tray_macos`)                        | 1st click blink                                      |
-| `warmup`: `activate()` / `activateIgnoringOtherApps(false)` | 1st click blink                                      |
-| Remove highlight re-assert in deferred popup                | Icon not highlighted while menu open                 |
-| Defer `ensure_main_overlay_window` to async                 | `make dev` / window creation                         |
-| Re-pin window level in a startup loop                       | 1st click blink (touches window during click window) |
-| Tray-only startup (no hidden main)                          | 2nd click blink                                      |
-| Remove `enable_macos_default_menu(false)`                   | Menubar pollution / blink                            |
-| Pre-create voice/palette NSPanels in `setup`                | Tray z-order / 1st click                             |
-| Main → NSPanel at startup                                   | 1st click blink                                      |
-| Remove `tray-icon` patch                                    | Repeat-click `performClick` bug                      |
+| Change                                                                    | What breaks                                          |
+| ------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Plain `show_menu_on_left_click(true)` on macOS                            | 2nd/3rd click blink                                  |
+| Remove deferred popup (`tray_macos`)                                      | 1st click blink                                      |
+| `warmup`: `activate()` / `activateIgnoringOtherApps(false)`               | 1st click blink                                      |
+| Remove highlight re-assert in deferred popup                              | Icon not highlighted while menu open                 |
+| Defer `ensure_main_overlay_window` to async                               | `make dev` / window creation                         |
+| Re-pin window level in a startup loop                                     | 1st click blink (touches window during click window) |
+| Tray-only startup (no hidden main)                                        | 2nd click blink                                      |
+| Remove `enable_macos_default_menu(false)`                                 | Menubar pollution / blink                            |
+| Pre-create voice/palette NSPanels in `setup`                              | Tray z-order / 1st click                             |
+| Main → NSPanel at startup                                                 | 1st click blink                                      |
+| Remove `tray-icon` patch                                                  | Repeat-click `performClick` bug                      |
+| `remember_paste_target()` on tray Down (AX in click handler)              | 1st click blink                                      |
+| `remember_paste_target_for_pid()` on tray Down                            | 1st click blink (same AX race)                       |
+| `apply_transparent_webview` in `apply_hidden_auxiliary_webview` (startup) | 1st click blink                                      |
+| Static `main` window in `tauri.conf.json` (`alwaysOnTop`, etc.)           | Z-order / activation races                           |
+| Revert `TRAY STARTUP` to pre-`0bfce42` (to_panel in setup)                | 1st click blink                                      |
+| `set_level(24)` on hidden main or hidden panel after hide                 | 1st click blink                                      |
+| `dismiss_main_panel_if_visible` / `hide_command_palette` on tray Down     | Menu dismiss race / blink                            |
+| `activate()` / `activateIgnoringOtherApps` in tray Down handler           | 1st click blink                                      |
+| Merge upstream without re-reading this doc                                | Often reintroduces rows above                        |
 
 ---
 
@@ -197,6 +260,10 @@ Before merging tray/overlay/activation changes:
 4. Confirm log: `hidden main + deferred tray popup ready`.
 5. Do **not** “simplify” by dropping `tray_macos` or switching to plain tray — that was tried
    multiple times and always regressed one click or the other.
-6. `ensure_main_overlay_panel` idempotency is guaranteed by the `AtomicBool` early-return and
+6. Tray Down handler: **highlight + deferred popup + `note_tray_menu_paste_target` only** — no AX,
+   no panel hide/show, no activation calls.
+7. After upstream merge: grep `lib.rs` for `to_panel` in `setup`, `remember_paste_target` in tray
+   handler, and `"windows": [` in `tauri.conf.json`.
+8. `ensure_main_overlay_panel` idempotency is guaranteed by the `AtomicBool` early-return and
    enforced at runtime via `debug_assert!(MainThreadMarker::new().is_some())`. A unit test is
    impractical without a full Tauri runtime — the code comment is the authoritative doc.

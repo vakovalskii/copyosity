@@ -1,0 +1,90 @@
+/*
+ * Keyboard-only focus rings (Tab / keyboard shortcuts).
+ * WebKit in Tauri may match :focus-visible after pointer click — rings gate on input modality.
+ * Colors: tokens.css (--ring-accent, --ring-accent-input)
+ */
+
+/* ── Shared app buttons ──────────────────────────────── */
+[data-input-modality="keyboard"] button.app-btn:focus {
+  outline: none;
+  box-shadow: var(--ring-accent);
+}
+
+[data-input-modality="keyboard"] button.app-btn:focus:active:not(.is-busy, .is-locked, :disabled) {
+  box-shadow: var(--shadow-inset-press), var(--ring-accent);
+}
+
+/* ── Header / search chrome ──────────────────────────── */
+[data-input-modality="keyboard"] .clear-btn:focus,
+[data-input-modality="keyboard"] .overlay-icon-btn:focus,
+[data-input-modality="keyboard"] .quicklook-close:focus {
+  outline: none;
+  box-shadow: var(--ring-accent);
+}
+
+[data-input-modality="keyboard"] .exclude-app-btn:focus {
+  outline: none;
+  opacity: 1;
+  background: var(--surface-warning-subtle);
+  border-color: var(--border-warning-hover);
+  color: var(--color-text-body);
+  box-shadow: var(--ring-accent-input);
+}
+
+[data-input-modality="keyboard"] .empty-retry-btn:focus {
+  outline: none;
+  box-shadow: var(--ring-accent);
+}
+
+/* ── Command palette ─────────────────────────────────── */
+[data-input-modality="keyboard"] .mode-badge:focus,
+[data-input-modality="keyboard"] .history-item:focus,
+[data-input-modality="keyboard"] .shot-btn:focus,
+[data-input-modality="keyboard"] .mic-btn:focus {
+  outline: none;
+  box-shadow: var(--ring-accent);
+}
+
+/* ── Settings collection tabs ────────────────────────── */
+[data-input-modality="keyboard"] .collection-tab:focus {
+  outline: none;
+  box-shadow: var(--ring-accent);
+  z-index: 1;
+}
+
+[data-input-modality="keyboard"] .tab-delete:focus {
+  outline: none;
+  box-shadow: var(--ring-accent);
+}
+
+[data-input-modality="keyboard"] .add-tab:focus {
+  outline: none;
+  box-shadow: var(--ring-accent-input);
+}
+
+/* ── Clipboard card chrome ───────────────────────────── */
+[data-input-modality="keyboard"] .type-preview-btn:focus:not(:disabled) {
+  outline: none;
+  box-shadow: var(--ring-accent-input);
+}
+
+[data-input-modality="keyboard"] .type-preview-btn:focus:active:not(:disabled) {
+  box-shadow: var(--shadow-inset-press), var(--ring-accent-input);
+}
+
+[data-input-modality="keyboard"] .action-btn.paste:focus:not(:disabled, [aria-busy="true"]) {
+  outline: none;
+  box-shadow: var(--ring-accent);
+}
+
+/* ── Context / action menus ──────────────────────────── */
+[data-input-modality="keyboard"] .action-menu-item:focus,
+[data-input-modality="keyboard"] .card-context-item:focus {
+  outline: none;
+  background: var(--surface-menu-hover);
+}
+
+[data-input-modality="keyboard"] .action-menu-item.destructive:focus {
+  background: var(--surface-menu-hover-destructive);
+  color: var(--color-danger-text-hover);
+}

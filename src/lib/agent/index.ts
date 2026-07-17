@@ -23,6 +23,15 @@ import {
 } from "ai";
 import { z } from "zod";
 
+import { hubAgentBlockReason } from "./hub";
+
+export {
+  hubAgentBlockReason,
+  sessionCanPersist,
+  trimOrphanedUserMessages,
+  type HubAgentSettings,
+} from "./hub";
+
 const MAX_STEPS = 12;
 
 const SYSTEM_PROMPT =
@@ -75,11 +84,9 @@ const tools = {
 /** Build the OpenAI-compatible model for the current hub settings + model id. */
 async function resolveModel(model: string) {
   const s = await getAppSettings();
-  if (!s.hub_enabled) throw new Error("NeuralDeep hub is disabled in Settings");
+  const block = hubAgentBlockReason(s);
+  if (block) throw new Error(block);
   const base = s.hub_url.trim().replace(/\/+$/, "");
-  if (!base || !s.hub_token.trim()) {
-    throw new Error("Set the NeuralDeep hub URL and token in Settings");
-  }
   const provider = createOpenAICompatible({
     name: "neuraldeep",
     baseURL: `${base}/v1`,

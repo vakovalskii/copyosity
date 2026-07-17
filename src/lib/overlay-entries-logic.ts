@@ -4,6 +4,24 @@ import type { OverlayTagCounts } from "$lib/types";
 /** Max reconcile adjustment fetches inside one reload (tag → kind → row hide). */
 export const MAX_RECONCILE_ADJUSTMENT_DEPTH = 4;
 
+/** A search is ready only when no normalized query is waiting for its first page. */
+export function isSearchPageReadyBeforeFetch(query: string): boolean {
+  return query.trim() === "";
+}
+
+/**
+ * Hide the entry grid while a search page is in flight so catalog rows cannot be
+ * clicked/pasted as if they were search matches.
+ */
+export function shouldShowOverlayEntryGrid(
+  entryCount: number,
+  displayListPending: boolean,
+  searchQuery: string,
+): boolean {
+  if (displayListPending && searchQuery.trim() !== "") return false;
+  return entryCount > 0;
+}
+
 export interface ReconcileAdjustmentSnapshot {
   needsReload: boolean;
   contentKind: ContentKind;

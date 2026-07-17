@@ -72,18 +72,6 @@
   button.app-btn.segment-item[aria-selected="true"]:active:not(.is-busy, .is-locked, :disabled),
 .segment-track
   button.app-btn.segment-item[aria-pressed="true"]:active:not(.is-busy, .is-locked, :disabled),
-.segment-track
-  button.app-btn.segment-item[aria-selected="true"]:focus-visible:active:not(
-    .is-busy,
-    .is-locked,
-    :disabled
-  ),
-.segment-track
-  button.app-btn.segment-item[aria-pressed="true"]:focus-visible:active:not(
-    .is-busy,
-    .is-locked,
-    :disabled
-  ),
 [data-input-modality="keyboard"]
   .segment-track
   button.app-btn.segment-item[aria-selected="true"]:focus:active:not(
@@ -103,16 +91,11 @@
   border-color: var(--border-default);
 }
 
-/* Keep selected inset highlight when focused; ring only on unselected segments. */
-.segment-track .segment-item:focus,
-.segment-track .segment-item:focus-visible {
+/* Keep selected inset highlight when focused; ring only on unselected segments (keyboard Tab). */
+.segment-track .segment-item:focus {
   outline: none;
 }
 
-.segment-track .segment-item[aria-selected="false"]:focus-visible,
-.segment-track .segment-item[aria-pressed="false"]:focus-visible,
-.segment-track button.app-btn.segment-item[aria-selected="false"]:focus-visible,
-.segment-track button.app-btn.segment-item[aria-pressed="false"]:focus-visible,
 [data-input-modality="keyboard"]
   .segment-track
   button.app-btn.segment-item[aria-selected="false"]:focus,
@@ -122,10 +105,6 @@
   box-shadow: var(--ring-accent-input);
 }
 
-.segment-track .segment-item[aria-selected="true"]:focus-visible,
-.segment-track .segment-item[aria-pressed="true"]:focus-visible,
-.segment-track button.app-btn.segment-item[aria-selected="true"]:focus-visible,
-.segment-track button.app-btn.segment-item[aria-pressed="true"]:focus-visible,
 [data-input-modality="keyboard"]
   .segment-track
   button.app-btn.segment-item[aria-selected="true"]:focus,

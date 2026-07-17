@@ -3,6 +3,7 @@
   import { initInputModality } from "$lib/input-modality";
   import "$lib/styles/tokens.css";
   import "$lib/styles/window-chrome.css";
+  import "$lib/styles/focus-rings.css";
   import "$lib/styles/button-interaction.css";
   import "$lib/styles/form-controls.css";
   import "$lib/styles/segment-control.css";

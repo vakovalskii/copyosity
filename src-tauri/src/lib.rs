@@ -553,7 +553,7 @@ pub fn run() {
                             } = event
                             {
                                 #[cfg(target_os = "macos")]
-                                clipboard_macos::remember_paste_target();
+                                clipboard_macos::note_tray_menu_paste_target();
                                 tray_macos::set_tray_highlight(tray, true);
                                 tray_macos::schedule_tray_menu_popup(tray.clone());
                             }
@@ -1010,12 +1010,14 @@ pub(crate) fn hide_command_palette(app: &tauri::AppHandle) {
         if let Ok(panel) = app.get_webview_panel("command_palette") {
             panel.hide();
             macos_window::configure_hidden_auxiliary_panel(&*panel);
+            let _ = app.emit("palette-hide", ());
             return;
         }
     }
     if let Some(win) = app.get_webview_window("command_palette") {
         let _ = win.hide();
     }
+    let _ = app.emit("palette-hide", ());
 }
 
 fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -1590,8 +1592,7 @@ fn toggle_command_palette(app: &tauri::AppHandle) {
         ensure_command_palette(app);
         if let Ok(panel) = app.get_webview_panel("command_palette") {
             if panel.is_visible() {
-                panel.hide();
-                macos_window::configure_hidden_auxiliary_panel(&*panel);
+                hide_command_palette(app);
                 return;
             }
             dismiss_main_panel_if_visible(app);
@@ -1607,7 +1608,7 @@ fn toggle_command_palette(app: &tauri::AppHandle) {
             let _ = app.emit("palette-show", ());
         } else if let Some(window) = app.get_webview_window("command_palette") {
             if window.is_visible().unwrap_or(false) {
-                let _ = window.hide();
+                hide_command_palette(app);
                 return;
             }
             dismiss_main_panel_if_visible(app);

@@ -8,9 +8,16 @@
   import type { UIMessage } from "ai";
   import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
   import { getAppSettings, hubListModels } from "$lib/api";
-  import { createAgentTransport, captureActiveWindowDataUrl } from "$lib/agent";
+  import {
+    createAgentTransport,
+    captureActiveWindowDataUrl,
+    hubAgentBlockReason,
+    sessionCanPersist,
+    trimOrphanedUserMessages,
+  } from "$lib/agent";
   import { t } from "$lib/i18n";
   import { invokeErrorMessage } from "$lib/exclusion-label";
+  import { resetFocusState } from "$lib/input-modality";
   import {
     isPaletteDotLogicalSize,
     loadPaletteRestoreSize,
@@ -59,17 +66,30 @@
   let agentModel = $state<string>(localStorage.getItem(AGENT_MODEL_KEY) || "");
   let models = $state<string[]>([]);
   let hubEnabled = $state(false);
+  let hubUrl = $state("");
+  let hubToken = $state("");
   let hubChatModel = $state("");
   const MODEL_FALLBACKS = ["qwen3.6-35b-a3b", "gpt-oss-120b", "gemma-4-31b"] as const;
   let attachScreenshot = $state(false);
   let translucent = $state(localStorage.getItem(TRANSLUCENT_KEY) === "1");
+
+  function agentHubBlockReason(): string | null {
+    return hubAgentBlockReason({
+      hub_enabled: hubEnabled,
+      hub_url: hubUrl,
+      hub_token: hubToken,
+    });
+  }
 
   // Client-side ReAct chat (Vercel AI SDK). Recreated on "New" / history load.
   function makeChat(initial: UIMessage[] = []) {
     return new Chat({
       messages: initial,
       transport: createAgentTransport(() => agentModel),
-      onError: (e) => setStatusNotice(e?.message || "Agent request failed", "fail"),
+      onError: (e) => {
+        revertFailedUserTurn();
+        setStatusNotice(e?.message || "Agent request failed", "fail");
+      },
     });
   }
   let chat = $state(makeChat());
@@ -77,7 +97,20 @@
 
   const agentBusy = $derived(chat.status === "submitted" || chat.status === "streaming");
   const loading = $derived(mode === "agent" ? agentBusy : searchLoading);
-  const hasConversation = $derived(mode === "agent" ? chat.messages.length > 0 : !!searchAnswer);
+  const agentMessages = $derived(chat.messages);
+  const hasConversation = $derived(mode === "agent" ? agentMessages.length > 0 : !!searchAnswer);
+
+  function revertFailedUserTurn() {
+    const trimmed = trimOrphanedUserMessages(chat.messages);
+    if (trimmed.length === chat.messages.length) return;
+    chat = makeChat(trimmed);
+  }
+
+  function syncAgentMessagesFromHubState() {
+    if (!agentHubBlockReason()) return;
+    const trimmed = trimOrphanedUserMessages(chat.messages);
+    if (trimmed.length !== chat.messages.length) chat = makeChat(trimmed);
+  }
 
   function lastAssistantText(): string {
     for (let i = chat.messages.length - 1; i >= 0; i--) {
@@ -137,7 +170,7 @@
   }
   function upsertSession() {
     const msgs = chat.messages;
-    if (!msgs.length) return;
+    if (!sessionCanPersist(msgs)) return;
     const entry: Session = {
       id: sessionId,
       title: firstUserText(msgs),
@@ -213,18 +246,52 @@
     translucent = !translucent;
     localStorage.setItem(TRANSLUCENT_KEY, translucent ? "1" : "0");
   }
-  async function loadAgentModelDefaults() {
+  let hubSettingsLoadGeneration = 0;
+  let lastHubModelsCredsKey = "";
+
+  function hubModelsCredsKey(s: {
+    hub_enabled: boolean;
+    hub_url: string;
+    hub_token: string;
+  }): string {
+    return `${s.hub_enabled}\0${s.hub_url.trim()}\0${s.hub_token.trim()}`;
+  }
+
+  async function loadAgentModelDefaults(loadModels = true) {
+    const generation = ++hubSettingsLoadGeneration;
     try {
       const s = await getAppSettings();
+      const credsKey = hubModelsCredsKey(s);
+      const shouldFetchModels =
+        loadModels && s.hub_enabled && (models.length === 0 || credsKey !== lastHubModelsCredsKey);
+      const nextModels = shouldFetchModels
+        ? await hubListModels(s.hub_url, s.hub_token)
+        : models;
+      if (generation !== hubSettingsLoadGeneration) return;
       hubEnabled = s.hub_enabled;
+      hubUrl = s.hub_url;
+      hubToken = s.hub_token;
       hubChatModel = s.hub_chat_model;
       if (!agentModel) agentModel = s.hub_chat_model;
-      models = s.hub_enabled ? await hubListModels(s.hub_url, s.hub_token) : [];
+      if (loadModels) {
+        if (!s.hub_enabled) {
+          models = [];
+          lastHubModelsCredsKey = "";
+        } else if (shouldFetchModels) {
+          models = nextModels;
+          lastHubModelsCredsKey = credsKey;
+        }
+      }
     } catch {
+      if (generation !== hubSettingsLoadGeneration) return;
       hubEnabled = false;
+      hubUrl = "";
+      hubToken = "";
       models = [];
+      lastHubModelsCredsKey = "";
     }
     syncAgentModelSelection();
+    syncAgentMessagesFromHubState();
   }
 
   const paletteShortcutHints = $derived<KeyboardHint[]>([
@@ -246,9 +313,20 @@
   function setInvokeFailure(err: unknown, fallback: string) {
     setStatusNotice(invokeErrorMessage(err) || fallback, "fail");
   }
+  /** Center placeholder vs status rail — never show both. */
+  const showCenterPlaceholder = $derived(!statusNotice);
+  // Drop failed user-only tails when the hub is unavailable (not just hide in UI).
+  $effect(() => {
+    void hubEnabled;
+    void hubUrl;
+    void hubToken;
+    if (agentHubBlockReason()) syncAgentMessagesFromHubState();
+  });
+
   function toggleMode() {
     clearStatusNotice();
     mode = mode === "agent" ? "search" : "agent";
+    if (mode === "agent") syncAgentMessagesFromHubState();
   }
   function toggleHistory() {
     loadSessions();
@@ -302,6 +380,7 @@
   async function minimize() {
     await captureAndPersistRestoreSize();
     clearStatusNotice();
+    resetFocusState();
     try {
       await invoke("palette_set_dot_mode", {
         minimized: true,
@@ -377,6 +456,12 @@
     clearStatusNotice();
     showHistory = false;
     if (mode === "agent") {
+      await loadAgentModelDefaults(false);
+      const hubBlock = agentHubBlockReason();
+      if (hubBlock) {
+        setStatusNotice(hubBlock, "fail");
+        return;
+      }
       let files: { type: "file"; mediaType: string; url: string }[] | undefined;
       if (attachScreenshot) {
         const url = await captureActiveWindowDataUrl();
@@ -388,6 +473,9 @@
       try {
         await chat.sendMessage(files ? { text, files } : { text });
       } catch (e) {
+        revertFailedUserTurn();
+        input = text;
+        autoGrow();
         setInvokeFailure(e, "Request failed. Try again.");
       }
     } else {
@@ -444,6 +532,7 @@
   async function close() {
     // Hide only — keep the conversation so reopening shows it. Use ＋ to clear.
     clearStatusNotice();
+    resetFocusState();
     await invoke("palette_hide");
   }
 
@@ -480,12 +569,19 @@
       listen("palette-show", async () => {
         clearStatusNotice();
         await syncDotModeFromWindow();
+        await loadAgentModelDefaults();
         if (!minimized) {
           setTimeout(() => {
             inputEl?.focus();
             inputEl?.select();
           }, 40);
         }
+      }),
+      listen("palette-hide", () => {
+        resetFocusState();
+      }),
+      listen("hub-settings-changed", () => {
+        void loadAgentModelDefaults();
       }),
     ];
     loadSessions();
@@ -528,7 +624,7 @@
       <span class="min-blob" class:busy={loading} class:done={!loading && hasConversation} aria-hidden="true"></span>
     </div>
   {:else}
-    <div class="palette" class:translucent>
+    <div class="palette" class:translucent class:mode-web={mode === "search"} class:mode-agent={mode === "agent"}>
       <div class="palette-head">
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <header class="topbar" onmousedown={startDrag}>
@@ -636,7 +732,16 @@
       <div class="transcript" bind:this={transcriptEl}>
         {#if showHistory}
           {#if sessions.length === 0}
-            <p class="overlay-status-hint neutral">{$t("palette.noHistory")}</p>
+            {#if showCenterPlaceholder}
+              <div class="empty-hint">
+                <svg class="empty-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                  <path d="M12 7v5l4 2" />
+                </svg>
+                <p>{$t("palette.noHistory")}</p>
+              </div>
+            {/if}
           {:else}
             <div class="history-head">
               <span class="history-count">{$t("palette.recent", { n: sessions.length })}</span>
@@ -656,20 +761,29 @@
               <!-- eslint-disable-next-line svelte/no-at-html-tags -->
               <div class="bubble markdown">{@html searchAnswerHtml}</div>
             </div>
-          {:else if !searchLoading}
+          {:else if !searchLoading && showCenterPlaceholder}
             <div class="empty-hint">
-              <span class="empty-emoji">🔎</span>
+              <svg class="empty-icon empty-icon--web" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
               <p>{$t("palette.searchWeb")}</p>
             </div>
           {/if}
         {:else}
-          {#if chat.messages.length === 0 && !agentBusy}
+          {#if agentMessages.length === 0 && !agentBusy && showCenterPlaceholder}
             <div class="empty-hint">
-              <span class="empty-emoji">✨</span>
+              <svg class="empty-icon empty-icon--agent" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"
+                />
+                <path d="M5 3v4M3 5h4" />
+                <path d="M19 17v4M17 19h4" />
+              </svg>
               <p>{$t("palette.askAgent")}</p>
             </div>
           {/if}
-          {#each chat.messages as message (message.id)}
+          {#each agentMessages as message (message.id)}
             {#if message.role === "user"}
               <div class="msg msg-user">
                 <div class="bubble">
@@ -745,19 +859,6 @@
             </div>
           {/if}
         {/if}
-
-        {#if statusNotice}
-          <p
-            class="overlay-status-hint"
-            class:neutral={statusNoticeTone === "neutral"}
-            class:warn={statusNoticeTone === "warn"}
-            class:fail={statusNoticeTone === "fail"}
-            role={statusNoticeTone === "fail" ? "alert" : "status"}
-            aria-live="polite"
-          >
-            {statusNotice}
-          </p>
-        {/if}
       </div>
 
       <!-- Action strip for the latest answer -->
@@ -767,6 +868,21 @@
           <button class="app-btn" onclick={copy}>{$t("common.copy")}</button>
         </div>
       {/if}
+
+      <!-- Transient status/errors — fixed rail above composer (HIG: feedback near input). -->
+      <div class="palette-status-rail" aria-live="polite" aria-atomic="true">
+        {#if statusNotice}
+          <p
+            class="palette-status-msg overlay-status-hint"
+            class:neutral={statusNoticeTone === "neutral"}
+            class:warn={statusNoticeTone === "warn"}
+            class:fail={statusNoticeTone === "fail"}
+            role={statusNoticeTone === "fail" ? "alert" : "status"}
+          >
+            {statusNotice}
+          </p>
+        {/if}
+      </div>
 
       <!-- Composer (input at the bottom) -->
       <div class="composer query-field" class:recording role="search">
@@ -786,6 +902,7 @@
           }}
           onkeydown={onComposerKeydown}
         ></textarea>
+        <div class="composer-trailing">
         {#if mode === "agent"}
           <button
             class="shot-btn app-btn"
@@ -836,6 +953,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14M12 5l7 7-7 7" /></svg>
           </button>
         {/if}
+        </div>
       </div>
 
       <footer class="overlay-shortcuts overlay-footer-strip">
@@ -885,9 +1003,21 @@
     align-items: center;
     gap: 8px;
   }
-  .empty-emoji {
-    font-size: 1.6rem;
-    opacity: 0.85;
+  .empty-icon {
+    width: 1.75rem;
+    height: 1.75rem;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.9;
+  }
+  .empty-icon--agent {
+    color: var(--palette-mode-accent);
+  }
+  .empty-icon--web {
+    color: var(--palette-mode-accent);
   }
 
   .msg {
@@ -1092,17 +1222,23 @@
     padding: 3px 0;
     line-height: 1.4;
   }
+  .composer-trailing {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
 
   .send-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
     flex-shrink: 0;
     border: none;
     border-radius: 50%;
-    background: var(--color-agent);
+    background: var(--palette-mode-accent);
     color: var(--color-on-accent, #fff);
     cursor: pointer;
     transition: filter var(--duration-fast) var(--ease-interactive);

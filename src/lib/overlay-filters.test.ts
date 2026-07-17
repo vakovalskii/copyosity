@@ -136,6 +136,18 @@ describe("reconcileOverlayFilters", () => {
     );
   });
 
+  it("treats a whitespace-only search as inactive", () => {
+    assert.deepEqual(
+      reconcileOverlayFilters({
+        ...baseOptions,
+        activeTag: "api",
+        searchQuery: "   ",
+        hasMore: false,
+      }),
+      { activeTag: null, contentKind: "all" },
+    );
+  });
+
   it("leaves content-kind untouched when it is already 'all'", () => {
     assert.equal(
       reconcileOverlayFilters({
@@ -275,6 +287,55 @@ describe("reconcileOverlayFilterState", () => {
       null,
     );
   });
+
+  it("keeps sticky filters when an active search miss leaves the grid empty", () => {
+    assert.equal(
+      reconcileOverlayFilterState({
+        isRevealing: false,
+        showContentKindRow: true,
+        contentKind: "all",
+        activeTag: "api",
+        catalogEntries: [makeEntry(1)],
+        catalogTagCounts: {
+          semantic: [{ tag: "api", count: 1 }],
+          format: [],
+          has_text: true,
+          has_images: false,
+        },
+        displayEntries: [],
+        hasMore: false,
+        searchQuery: "nomatch",
+      }),
+      null,
+    );
+  });
+
+  it("treats whitespace-only search as inactive when reconciling", () => {
+    assert.deepEqual(
+      reconcileOverlayFilterState({
+        isRevealing: false,
+        showContentKindRow: true,
+        contentKind: "all",
+        activeTag: "api",
+        catalogEntries: [makeEntry(1)],
+        catalogTagCounts: {
+          semantic: [{ tag: "api", count: 1 }],
+          format: [],
+          has_text: true,
+          has_images: false,
+        },
+        displayEntries: [],
+        hasMore: false,
+        searchQuery: "   ",
+      }),
+      {
+        contentKind: "all",
+        activeTag: null,
+        clearContentKindSession: false,
+        needsReload: true,
+      },
+    );
+  });
 });
 
 describe("buildTagBarModel with server tag counts", () => {
@@ -361,6 +422,95 @@ describe("buildTagBarModel with server tag counts", () => {
     });
 
     assert.deepEqual(model.semanticChips, [["js", 8]]);
+  });
+
+  it("hides the tag row when search returns no matches", () => {
+    const model = buildTagBarModel({
+      entries: [],
+      layoutEntries: [makeEntry(1), makeImageEntry(2, "png")],
+      contentKind: "all",
+      aiTaggingEnabled: true,
+      searchQuery: "missing",
+      searchPending: false,
+      displayTagCounts: {
+        semantic: [],
+        format: [],
+        has_text: false,
+        has_images: false,
+      },
+      layoutTagCounts: {
+        semantic: [{ tag: "api", count: 3 }],
+        format: [{ tag: "png", count: 2 }],
+        has_text: true,
+        has_images: true,
+      },
+    });
+
+    assert.equal(model.showRowB, false);
+  });
+
+  it("toggles tag row visibility with search pending state", () => {
+    const base = {
+      entries: [] as ReturnType<typeof makeEntry>[],
+      layoutEntries: [makeEntry(1)],
+      contentKind: "all" as const,
+      aiTaggingEnabled: true,
+      searchQuery: "api",
+      layoutTagCounts: {
+        semantic: [{ tag: "api", count: 1 }],
+        format: [],
+        has_text: true,
+        has_images: false,
+      },
+    };
+
+    assert.equal(buildTagBarModel({ ...base, searchPending: false }).showRowB, false);
+    assert.equal(buildTagBarModel({ ...base, searchPending: true }).showRowB, true);
+  });
+
+  it("keeps the tag row when search is empty but a tag filter is active", () => {
+    const model = buildTagBarModel({
+      entries: [],
+      layoutEntries: [makeEntry(1)],
+      contentKind: "all",
+      aiTaggingEnabled: true,
+      activeTag: "api",
+      searchQuery: "missing",
+      searchPending: false,
+      displayTagCounts: {
+        semantic: [],
+        format: [],
+        has_text: false,
+        has_images: false,
+      },
+      layoutTagCounts: {
+        semantic: [{ tag: "api", count: 3 }],
+        format: [],
+        has_text: true,
+        has_images: false,
+      },
+    });
+
+    assert.equal(model.showRowB, true);
+  });
+
+  it("does not hide the tag row for whitespace-only search queries", () => {
+    const model = buildTagBarModel({
+      entries: [],
+      layoutEntries: [makeEntry(1)],
+      contentKind: "all",
+      aiTaggingEnabled: true,
+      searchQuery: "   ",
+      searchPending: false,
+      layoutTagCounts: {
+        semantic: [{ tag: "api", count: 1 }],
+        format: [],
+        has_text: true,
+        has_images: false,
+      },
+    });
+
+    assert.equal(model.showRowB, true);
   });
 });
 

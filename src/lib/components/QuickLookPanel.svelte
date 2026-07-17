@@ -399,7 +399,7 @@
     max-width: 800px;
   }
 
-  .quicklook-dialog:focus-visible {
+  .quicklook-dialog:focus {
     outline: none;
   }
 
@@ -513,9 +513,8 @@
     color: var(--color-text-body);
   }
 
-  .quicklook-close:focus-visible {
+  .quicklook-close:focus {
     outline: none;
-    box-shadow: var(--ring-accent);
   }
 
   .quicklook-body {

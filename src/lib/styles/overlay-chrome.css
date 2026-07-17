@@ -24,6 +24,10 @@
   border-color: var(--border-emphasis);
 }
 
+.overlay-icon-btn:focus {
+  outline: none;
+}
+
 .overlay-icon-btn--settings svg {
   width: var(--icon-size-overlay-header-settings);
   height: var(--icon-size-overlay-header-settings);
@@ -109,6 +113,11 @@
 
 .status-hint {
   margin-left: var(--space-hint-indent);
+}
+
+.status-hint.field-status-footer {
+  margin-left: 0;
+  padding: var(--inset-list-pad-block) var(--inset-list-pad-inline);
 }
 
 .overlay-status-hint.ok,
