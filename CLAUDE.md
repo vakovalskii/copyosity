@@ -36,12 +36,20 @@ scripts/release.sh <version> "release notes"      # e.g. scripts/release.sh 0.9.
 ```
 
 It runs, in order: bump version (tauri.conf.json + package.json + Cargo.toml) →
-`make fix && make check` → commit + push → build both arches signed
-(`RELEASE_CONFIG=1`, updater key) → `scripts/finalize.sh` (DMG + notarize +
-staple + **clean** updater tarballs) → generate GitHub `latest.json` → tag →
-`gh release create` → `scripts/publish-mirrors.sh` (vkovalskii.com mirror) →
-verify both endpoints + assert 0 AppleDouble entries. Artifacts land in
-`dist/updater/<version>/` (git-ignored).
+sync GitHub Pages (`docs/index.html` version badges + per-arch DMG download
+links) → `make fix && make check` → commit + push (incl. `docs/index.html`) →
+build both arches signed (`RELEASE_CONFIG=1`, updater key) → `scripts/finalize.sh`
+(DMG + notarize + staple + **clean** updater tarballs) → generate GitHub
+`latest.json` → tag → `gh release create` → `scripts/publish-mirrors.sh`
+(vkovalskii.com mirror) → verify both endpoints + assert 0 AppleDouble entries.
+Artifacts land in `dist/updater/<version>/` (git-ignored). The landing page is
+served from `main:/docs` at vakovalskii.github.io/copyosity — Pages redeploys on
+push, so the download buttons point at the just-released DMGs automatically.
+
+**Gotcha:** `make check` runs `oxfmt --check` over everything **including
+`docs/index.html`**. If you hand-edit the page outside the release script, run
+`make fix-frontend` before pushing or CI's `Check (macOS)` job goes red — even
+with `git push --no-verify`, which skips the hook that would have caught it.
 
 **Distribution = macOS only** (Apple Silicon + Intel), notarized + stapled.
 Windows/Linux are inert stubs — do not ship them. "Notarization" is Apple-only.
