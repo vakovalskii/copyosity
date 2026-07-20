@@ -612,19 +612,26 @@ pub fn start_clipboard_monitor(app: AppHandle) {
         };
         #[cfg(target_os = "macos")]
         let mut last_change_count = crate::clipboard_macos::change_count();
+        // Cache the probe hash so the pasteboard is only re-read + hashed when it
+        // actually changes. Re-hashing every 300ms tick pegged a CPU core (and the
+        // battery, "high energy" in Activity Monitor) whenever a large item sat on
+        // the clipboard — a copied screenshot is tens of MB of RGBA, and it was
+        // hashed ~3x/second forever. macOS gives us a cheap `change_count()`; gate
+        // the expensive probe behind it.
+        #[cfg(target_os = "macos")]
+        let mut cached_probe: Option<String> = probe_clipboard_hash(&mut clipboard);
         let mut state = CaptureRetryState::new();
 
         loop {
             std::thread::sleep(std::time::Duration::from_millis(300));
 
-            let probe_hash = probe_clipboard_hash(&mut clipboard);
-            state.sync_history_clear(probe_hash.as_ref());
-
             #[cfg(target_os = "macos")]
-            {
+            let probe_hash = {
                 let change_count = crate::clipboard_macos::change_count();
                 if change_count != last_change_count {
                     last_change_count = change_count;
+                    // Pasteboard genuinely changed — only now pay for the read + hash.
+                    cached_probe = probe_clipboard_hash(&mut clipboard);
                     state.capture_pending = true;
 
                     if crate::clipboard_macos::should_ignore_capture(change_count)
@@ -633,12 +640,18 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                         state.capture_pending = false;
                     }
                 }
-            }
+                cached_probe.clone()
+            };
 
+            // No cheap change signal off macOS yet, so probe each tick (the Windows
+            // port will switch this to WM_CLIPBOARDUPDATE).
             #[cfg(not(target_os = "macos"))]
-            {
+            let probe_hash = {
                 state.capture_pending = true;
-            }
+                probe_clipboard_hash(&mut clipboard)
+            };
+
+            state.sync_history_clear(probe_hash.as_ref());
 
             let hash_in_db = match (&probe_hash, state.capture_pending) {
                 (Some(h), true) if h == &state.last_content_hash => {
