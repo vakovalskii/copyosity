@@ -29,6 +29,14 @@ opt-level = 2
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# Experimental on-device streaming ASR (sherpa-onnx streaming zipformer
+# transducers via the `sherpa-transducers` crate). OFF by default so normal,
+# CI, and release builds do NOT pull the native sherpa-onnx stack or bloat the
+# app. Develop/verify with: `cargo check --features local-asr`. See
+# src/local_asr.rs. Once proven this graduates to a bundled, code-signed backend.
+local-asr = ["dep:sherpa-transducers", "dep:sherpa-rs-sys", "dep:anyhow"]
+
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-opener = "2"
@@ -42,6 +50,18 @@ serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 arboard = "3"
 chrono = { version = "0.4", features = ["serde"] }
+# On-device streaming ASR (feature `local-asr`). `static` builds the bundled
+# sherpa-onnx from source (cmake) statically — keeps its C bindings and the
+# linked lib the same version (avoids the struct-field skew between
+# sherpa-transducers 0.5 and newer sherpa-rs-sys), needs no network at build
+# (the `download-binaries` downloader panics behind this network's auth proxy),
+# and is self-contained for later notarized shipping. `download-models` pulls
+# streaming zipformer models from HF at runtime on first use.
+# sherpa-rs-sys is pinned to =0.6.6 to match what sherpa-transducers 0.5.5 targets.
+# Build/check: cargo check --features local-asr
+sherpa-transducers = { version = "0.5", default-features = false, features = ["static", "download-models"], optional = true }
+sherpa-rs-sys = { version = "=0.6.6", optional = true }
+anyhow = { version = "1", optional = true } # error type used by sherpa-transducers
 base64 = "0.22"
 tokio = { version = "1", features = ["time", "sync"] }
 sha2 = "0.10"
