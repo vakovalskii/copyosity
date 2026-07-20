@@ -636,6 +636,13 @@
     text-align: left;
     overflow: hidden;
     flex-shrink: 0;
+    /* Skip layout/paint for cards scrolled out of view — the history list has no
+       virtualization, so with many loaded pages the browser otherwise re-paints
+       every off-screen card each frame (janky, low-FPS scroll). contain-intrinsic-size
+       reserves the card's footprint so the scrollbar stays stable; `auto` lets the
+       browser remember the real size (matters in the variable-height vertical board). */
+    content-visibility: auto;
+    contain-intrinsic-size: auto var(--card-width) auto var(--card-height);
     /* Reserve selection ring space so selected/unselected cards keep the same footprint. */
     box-shadow: 0 0 0 2px transparent;
   }
