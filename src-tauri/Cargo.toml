@@ -35,7 +35,7 @@ tauri-build = { version = "2", features = [] }
 # CI, and release builds do NOT pull the native sherpa-onnx stack or bloat the
 # app. Develop/verify with: `cargo check --features local-asr`. See
 # src/local_asr.rs. Once proven this graduates to a bundled, code-signed backend.
-local-asr = ["dep:sherpa-transducers", "dep:sherpa-rs-sys", "dep:anyhow"]
+local-asr = ["dep:sherpa-transducers", "dep:sherpa-rs-sys", "dep:anyhow", "tokio/rt-multi-thread", "tokio/macros"]
 
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
@@ -117,3 +117,11 @@ tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e
 # tray-icon#318: popUpStatusItemMenu inside on_tray_click (macOS; patch applies on all targets).
 [patch.crates-io]
 tray-icon = { git = "https://github.com/tauri-apps/tray-icon", rev = "8cd6dce9bae905069416e524a077a3a9d7a6b451" }
+
+# Live streaming-ASR demo (mic or WAV). Requires the local-asr feature + a
+# prebuilt/static sherpa-onnx. Run:
+#   cargo run --example asr_demo --features local-asr            # mic
+#   cargo run --example asr_demo --features local-asr -- a.wav   # from a WAV
+[[example]]
+name = "asr_demo"
+required-features = ["local-asr"]

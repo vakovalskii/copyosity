@@ -12,7 +12,7 @@ mod db;
 mod hub;
 mod image_format;
 #[cfg(feature = "local-asr")]
-mod local_asr; // on-device streaming ASR (sherpa-onnx); build with --features local-asr
+pub mod local_asr; // on-device streaming ASR (sherpa-onnx); build with --features local-asr
 mod macos_app;
 mod macos_window;
 mod mactools;
