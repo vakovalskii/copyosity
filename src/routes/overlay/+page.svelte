@@ -17,6 +17,30 @@
     return `${m}:${ss.toString().padStart(2, "0")}`;
   }
 
+  // The 100ms timer runs ONLY while a recording is live. Previously it ticked
+  // forever (10x/sec) in this always-alive overlay webview even when idle —
+  // needless wakeups / energy use in the menu bar.
+  let tick: ReturnType<typeof setInterval> | null = null;
+
+  function startTicking() {
+    if (tick !== null) return;
+    tick = setInterval(() => {
+      if (lastMs && Date.now() - lastMs < 800) {
+        elapsed = (Date.now() - startMs) / 1000;
+      } else {
+        active = false;
+        stopTicking(); // recording ended — idle again, stop waking the CPU
+      }
+    }, 100);
+  }
+
+  function stopTicking() {
+    if (tick !== null) {
+      clearInterval(tick);
+      tick = null;
+    }
+  }
+
   onMount(() => {
     const unlisten = listen<number>("audio-level", (event) => {
       const now = Date.now();
@@ -28,6 +52,7 @@
       lastMs = now;
       active = true;
       transcribing = false; // new recording supersedes any prior transcribing state
+      startTicking();
 
       const lvl = Math.max(8, Math.min(100, event.payload));
       // Scroll the new sample in from the right.
@@ -38,20 +63,13 @@
     const unlistenTranscribing = listen("voice-transcribing", () => {
       active = false;
       transcribing = true;
+      stopTicking(); // elapsed is frozen during transcription — no need to tick
     });
-
-    const tick = setInterval(() => {
-      if (lastMs && Date.now() - lastMs < 800) {
-        elapsed = (Date.now() - startMs) / 1000;
-      } else {
-        active = false;
-      }
-    }, 100);
 
     return () => {
       unlisten.then((fn) => fn());
       unlistenTranscribing.then((fn) => fn());
-      clearInterval(tick);
+      stopTicking();
     };
   });
 </script>
