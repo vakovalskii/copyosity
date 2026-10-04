@@ -306,12 +306,22 @@ fn resolve_image_format(entry: &mut ClipboardEntry) {
     }
 }
 
+/// One page of a legacy-row backfill: rows changed and the last id scanned (`None` = done).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackfillBatch {
+    pub updated: i64,
+    pub last_id: Option<i64>,
+}
+
 fn decode_image_dimensions(b64: &str) -> Option<(i64, i64)> {
     use base64::Engine;
-    use image::GenericImageView;
     let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
-    let image = image::load_from_memory(&bytes).ok()?;
-    let (width, height) = image.dimensions();
+    // Header-only read: avoids decoding a full multi-MB bitmap just to learn its size.
+    let (width, height) = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()?;
     Some((width as i64, height as i64))
 }
 
@@ -1627,22 +1637,30 @@ impl Database {
         Ok(())
     }
 
-    /// Persist image meta for legacy image rows missing width/height/size. Returns rows updated.
-    pub fn backfill_missing_image_meta(&self, batch_size: i64) -> Result<i64, rusqlite::Error> {
+    /// Persist image meta for legacy image rows missing width/height/size, scanning rows with
+    /// `id > after_id`. Returns the batch cursor; undecodable rows are skipped, not retried.
+    pub fn backfill_missing_image_meta(
+        &self,
+        after_id: i64,
+        batch_size: i64,
+    ) -> Result<BackfillBatch, rusqlite::Error> {
         let rows: Vec<(i64, Option<String>, Option<String>)> = {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
                 "SELECT id, image_data, image_thumb FROM clipboard_entries
                  WHERE content_type = 'image'
                    AND (image_width IS NULL OR image_height IS NULL OR image_byte_size IS NULL)
+                   AND id > ?2
+                 ORDER BY id
                  LIMIT ?1",
             )?;
-            let mapped = stmt.query_map(params![batch_size], |row| {
+            let mapped = stmt.query_map(params![batch_size, after_id], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?))
             })?;
             mapped.collect::<Result<Vec<_>, _>>()?
         };
 
+        let last_id = rows.last().map(|row| row.0);
         let mut updates: Vec<(Option<i64>, Option<i64>, Option<i64>, i64)> = Vec::new();
         for (id, image_data, image_thumb) in rows {
             if image_data.as_deref().or(image_thumb.as_deref()).is_none() {
@@ -1677,12 +1695,15 @@ impl Database {
             ));
         }
 
+        let mut batch = BackfillBatch {
+            updated: 0,
+            last_id,
+        };
         if updates.is_empty() {
-            return Ok(0);
+            return Ok(batch);
         }
 
         let conn = self.conn.lock().unwrap();
-        let mut updated = 0i64;
         for (width, height, byte_size, id) in updates {
             let changed = conn.execute(
                 "UPDATE clipboard_entries
@@ -1692,28 +1713,35 @@ impl Database {
                  WHERE id = ?4",
                 params![width, height, byte_size, id],
             )?;
-            updated += changed as i64;
+            batch.updated += changed as i64;
         }
-        Ok(updated)
+        Ok(batch)
     }
 
-    /// Persist image_format for legacy image rows missing the column. Returns rows updated.
-    pub fn backfill_missing_image_formats(&self, batch_size: i64) -> Result<i64, rusqlite::Error> {
+    /// Persist image_format for legacy image rows missing the column, scanning rows with
+    /// `id > after_id`. Returns the batch cursor; unresolvable rows are skipped, not retried.
+    pub fn backfill_missing_image_formats(
+        &self,
+        after_id: i64,
+        batch_size: i64,
+    ) -> Result<BackfillBatch, rusqlite::Error> {
         let rows: Vec<(i64, Option<String>, Option<String>, String)> = {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
                 "SELECT ce.id, ce.image_data, ce.image_thumb,
                         COALESCE((SELECT GROUP_CONCAT(ct.tag, '|') FROM clipboard_tags ct WHERE ct.entry_id = ce.id), '')
                  FROM clipboard_entries ce
-                 WHERE ce.content_type = 'image' AND ce.image_format IS NULL
+                 WHERE ce.content_type = 'image' AND ce.image_format IS NULL AND ce.id > ?2
+                 ORDER BY ce.id
                  LIMIT ?1",
             )?;
-            let mapped = stmt.query_map(params![batch_size], |row| {
+            let mapped = stmt.query_map(params![batch_size, after_id], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             })?;
             mapped.collect::<Result<Vec<_>, _>>()?
         };
 
+        let last_id = rows.last().map(|row| row.0);
         let mut updates: Vec<(String, i64)> = Vec::new();
         for (id, image_data, image_thumb, tags_joined) in rows {
             let format = if let Some(b64) = image_data.as_deref().or(image_thumb.as_deref()) {
@@ -1730,20 +1758,23 @@ impl Database {
             updates.push((format, id));
         }
 
+        let mut batch = BackfillBatch {
+            updated: 0,
+            last_id,
+        };
         if updates.is_empty() {
-            return Ok(0);
+            return Ok(batch);
         }
 
         let conn = self.conn.lock().unwrap();
-        let mut updated = 0i64;
         for (format, id) in updates {
             let changed = conn.execute(
                 "UPDATE clipboard_entries SET image_format = ?1 WHERE id = ?2 AND image_format IS NULL",
                 params![format, id],
             )?;
-            updated += changed as i64;
+            batch.updated += changed as i64;
         }
-        Ok(updated)
+        Ok(batch)
     }
 
     #[allow(dead_code)]
@@ -2236,7 +2267,7 @@ mod tests {
         entry.image_format = None;
         db.insert_entry(&entry).unwrap();
 
-        let updated = db.backfill_missing_image_formats(10).unwrap();
+        let updated = db.backfill_missing_image_formats(0, 10).unwrap().updated;
         assert!(updated >= 1);
 
         let entries = db
@@ -2285,7 +2316,7 @@ mod tests {
         entry.image_byte_size = None;
         db.insert_entry(&entry).unwrap();
 
-        let updated = db.backfill_missing_image_meta(10).unwrap();
+        let updated = db.backfill_missing_image_meta(0, 10).unwrap().updated;
         assert!(updated >= 1);
 
         let entries = db
@@ -2298,6 +2329,27 @@ mod tests {
         assert_eq!(found.image_width, Some(1));
         assert_eq!(found.image_height, Some(1));
         assert!(found.image_byte_size.unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn backfill_missing_image_meta_terminates_on_undecodable_rows() {
+        let db = test_db();
+        let mut entry = make_image_entry("img_hash_corrupt", "PNG");
+        // Valid base64, but not an image: width/height can never be resolved.
+        entry.image_data = Some("bm90IGFuIGltYWdl".to_owned());
+        entry.image_thumb = None;
+        entry.image_width = None;
+        entry.image_height = None;
+        entry.image_byte_size = None;
+        db.insert_entry(&entry).unwrap();
+
+        let first = db.backfill_missing_image_meta(0, 10).unwrap();
+        let cursor = first.last_id.expect("corrupt row is scanned once");
+        let second = db.backfill_missing_image_meta(cursor, 10).unwrap();
+        assert_eq!(
+            second.last_id, None,
+            "cursor must move past unresolvable rows"
+        );
     }
 
     #[test]
@@ -2415,7 +2467,7 @@ mod tests {
         let (id, _) = db.insert_entry(&entry).unwrap();
         db.set_entry_tags(id, &["png".to_string()]).unwrap();
 
-        let updated = db.backfill_missing_image_formats(10).unwrap();
+        let updated = db.backfill_missing_image_formats(0, 10).unwrap().updated;
         assert_eq!(updated, 1);
 
         let entries = db

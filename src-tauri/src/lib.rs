@@ -634,26 +634,14 @@ pub fn run() {
             {
                 let db_backfill = db.clone();
                 std::thread::spawn(move || {
-                    loop {
-                        match db_backfill.backfill_missing_image_formats(100) {
-                            Ok(0) => break,
-                            Ok(_) => {}
-                            Err(e) => {
-                                eprintln!("image format backfill error: {e}");
-                                std::thread::sleep(std::time::Duration::from_secs(5));
-                            }
-                        }
-                    }
-                    loop {
-                        match db_backfill.backfill_missing_image_meta(100) {
-                            Ok(0) => break,
-                            Ok(_) => {}
-                            Err(e) => {
-                                eprintln!("image meta backfill error: {e}");
-                                std::thread::sleep(std::time::Duration::from_secs(5));
-                            }
-                        }
-                    }
+                    // Cursor by id so every legacy row is visited once per launch — rows that
+                    // can't be resolved must not be re-selected forever (100% CPU spin).
+                    run_backfill("image format", |after| {
+                        db_backfill.backfill_missing_image_formats(after, 100)
+                    });
+                    run_backfill("image meta", |after| {
+                        db_backfill.backfill_missing_image_meta(after, 100)
+                    });
                 });
             }
 
@@ -1019,6 +1007,31 @@ pub(crate) fn hide_command_palette(app: &tauri::AppHandle) {
         let _ = win.hide();
     }
     let _ = app.emit("palette-hide", ());
+}
+
+fn run_backfill(
+    label: &str,
+    mut step: impl FnMut(i64) -> Result<db::BackfillBatch, rusqlite::Error>,
+) {
+    let mut after_id = 0;
+    let mut failures = 0;
+    loop {
+        match step(after_id) {
+            Ok(db::BackfillBatch {
+                last_id: Some(last),
+                ..
+            }) => after_id = last,
+            Ok(_) => break,
+            Err(e) => {
+                eprintln!("{label} backfill error: {e}");
+                failures += 1;
+                if failures >= 3 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            }
+        }
+    }
 }
 
 /// Monochrome "C" glyph rendered as a macOS template image so the menu bar tints it like
