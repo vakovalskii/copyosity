@@ -428,7 +428,7 @@ pub fn update_app_settings(
     Ok(settings)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_model_catalog() -> Result<ModelCatalog, String> {
     Ok(ollama::model_catalog())
 }
@@ -531,7 +531,7 @@ pub fn pick_app_to_exclude(
     Ok(Some(exclude_app_result(db.inner(), &identity)?))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn retag_entry(
     app: tauri::AppHandle,
     db: State<'_, Arc<Database>>,
@@ -906,17 +906,17 @@ pub fn open_accessibility_settings() -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_ollama_status() -> Result<ollama::OllamaStatus, String> {
     Ok(ollama::check_status())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn is_tagging_ready(db: State<'_, Arc<Database>>) -> Result<bool, String> {
     Ok(crate::tagging::is_retag_ready(db.inner()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn start_ollama_server() -> Result<bool, String> {
     Ok(ollama::try_start_server())
 }
@@ -954,14 +954,14 @@ pub fn rebind_palette_shortcut(app: tauri::AppHandle) -> Result<(), String> {
     crate::register_palette_shortcut(&app)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_microphones() -> Result<Vec<crate::whisper::AudioInputDevice>, String> {
     Ok(crate::whisper::list_input_devices())
 }
 
 /// Test connectivity to the NeuralDeep hub. Uses provided url/token when given,
 /// otherwise falls back to the saved settings. Returns the number of models.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hub_test_connection(
     db: State<'_, Arc<Database>>,
     url: Option<String>,
@@ -978,7 +978,7 @@ pub fn hub_test_connection(
 }
 
 /// List available hub model ids (uses saved url/token unless overridden).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hub_list_models(
     db: State<'_, Arc<Database>>,
     url: Option<String>,
@@ -1011,7 +1011,7 @@ pub fn get_platform() -> &'static str {
 // into these commands so native actions and the hub Search API stay in Rust.
 
 /// Web search via the hub Search API. Hub creds come from settings (never JS).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn agent_web_search(
     db: State<'_, Arc<Database>>,
     query: String,
@@ -1025,14 +1025,14 @@ pub fn agent_web_search(
 }
 
 /// Create a note in the user's macOS Notes app.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn agent_create_note(title: String, body: String) -> Result<String, String> {
     crate::mactools::create_note(&title, &body)
 }
 
 /// Create a reminder in the user's macOS Reminders app. `due` is optional
 /// ISO 8601 (e.g. 2026-06-20T10:00:00).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn agent_create_reminder(title: String, due: Option<String>) -> Result<String, String> {
     let due_offset = due
         .as_deref()
@@ -1042,13 +1042,13 @@ pub fn agent_create_reminder(title: String, due: Option<String>) -> Result<Strin
 }
 
 /// List the user's open (incomplete) reminders.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn agent_list_reminders() -> Result<String, String> {
     crate::mactools::list_reminders()
 }
 
 /// Read the user's upcoming macOS Calendar events for the next N days.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn agent_read_calendar(days: Option<i64>) -> Result<String, String> {
     crate::mactools::read_calendar(days.unwrap_or(7).clamp(1, 60))
 }

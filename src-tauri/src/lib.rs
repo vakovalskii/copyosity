@@ -1690,7 +1690,7 @@ fn ensure_command_palette(app: &tauri::AppHandle) {
 }
 
 /// Run a web search against the hub Search API and return formatted results.
-#[tauri::command]
+#[tauri::command(async)]
 fn palette_search(app: tauri::AppHandle, query: String) -> Result<String, String> {
     let db = app.state::<std::sync::Arc<db::Database>>();
     let s = db.get_app_settings().map_err(|e| e.to_string())?;
@@ -1708,7 +1708,7 @@ fn open_command_palette(app: tauri::AppHandle) {
 
 /// Run the research agent loop for `query` in the background, streaming
 /// progress to the palette via agent-progress / agent-final / agent-error.
-#[tauri::command]
+#[tauri::command(async)]
 fn palette_agent(
     app: tauri::AppHandle,
     query: String,
@@ -1761,7 +1761,7 @@ fn palette_agent(
 /// Capture a PNG screenshot of the app that was frontmost when the palette
 /// opened, base64-encoded, for the frontend agent to attach as image context.
 /// Returns None when unavailable (non-macOS, no target, capture failed).
-#[tauri::command]
+#[tauri::command(async)]
 fn agent_capture_active_window() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
@@ -1903,7 +1903,7 @@ fn palette_voice_start(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Stop palette recording, transcribe, and return the text.
-#[tauri::command]
+#[tauri::command(async)]
 fn palette_voice_stop(app: tauri::AppHandle) -> Result<String, String> {
     let session = palette_recording_mutex().lock().unwrap().take();
     let Some(session) = session else {
