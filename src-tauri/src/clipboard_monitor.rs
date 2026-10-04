@@ -630,14 +630,17 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                 let change_count = crate::clipboard_macos::change_count();
                 if change_count != last_change_count {
                     last_change_count = change_count;
-                    // Pasteboard genuinely changed — only now pay for the read + hash.
-                    cached_probe = probe_clipboard_hash(&mut clipboard);
-                    state.capture_pending = true;
-
+                    // Own writes and concealed/transient items are skipped *before* reading:
+                    // no payload read, no hash of a password kept around.
                     if crate::clipboard_macos::should_ignore_capture(change_count)
                         || crate::clipboard_macos::is_concealed()
                     {
+                        cached_probe = None;
                         state.capture_pending = false;
+                    } else {
+                        // Pasteboard genuinely changed — only now pay for the read + hash.
+                        cached_probe = probe_clipboard_hash(&mut clipboard);
+                        state.capture_pending = true;
                     }
                 }
                 cached_probe.clone()
