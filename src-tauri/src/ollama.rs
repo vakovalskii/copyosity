@@ -752,7 +752,8 @@ pub fn backfill_existing_tags(app: AppHandle, db: Arc<Database>) {
                             "retag heuristic entry_id={} tags={:?}",
                             entry_id, next_tags
                         ));
-                        let _ = app.emit(
+                        let _ = app.emit_to(
+                            "main",
                             "entry-tagged",
                             EntryTaggedPayload {
                                 entry_id,
@@ -814,7 +815,8 @@ pub fn backfill_existing_tags(app: AppHandle, db: Arc<Database>) {
                             "backfill saved entry_id={} tags={:?}",
                             entry_id, tags
                         ));
-                        let _ = app.emit(
+                        let _ = app.emit_to(
+                            "main",
                             "entry-tagged",
                             EntryTaggedPayload {
                                 entry_id,

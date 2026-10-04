@@ -569,7 +569,8 @@ pub fn retag_entry(
         }
     };
 
-    let _ = app.emit(
+    let _ = app.emit_to(
+        "main",
         "entry-tagged",
         EntryTaggedPayload {
             entry_id,

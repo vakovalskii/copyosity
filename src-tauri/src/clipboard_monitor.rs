@@ -282,21 +282,13 @@ struct CaptureContext {
 }
 
 impl CaptureContext {
-    /// Notify the overlay after a capture. Loads the row from the DB so
-    /// re-copies emit the bumped `created_at` and existing tags/OCR text.
-    fn emit_clipboard_changed(&self, entry_id: i64, fallback: &ClipboardEntry) {
-        let mut saved = self
-            .db
-            .get_entry_by_id(entry_id)
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| {
-                let mut entry = fallback.clone();
-                entry.id = entry_id;
-                entry
-            });
-        saved.image_data = None;
-        let _ = self.app.emit("clipboard-changed", &saved);
+    /// Notify the history views after a capture. Listeners only refetch, so send just the id —
+    /// no DB read of the (possibly multi-MB) row, no broadcast to voice/palette webviews.
+    fn emit_clipboard_changed(&self, entry_id: i64) {
+        let payload = serde_json::json!({ "id": entry_id });
+        for label in ["main", "settings"] {
+            let _ = self.app.emit_to(label, "clipboard-changed", &payload);
+        }
     }
 
     fn try_image(
@@ -359,7 +351,8 @@ impl CaptureContext {
 
                         if let Some(text) = &ocr_text {
                             if db.set_ocr_text(id, text).is_ok() {
-                                let _ = app.emit(
+                                let _ = app.emit_to(
+                                    "main",
                                     "entry-ocr",
                                     EntryOcrPayload {
                                         entry_id: id,
@@ -392,7 +385,8 @@ impl CaptureContext {
 
                         if let Some(tags) = tags {
                             if db.set_entry_tags(id, &tags).is_ok() {
-                                let _ = app.emit(
+                                let _ = app.emit_to(
+                                    "main",
                                     "entry-tagged",
                                     EntryTaggedPayload { entry_id: id, tags },
                                 );
@@ -400,7 +394,7 @@ impl CaptureContext {
                         }
                     });
                 }
-                self.emit_clipboard_changed(id, &entry);
+                self.emit_clipboard_changed(id);
                 Some(content_hash)
             }
             Err(_) => None,
@@ -452,7 +446,8 @@ impl CaptureContext {
                         }
                         if let Some(tags) = crate::tagging::tag(&db, &text) {
                             if db.set_entry_tags(id, &tags).is_ok() {
-                                let _ = app.emit(
+                                let _ = app.emit_to(
+                                    "main",
                                     "entry-tagged",
                                     EntryTaggedPayload { entry_id: id, tags },
                                 );
@@ -462,7 +457,7 @@ impl CaptureContext {
                         }
                     });
                 }
-                self.emit_clipboard_changed(id, &entry);
+                self.emit_clipboard_changed(id);
                 Some(content_hash)
             }
             Err(_) => None,
