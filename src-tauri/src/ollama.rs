@@ -22,8 +22,34 @@ pub fn tagging_ready(ai_enabled: bool, status: &OllamaStatus) -> bool {
     ai_enabled && status.cli_installed && status.server_running && status.model_installed
 }
 
+/// Hot path (every clipboard copy): bail out on the setting before touching Ollama, and
+/// reuse a recent probe instead of spawning `ollama --version` + HTTP calls per copy.
 pub fn is_tagging_ready(db: &Database) -> bool {
-    tagging_ready(db.is_ai_tagging_enabled(), &check_status())
+    if !db.is_ai_tagging_enabled() {
+        return false;
+    }
+    static CACHE: std::sync::Mutex<Option<(std::time::Instant, bool)>> =
+        std::sync::Mutex::new(None);
+    const TTL: Duration = Duration::from_secs(15);
+    if let Some((at, ready)) = *CACHE.lock().unwrap() {
+        if at.elapsed() < TTL {
+            return ready;
+        }
+    }
+    // Skip /api/ps (model_loaded): retag loads the model on demand.
+    let cli = ollama_cli_available();
+    let server = cli && ollama_available();
+    let model_name = ollama_model();
+    let status = OllamaStatus {
+        cli_installed: cli,
+        server_running: server,
+        model_installed: server && model_installed(&model_name),
+        model_loaded: false,
+        model_name,
+    };
+    let ready = tagging_ready(true, &status);
+    *CACHE.lock().unwrap() = Some((std::time::Instant::now(), ready));
+    ready
 }
 
 pub fn check_status() -> OllamaStatus {
@@ -372,7 +398,7 @@ fn debug_enabled() -> bool {
             let value = v.trim().to_ascii_lowercase();
             value == "1" || value == "true" || value == "yes" || value == "on"
         })
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 fn log_debug(message: impl AsRef<str>) {
@@ -426,6 +452,11 @@ fn ollama_bin() -> &'static str {
 }
 
 fn ollama_cli_available() -> bool {
+    // Once found, the CLI doesn't disappear mid-session; skip re-spawning the process.
+    static FOUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if FOUND.load(std::sync::atomic::Ordering::Relaxed) {
+        return true;
+    }
     let ok = Command::new(ollama_bin())
         .arg("--version")
         .stdout(Stdio::null())
@@ -434,6 +465,9 @@ fn ollama_cli_available() -> bool {
         .map(|status| status.success())
         .unwrap_or(false);
     log_debug(format!("cli available => {}", ok));
+    if ok {
+        FOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     ok
 }
 
