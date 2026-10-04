@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- "C" arc from the app logo; opening on the right, round caps. Template: black + alpha only. -->
+  <path d="M 46.1 17.9 A 20 20 0 1 0 46.1 46.1" fill="none" stroke="#000" stroke-width="6.5" stroke-linecap="round"/>
+</svg>

@@ -534,7 +534,8 @@ pub fn run() {
             let tray_menu = build_tray_menu(app.handle())?;
             let tray = {
                 let tray_builder = TrayIconBuilder::new()
-                    .icon(app.default_window_icon().unwrap().clone())
+                    .icon(tray_icon_image(app))
+                    .icon_as_template(cfg!(target_os = "macos"))
                     .tooltip("Copyosity")
                     .menu(&tray_menu)
                     .on_menu_event(|app, event| {
@@ -1018,6 +1019,21 @@ pub(crate) fn hide_command_palette(app: &tauri::AppHandle) {
         let _ = win.hide();
     }
     let _ = app.emit("palette-hide", ());
+}
+
+/// Monochrome "C" glyph rendered as a macOS template image so the menu bar tints it like
+/// system icons (light/dark, pressed). Falls back to the colored app icon off macOS.
+fn tray_icon_image(app: &tauri::App) -> tauri::image::Image<'static> {
+    #[cfg(target_os = "macos")]
+    {
+        const TEMPLATE_PNG: &[u8] = include_bytes!("../icons/tray-template.png");
+        if let Ok(decoded) = image::load_from_memory(TEMPLATE_PNG) {
+            let rgba = decoded.to_rgba8();
+            let (width, height) = rgba.dimensions();
+            return tauri::image::Image::new_owned(rgba.into_raw(), width, height);
+        }
+    }
+    app.default_window_icon().unwrap().clone().to_owned()
 }
 
 fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
