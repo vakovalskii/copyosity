@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -363,6 +364,10 @@ fn hydrate_image_entry(entry: &mut ClipboardEntry) {
 
 pub struct Database {
     pub conn: Mutex<Connection>,
+    /// Write-through copy of the `settings` table. `get_app_settings` reads ~30 keys and runs on
+    /// hot paths (every copy, every resize frame), so keys are served from memory, not SQL.
+    /// Lock order: `settings_cache` → `conn`; never take the cache while holding `conn`.
+    settings_cache: Mutex<Option<HashMap<String, String>>>,
 }
 
 impl Database {
@@ -459,6 +464,7 @@ impl Database {
         crate::macos_app::migrate_legacy_excluded_app_names(&conn)?;
 
         Ok(Self {
+            settings_cache: Mutex::new(None),
             conn: Mutex::new(conn),
         })
     }
@@ -570,26 +576,37 @@ impl Database {
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT value FROM settings WHERE key = ?1",
-            params![key],
-            |row| row.get(0),
-        )
-        .map(Some)
-        .or_else(|err| match err {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            _ => Err(err),
-        })
+        let mut cache = self.settings_cache.lock().unwrap();
+        if cache.is_none() {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })?;
+            let mut map = HashMap::new();
+            for row in rows {
+                let (k, v) = row?;
+                if let Some(v) = v {
+                    map.insert(k, v);
+                }
+            }
+            *cache = Some(map);
+        }
+        Ok(cache.as_ref().and_then(|map| map.get(key).cloned()))
     }
 
     pub fn set_setting(&self, key: &str, value: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+        {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![key, value],
-        )?;
+                params![key, value],
+            )?;
+        }
+        if let Some(map) = self.settings_cache.lock().unwrap().as_mut() {
+            map.insert(key.to_owned(), value.to_owned());
+        }
         Ok(())
     }
 
@@ -619,6 +636,11 @@ impl Database {
             "DELETE FROM settings WHERE key IN ('overlay_horizontal_width', 'overlay_vertical_width')",
             [],
         )?;
+        drop(conn);
+        if let Some(map) = self.settings_cache.lock().unwrap().as_mut() {
+            map.remove("overlay_horizontal_width");
+            map.remove("overlay_vertical_width");
+        }
         Ok(())
     }
 
@@ -1852,6 +1874,7 @@ mod tests {
         Database::run_migrations(&conn).unwrap();
         Database {
             conn: Mutex::new(conn),
+            settings_cache: Mutex::new(None),
         }
     }
 
