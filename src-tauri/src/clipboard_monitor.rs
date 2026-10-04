@@ -621,57 +621,86 @@ pub fn start_clipboard_monitor(app: AppHandle) {
         #[cfg(target_os = "macos")]
         let mut cached_probe: Option<String> = probe_clipboard_hash(&mut clipboard);
         let mut state = CaptureRetryState::new();
+        let mut last_activity = std::time::Instant::now();
 
         loop {
-            std::thread::sleep(std::time::Duration::from_millis(300));
-
-            #[cfg(target_os = "macos")]
-            let probe_hash = {
-                let change_count = crate::clipboard_macos::change_count();
-                if change_count != last_change_count {
-                    last_change_count = change_count;
-                    // Own writes and concealed/transient items are skipped *before* reading:
-                    // no payload read, no hash of a password kept around.
-                    if crate::clipboard_macos::should_ignore_capture(change_count)
-                        || crate::clipboard_macos::is_concealed()
-                    {
-                        cached_probe = None;
-                        state.capture_pending = false;
-                    } else {
-                        // Pasteboard genuinely changed — only now pay for the read + hash.
-                        cached_probe = probe_clipboard_hash(&mut clipboard);
-                        state.capture_pending = true;
+            std::thread::sleep(poll_interval(last_activity.elapsed()));
+            // Drain autoreleased NSPasteboard objects (NSData up to tens of MB) every tick:
+            // this is a plain std::thread with no run loop, so nothing else would.
+            with_autorelease_pool(|| {
+                #[cfg(target_os = "macos")]
+                let probe_hash = {
+                    let change_count = crate::clipboard_macos::change_count();
+                    if change_count != last_change_count {
+                        last_change_count = change_count;
+                        last_activity = std::time::Instant::now();
+                        // Own writes and concealed/transient items are skipped *before* reading:
+                        // no payload read, no hash of a password kept around.
+                        if crate::clipboard_macos::should_ignore_capture(change_count)
+                            || crate::clipboard_macos::is_concealed()
+                        {
+                            cached_probe = None;
+                            state.capture_pending = false;
+                        } else {
+                            // Pasteboard genuinely changed — only now pay for the read + hash.
+                            cached_probe = probe_clipboard_hash(&mut clipboard);
+                            state.capture_pending = true;
+                        }
                     }
-                }
-                cached_probe.clone()
-            };
+                    cached_probe.clone()
+                };
 
-            // No cheap change signal off macOS yet, so probe each tick (the Windows
-            // port will switch this to WM_CLIPBOARDUPDATE).
-            #[cfg(not(target_os = "macos"))]
-            let probe_hash = {
-                state.capture_pending = true;
-                probe_clipboard_hash(&mut clipboard)
-            };
+                // No cheap change signal off macOS yet, so probe each tick (the Windows
+                // port will switch this to WM_CLIPBOARDUPDATE).
+                #[cfg(not(target_os = "macos"))]
+                let probe_hash = {
+                    state.capture_pending = true;
+                    probe_clipboard_hash(&mut clipboard)
+                };
 
-            state.sync_history_clear(probe_hash.as_ref());
+                state.sync_history_clear(probe_hash.as_ref());
 
-            let hash_in_db = match (&probe_hash, state.capture_pending) {
-                (Some(h), true) if h == &state.last_content_hash => {
-                    db.has_entry_with_content_hash(h).unwrap_or(false)
-                }
-                _ => false,
-            };
+                let hash_in_db = match (&probe_hash, state.capture_pending) {
+                    (Some(h), true) if h == &state.last_content_hash => {
+                        db.has_entry_with_content_hash(h).unwrap_or(false)
+                    }
+                    _ => false,
+                };
 
-            let ctx = CaptureContext {
-                app: app.clone(),
-                db: db.clone(),
-            };
-            state.attempt_capture(probe_hash, hash_in_db, || {
-                try_capture_from_clipboard(&mut clipboard, &ctx)
+                let ctx = CaptureContext {
+                    app: app.clone(),
+                    db: db.clone(),
+                };
+                state.attempt_capture(probe_hash, hash_in_db, || {
+                    try_capture_from_clipboard(&mut clipboard, &ctx)
+                });
             });
         }
     });
+}
+
+/// Poll fast right after clipboard activity (bursty copies, capture retries), then relax so an
+/// idle menu-bar app wakes ~1.3x/s instead of ~3.3x/s.
+fn poll_interval(since_activity: std::time::Duration) -> std::time::Duration {
+    const ACTIVE: std::time::Duration = std::time::Duration::from_millis(300);
+    const IDLE: std::time::Duration = std::time::Duration::from_millis(750);
+    const ACTIVE_WINDOW: std::time::Duration = std::time::Duration::from_secs(30);
+    if since_activity < ACTIVE_WINDOW {
+        ACTIVE
+    } else {
+        IDLE
+    }
+}
+
+fn with_autorelease_pool<R>(f: impl FnOnce() -> R) -> R {
+    #[cfg(target_os = "macos")]
+    {
+        objc2::rc::autoreleasepool(|_| f())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        f()
+    }
 }
 
 #[cfg(test)]
