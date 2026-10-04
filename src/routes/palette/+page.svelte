@@ -1313,12 +1313,11 @@
     pointer-events: none;
     background: var(--gradient-agent-orb);
     box-shadow: var(--shadow-agent-orb);
-    filter: blur(0.2px) saturate(1.15);
+    filter: saturate(1.15);
     border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%;
-    animation:
-      blob-morph 8s ease-in-out infinite,
-      blob-breathe 3.2s ease-in-out infinite;
   }
+  /* Idle blob stays static: border-radius morph + filter repaint every frame on the
+     CPU, and the minimized palette can sit on screen for hours. Animate only while busy. */
   .min-blob.busy {
     animation:
       blob-morph 3.5s ease-in-out infinite,
@@ -1352,7 +1351,7 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .min-blob {
+    .min-blob.busy {
       animation: none;
     }
   }
