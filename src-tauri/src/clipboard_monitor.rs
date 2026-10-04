@@ -709,12 +709,9 @@ mod tests {
     use crate::db::Database;
     use rusqlite::Connection;
     use std::path::Path;
-    use std::sync::Mutex;
 
     fn test_db() -> Database {
-        let db = Database {
-            conn: Mutex::new(Connection::open_in_memory().unwrap()),
-        };
+        let db = Database::from_connection(Connection::open_in_memory().unwrap());
         db.conn
             .lock()
             .unwrap()

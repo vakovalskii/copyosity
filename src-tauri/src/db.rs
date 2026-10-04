@@ -371,6 +371,15 @@ pub struct Database {
 }
 
 impl Database {
+    /// Wrap an already-open connection (tests use in-memory SQLite).
+    #[cfg(test)]
+    pub(crate) fn from_connection(conn: Connection) -> Self {
+        Self {
+            conn: Mutex::new(conn),
+            settings_cache: Mutex::new(None),
+        }
+    }
+
     pub fn new(app_dir: PathBuf) -> Result<Self, rusqlite::Error> {
         std::fs::create_dir_all(&app_dir).ok();
         let db_path = app_dir.join("copyosity.db");
@@ -1872,10 +1881,7 @@ mod tests {
         )
         .unwrap();
         Database::run_migrations(&conn).unwrap();
-        Database {
-            conn: Mutex::new(conn),
-            settings_cache: Mutex::new(None),
-        }
+        Database::from_connection(conn)
     }
 
     fn make_entry(text: &str, hash: &str) -> ClipboardEntry {
