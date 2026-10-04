@@ -53,10 +53,12 @@ export interface OverlayEntriesDeps {
 type DisplayFetchGenKind = "data" | "display";
 
 export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
-  let entries = $state<ClipboardEntry[]>([]);
-  let catalogEntries = $state<ClipboardEntry[]>([]);
-  let catalogTagCounts = $state<OverlayTagCounts | null>(null);
-  let searchTagCounts = $state<OverlayTagCounts | null>(null);
+  // Raw (non-proxied) state: every update reassigns the array/object, so deep proxies
+  // would only add a signal per entry field read on hundreds of cards.
+  let entries = $state.raw<ClipboardEntry[]>([]);
+  let catalogEntries = $state.raw<ClipboardEntry[]>([]);
+  let catalogTagCounts = $state.raw<OverlayTagCounts | null>(null);
+  let searchTagCounts = $state.raw<OverlayTagCounts | null>(null);
   let searchQuery = $state("");
   let activeCollectionId = $state<number | null>(null);
   let pinnedOnly = $state(false);
@@ -695,6 +697,26 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
     invalidateInFlightFetches();
   }
 
+  /**
+   * Drop infinite-scroll pages once the panel is fully hidden. Otherwise every page the
+   * user scrolled through stays mounted (DOM + decoded thumbnails) in the hidden window
+   * and is laid out again on the next reveal, which always starts at the first page.
+   */
+  function trimToFirstPageOnHide() {
+    loadMoreGen += 1;
+    loadingMoreEntries = false;
+    entriesPastFirstPage = false;
+    filteredPastFirstPage = false;
+    if (catalogEntries.length > ENTRY_PAGE_SIZE) {
+      catalogEntries = catalogEntries.slice(0, ENTRY_PAGE_SIZE);
+      catalogHasMore = true;
+    }
+    if (entries.length > ENTRY_PAGE_SIZE) {
+      entries = entries.slice(0, ENTRY_PAGE_SIZE);
+      entriesHasMore = true;
+    }
+  }
+
   function resetOverlayFilters() {
     activeTag = null;
   }
@@ -1015,6 +1037,7 @@ export function createOverlayEntriesStore(deps: OverlayEntriesDeps) {
     prepareCatalogAndDisplay,
     resetOverlayFilters,
     resetDisplayStateOnHide,
+    trimToFirstPageOnHide,
     clearSearch,
     debouncedSearch,
     removeEntry,

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -146,7 +146,7 @@
 
   // --- session history (persists full AI SDK message arrays) ------------------
   type Session = { id: string; title: string; ts: number; messages: UIMessage[] };
-  let sessions = $state<Session[]>([]);
+  let sessions = $state.raw<Session[]>([]);
   let showHistory = $state(false);
 
   function loadSessions() {
@@ -183,7 +183,8 @@
   }
   // Persist whenever a turn completes.
   $effect(() => {
-    if (chat.status === "ready" && chat.messages.length > 0) upsertSession();
+    // untrack: upsertSession reads and reassigns `sessions`; only the chat turn drives this.
+    if (chat.status === "ready" && chat.messages.length > 0) untrack(upsertSession);
   });
 
   function clearHistory() {

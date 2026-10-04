@@ -441,6 +441,7 @@
       nativeHidePending = false;
       clearHideTimer();
       clearHideTransitionHandler();
+      overlay.trimToFirstPageOnHide();
       void hideMainWindow();
     };
 
@@ -528,6 +529,7 @@
     const plan = planInstantNativeHide(visible, () => panelTransitionEpoch.bump());
     panelMotionMode = plan.motionMode;
     resetOverlayMotionState();
+    overlay.trimToFirstPageOnHide();
     if (plan.releaseEpoch === null) {
       panelMotionMode = "animate";
       return;
