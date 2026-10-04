@@ -388,6 +388,8 @@ impl Database {
         conn.execute_batch(
             "
             PRAGMA journal_mode=WAL;
+            PRAGMA synchronous=NORMAL;
+            PRAGMA temp_store=MEMORY;
             PRAGMA foreign_keys=ON;
         ",
         )?;
@@ -996,7 +998,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let mut sql = String::from(
-            "SELECT id, content_type, text_content, NULL as image_data, COALESCE(image_thumb, image_data) as image_thumb, source_app, NULL as source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id,
+            "SELECT id, content_type, text_content, NULL as image_data, CASE WHEN image_thumb IS NOT NULL THEN image_thumb WHEN length(image_data) <= 300000 THEN image_data END as image_thumb, source_app, NULL as source_app_icon, content_hash, char_count, created_at, is_pinned, collection_id,
              COALESCE((SELECT GROUP_CONCAT(tag, '|') FROM clipboard_tags WHERE entry_id = clipboard_entries.id), '') as tags,
              ocr_text, image_format, image_width, image_height, image_byte_size
              FROM clipboard_entries WHERE 1=1"
