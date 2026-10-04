@@ -66,9 +66,20 @@
       stopTicking(); // elapsed is frozen during transcription — no need to tick
     });
 
+    // Rust hides this long-lived capsule after transcription without telling us; drop the
+    // spinner (an infinite CSS animation) so it doesn't stay in the hidden panel's DOM.
+    function onVisibilityChange() {
+      if (document.visibilityState !== "hidden") return;
+      transcribing = false;
+      active = false;
+      stopTicking();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       unlisten.then((fn) => fn());
       unlistenTranscribing.then((fn) => fn());
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       stopTicking();
     };
   });

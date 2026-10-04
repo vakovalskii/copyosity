@@ -770,6 +770,9 @@
 
     const unlistenClipboard = listen("clipboard-changed", scheduleReload);
     const unlistenHistory = listen("history-changed", () => {
+      // Hidden: skip the settings/layout IPC — every reveal re-runs both
+      // (showWindow → loadLayout + prepareCatalogAndDisplay → syncOverlaySettings).
+      if (!visible && !isRevealing) return;
       void overlay.syncOverlaySettings();
       void loadLayout();
     });
