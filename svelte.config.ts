@@ -12,10 +12,9 @@ const config: Config = {
     adapter: adapter({
       fallback: "index.html",
     }),
-    output: {
-      // Tauri SPA: one JS/CSS bundle — faster Rolldown pass, no lazy route chunks
-      bundleStrategy: "single",
-    },
+    // Default "split" bundling: every window (main overlay, voice capsule, palette,
+    // settings) is its own webview loading one route, so per-route chunks keep the
+    // palette's AI SDK / zod / marked out of the always-alive windows.
   },
 };
 
