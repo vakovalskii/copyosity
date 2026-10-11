@@ -17,6 +17,11 @@ export function platformIsMacOS(): boolean {
   return platform === "macos";
 }
 
+/** Excluded apps: bundle ids on macOS, exe names on Windows (win_apps.rs). */
+export function platformSupportsAppExclusion(): boolean {
+  return platform === "macos" || platform === "windows";
+}
+
 export function platformLoaded(): boolean {
   return platform !== null;
 }

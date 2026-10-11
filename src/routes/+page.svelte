@@ -77,7 +77,12 @@
     shouldRunScrollToSelectedGeneration,
     shouldScheduleTrackpadLeadingSync,
   } from "$lib/overlay-browse-sync";
-  import { initPlatform, keyLabel, platformIsMacOS } from "$lib/platform.svelte";
+  import {
+    initPlatform,
+    keyLabel,
+    platformIsMacOS,
+    platformSupportsAppExclusion,
+  } from "$lib/platform.svelte";
 
   const overlayShortcutHints = $derived<KeyboardHint[]>([
     { prefix: "Click", action: $t("overlay.hint.copy") },
@@ -681,7 +686,7 @@
   }
 
   async function loadExcludeCandidate() {
-    if (!platformIsMacOS()) return;
+    if (!platformSupportsAppExclusion()) return;
     try {
       const candidate = await getExcludableAppCandidate();
       excludeCandidate = candidate;
@@ -1361,7 +1366,7 @@
         onupdate={loadCollections}
       />
       <div class="header-actions">
-        {#if platformIsMacOS() && excludeCandidate && !excludeCandidate.alreadyExcluded}
+        {#if platformSupportsAppExclusion() && excludeCandidate && !excludeCandidate.alreadyExcluded}
           {@const excludeLabel = excludeFromClipboardHistoryAriaLabel(
             excludeCandidate.displayName,
           )}
@@ -1378,7 +1383,7 @@
             >
           </button>
         {/if}
-        {#if platformIsMacOS() && excludeNotice}
+        {#if platformSupportsAppExclusion() && excludeNotice}
           <span
             class="status-hint exclude-notice"
             class:neutral={excludeNoticeTone === "neutral"}

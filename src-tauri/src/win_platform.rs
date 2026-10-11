@@ -42,6 +42,11 @@ fn paste_log(msg: impl AsRef<str>) {
 
 /// Start a background poll that remembers the most recent foreground window that
 /// belongs to another process. Call once at startup.
+/// Last foreground window that belonged to another process (0 = none yet).
+pub fn last_foreground_hwnd() -> isize {
+    LAST_FOREGROUND_HWND.load(Ordering::Relaxed)
+}
+
 pub fn install_last_frontmost_observer() {
     std::thread::spawn(|| {
         let me = unsafe { GetCurrentProcessId() };

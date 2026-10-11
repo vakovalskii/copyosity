@@ -29,6 +29,8 @@ mod transcription;
 mod tray_macos; // docs/architecture/macos-tray-menu.md §4–§5
 mod whisper;
 #[cfg(target_os = "windows")]
+#[cfg(target_os = "windows")]
+mod win_apps; // foreground app identity (exe name + FileDescription)
 mod win_platform; // Windows paste-back + foreground tracking (macOS parity)
 
 use db::Database;
@@ -2019,9 +2021,16 @@ fn palette_insert(app: tauri::AppHandle, text: String) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: `target_pid` is a macOS notion; win_platform restores the window that was in
+/// front before our UI and sends Ctrl+V there.
+#[cfg(target_os = "windows")]
 fn simulate_cmd_v(target_pid: i32) {
-    // Non-macOS: post synthetic Cmd+V via platform APIs when available.
+    let _ = target_pid;
+    crate::win_platform::spawn_automated_paste(false);
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn simulate_cmd_v(target_pid: i32) {
     let _ = target_pid;
 }
 

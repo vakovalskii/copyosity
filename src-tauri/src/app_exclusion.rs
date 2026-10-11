@@ -44,6 +44,13 @@ pub fn resolve_excludable_app_identity() -> Option<(AppIdentity, ExcludableAppSo
             }
         }
     }
+    // Windows: the overlay has focus, so use the window that was in front before it.
+    #[cfg(target_os = "windows")]
+    if macos_app::is_copyosity_frontmost() {
+        if let Some(identity) = crate::win_apps::last_external_app_identity() {
+            return Some((identity, ExcludableAppSource::Remembered));
+        }
+    }
     None
 }
 

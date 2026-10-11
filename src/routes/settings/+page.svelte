@@ -81,7 +81,12 @@
     isAppNotFoundError,
   } from "$lib/exclusion-label";
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { initPlatform, keyLabel, platformIsMacOS } from "$lib/platform.svelte";
+  import {
+    initPlatform,
+    keyLabel,
+    platformIsMacOS,
+    platformSupportsAppExclusion,
+  } from "$lib/platform.svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { checkForUpdate, currentVersion, type Update } from "$lib/updater";
   import { appendUpdateLog, readUpdateLog, clearUpdateLog, errorToString } from "$lib/update-log";
@@ -1869,7 +1874,7 @@
       <section class="form-section">
         <div class="form-section-title form-section-title--with-icon"><SectionIcon name="privacy" />Privacy</div>
         <div class="form-section-body">
-      {#if platformIsMacOS()}
+      {#if platformSupportsAppExclusion()}
         <div class="form-field excluded-apps-field">
           <span class="form-label">Excluded apps</span>
           <div class="form-hint">
@@ -1995,7 +2000,7 @@
           </div>
         </div>
       {:else}
-        <div class="form-hint">App exclusion is available on macOS only.</div>
+        <div class="form-hint">App exclusion is available on macOS and Windows.</div>
       {/if}
     </div>
       </section>
