@@ -270,6 +270,24 @@ pub fn open_settings_window(
     app: tauri::AppHandle,
     initial_pane: Option<String>,
 ) -> Result<(), String> {
+    // On Windows a sync command runs on the main thread, and building a window there blocks
+    // WebView2 from starting: the window opens white and stays white. Queue the work so it runs
+    // from the event loop instead, like the tray menu does.
+    #[cfg(target_os = "windows")]
+    {
+        let handle = app.clone();
+        app.run_on_main_thread(move || {
+            if let Err(e) = show_settings_window(handle, initial_pane) {
+                eprintln!("[settings] window: {e}");
+            }
+        })
+        .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    show_settings_window(app, initial_pane)
+}
+
+fn show_settings_window(app: tauri::AppHandle, initial_pane: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     crate::clipboard_macos::remember_paste_target();
 
