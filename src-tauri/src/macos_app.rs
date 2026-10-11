@@ -23,7 +23,12 @@ pub fn frontmost_app_identity() -> Option<AppIdentity> {
     identity_from_running_app(&app)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+pub fn frontmost_app_identity() -> Option<AppIdentity> {
+    crate::win_apps::frontmost_app_identity()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn frontmost_app_identity() -> Option<AppIdentity> {
     None
 }
@@ -40,7 +45,12 @@ pub fn is_copyosity_frontmost() -> bool {
         .is_some_and(|id| is_copyosity_bundle(&id))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+pub fn is_copyosity_frontmost() -> bool {
+    crate::win_apps::is_copyosity_frontmost()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn is_copyosity_frontmost() -> bool {
     false
 }
@@ -165,27 +175,35 @@ pub fn resolve_app_identity_from_input(input: &str) -> Option<AppIdentity> {
         return None;
     }
 
-    if looks_like_bundle_id(trimmed) {
-        if is_copyosity_bundle(trimmed) {
-            return None;
-        }
-        return Some(AppIdentity {
-            bundle_id: trimmed.to_owned(),
-            display_name: display_name_for_bundle_id(trimmed),
-        });
-    }
-
-    #[cfg(target_os = "macos")]
+    // Windows ids are exe names (`chrome.exe`), see win_apps.rs.
+    #[cfg(target_os = "windows")]
     {
-        if let Some(identity) = find_running_app_by_display_name(trimmed) {
-            return Some(identity);
-        }
-        if let Some(identity) = find_installed_app_by_display_name(trimmed) {
-            return Some(identity);
-        }
+        crate::win_apps::identity_from_input(trimmed)
     }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if looks_like_bundle_id(trimmed) {
+            if is_copyosity_bundle(trimmed) {
+                return None;
+            }
+            return Some(AppIdentity {
+                bundle_id: trimmed.to_owned(),
+                display_name: display_name_for_bundle_id(trimmed),
+            });
+        }
 
-    None
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(identity) = find_running_app_by_display_name(trimmed) {
+                return Some(identity);
+            }
+            if let Some(identity) = find_installed_app_by_display_name(trimmed) {
+                return Some(identity);
+            }
+        }
+
+        None
+    }
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -661,6 +679,7 @@ mod tests {
         assert_eq!(names, vec!["Safari", "Safari", ""]);
     }
 
+    #[cfg(target_os = "macos")] // the function is macOS-only
     #[test]
     fn choose_user_visible_app_name_prefers_plist_over_renamed_stem() {
         assert_eq!(
@@ -669,6 +688,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")] // the function is macOS-only
     #[test]
     fn choose_user_visible_app_name_prefers_folder_for_full_marketing_name() {
         assert_eq!(
@@ -677,6 +697,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")] // the function is macOS-only
     #[test]
     fn choose_user_visible_app_name_prefers_folder_when_plist_is_internal_id() {
         assert_eq!(

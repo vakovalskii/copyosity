@@ -270,6 +270,23 @@ pub fn open_settings_window(
     app: tauri::AppHandle,
     initial_pane: Option<String>,
 ) -> Result<(), String> {
+    // On Windows `build()` waits for WebView2 to start, and WebView2 starts on the main thread:
+    // building from the main thread (a sync command, a tray handler) deadlocks and leaves a white
+    // window. Build from a worker thread instead; Tauri hands the work to the main thread.
+    #[cfg(target_os = "windows")]
+    {
+        std::thread::spawn(move || {
+            if let Err(e) = show_settings_window(app, initial_pane) {
+                eprintln!("[settings] window: {e}");
+            }
+        });
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    show_settings_window(app, initial_pane)
+}
+
+fn show_settings_window(app: tauri::AppHandle, initial_pane: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     crate::clipboard_macos::remember_paste_target();
 

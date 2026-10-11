@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyLabel } from "$lib/platform.svelte";
   import { onMount, tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
@@ -297,9 +298,9 @@
 
   const paletteShortcutHints = $derived<KeyboardHint[]>([
     { keys: "↵", action: mode === "agent" ? $t("palette.run.agent") : $t("palette.run.search") },
-    { keys: "⇧↵", action: "New line" },
+    { keys: keyLabel("⇧↵"), action: "New line" },
     { keys: "Tab", action: $t("palette.switchMode") },
-    { keys: "⌘↵", action: $t("palette.insert") },
+    { keys: keyLabel("⌘↵"), action: $t("palette.insert") },
     { keys: "Esc", action: $t("palette.close") },
   ]);
 
@@ -865,7 +866,7 @@
       <!-- Action strip for the latest answer -->
       {#if hasConversation && !loading && !showHistory && answerForActions}
         <div class="actions">
-          <button class="app-btn" onclick={insert}>{$t("common.insert")} ⌘↵</button>
+          <button class="app-btn" onclick={insert}>{$t("common.insert")} {keyLabel("⌘↵")}</button>
           <button class="app-btn" onclick={copy}>{$t("common.copy")}</button>
         </div>
       {/if}

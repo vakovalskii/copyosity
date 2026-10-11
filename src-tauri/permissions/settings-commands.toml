@@ -6,6 +6,12 @@ description = "Settings: app config, excluded apps, Ollama, accessibility, histo
 commands.allow = [
   "get_app_settings",
   "get_platform",
+  "lan_sync_status",
+  "lan_sync_set_enabled",
+  "lan_sync_start_pairing",
+  "lan_sync_cancel_pairing",
+  "lan_sync_pair",
+  "lan_sync_unpair",
   "update_app_settings",
   "hub_test_connection",
   "hub_list_models",

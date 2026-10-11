@@ -81,7 +81,23 @@
     isAppNotFoundError,
   } from "$lib/exclusion-label";
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { initPlatform, platformIsMacOS } from "$lib/platform.svelte";
+  import {
+    formatSeen,
+    hidePairingCode,
+    lanSync,
+    pairWithCode,
+    setLanSyncEnabled,
+    showPairingCode,
+    startEnteringCode,
+    unpairDevice,
+    watchLanSync,
+  } from "$lib/lan-sync.svelte";
+  import {
+    initPlatform,
+    keyLabel,
+    platformIsMacOS,
+    platformSupportsAppExclusion,
+  } from "$lib/platform.svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { checkForUpdate, currentVersion, type Update } from "$lib/updater";
   import { appendUpdateLog, readUpdateLog, clearUpdateLog, errorToString } from "$lib/update-log";
@@ -448,6 +464,8 @@
     const unlistenClipboard = listen("clipboard-changed", onHistoryCountsEvent);
     const unlistenHistory = listen("history-changed", onHistoryCountsEvent);
 
+    const unlistenLanSync = watchLanSync();
+
     const unlistenNavigatePane = listen<string>("navigate-settings-pane", (event) => {
       applySettingsPane(event.payload);
     });
@@ -467,6 +485,7 @@
       unlistenClipboard.then((fn) => fn());
       unlistenHistory.then((fn) => fn());
       unlistenNavigatePane.then((fn) => fn());
+      unlistenLanSync.then((fn) => fn());
       unlistenFocus.then((fn) => fn());
     };
   });
@@ -777,6 +796,7 @@
     { id: "ai", labelKey: "nav.ai", icon: "ai-tagging" },
     { id: "history", labelKey: "nav.history", icon: "clipboard-panel" },
     { id: "permissions", labelKey: "nav.permissions", icon: "permissions" },
+    { id: "sync", labelKey: "nav.sync", icon: "connection" },
     { id: "updates", labelKey: "nav.updates", icon: "updates" },
     { id: "general", labelKey: "nav.general", icon: "general" },
   ];
@@ -956,7 +976,10 @@
     refreshUpdateLog();
   }
   const visiblePanes = $derived(
-    platformIsMacOS() ? panes : panes.filter((p) => p.id !== "permissions"),
+    panes.filter(
+      (p) =>
+        (p.id !== "permissions" || platformIsMacOS()) && (p.id !== "sync" || lanSync.available),
+    ),
   );
 
   $effect(() => {
@@ -1173,7 +1196,7 @@
               </label>
             </div>
             <div class="form-hint">
-              <strong>Web search:</strong> press <code>⌘⇧Space</code> anywhere (or tray → Agent Search,
+              <strong>Web search:</strong> press <code>{keyLabel("⌘⇧Space")}</code> anywhere (or tray → Agent Search,
               or the search button in the main window) to query the web via the hub.
             </div>
           </div>
@@ -1577,6 +1600,103 @@
           {/if}
         </div>
       </section>
+    {:else if activePane === "sync" && lanSync.status}
+      {@const st = lanSync.status}
+      <div class="pane-head">
+        <div class="pane-title">Sync (beta)</div>
+        <div class="pane-subtitle">Experimental. Clipboard history and pins sync between your devices on the same local network, end-to-end encrypted, no cloud.</div>
+      </div>
+
+      <section class="form-section">
+        <div class="form-section-title form-section-title--with-icon"><SectionIcon name="connection" />This device</div>
+        <div class="form-section-body">
+          <div class="inset-list">
+            <div class="status-step">
+              <div class="status-row">
+                <span class="status-dot" class:ok={st.enabled && !st.lastError} class:fail={st.enabled && !!st.lastError} class:disabled={!st.enabled}></span>
+                <span class="status-text"><strong>{st.name}</strong> · {st.os} · port {st.port}</span>
+                <button class="status-action app-btn" type="button" disabled={lanSync.busy} onclick={() => setLanSyncEnabled(!st.enabled)}>
+                  {st.enabled ? "Turn off" : "Turn on"}
+                </button>
+              </div>
+              {#if st.lastError}
+                <div class="status-hint">{st.lastError}</div>
+              {/if}
+              {#if st.enabled}
+                <div class="status-hint">On Windows the firewall asks once to allow Copyosity on private networks. Allow it, or other devices cannot connect.</div>
+              {/if}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {#if st.enabled}
+        <section class="form-section">
+          <div class="form-section-header">
+            <div class="form-section-title form-section-title--with-icon"><SectionIcon name="login" />Pair a device</div>
+            {#if st.pairingCode}
+              <button class="form-btn form-btn-secondary app-btn" type="button" disabled={lanSync.busy} onclick={hidePairingCode}>Hide code</button>
+            {:else}
+              <button class="form-btn form-btn-secondary app-btn" type="button" disabled={lanSync.busy} onclick={showPairingCode}>Show code</button>
+            {/if}
+          </div>
+          <div class="form-section-body">
+            {#if st.pairingCode}
+              <div class="pairing-code ui-selectable-text">{st.pairingCode}</div>
+              <div class="form-hint">Enter this code on the other device. Valid for {Math.ceil((st.pairingSecondsLeft ?? 0) / 60)} min.</div>
+            {/if}
+            <div class="inset-list">
+              {#each st.discovered as d (d.deviceId)}
+                <div class="status-step">
+                  <div class="status-row">
+                    <span class="status-dot checking"></span>
+                    <span class="status-text"><strong>{d.name}</strong> · {d.os} <span class="form-hint">{d.addr}</span></span>
+                    {#if lanSync.codeFor !== d.deviceId}
+                      <button class="status-action app-btn" type="button" disabled={lanSync.busy} onclick={() => startEnteringCode(d.deviceId)}>Pair</button>
+                    {/if}
+                  </div>
+                  {#if lanSync.codeFor === d.deviceId}
+                    <div class="pairing-entry">
+                      <input class="form-input" inputmode="numeric" maxlength="6" placeholder="6-digit code from {d.name}" bind:value={lanSync.codeInput} />
+                      <button class="form-btn form-btn-primary app-btn" type="button" disabled={lanSync.busy || lanSync.codeInput.trim().length !== 6} onclick={pairWithCode}>
+                        {lanSync.busy ? "Pairing…" : "Pair"}
+                      </button>
+                    </div>
+                  {/if}
+                </div>
+              {:else}
+                <div class="status-hint">Looking for other devices with Copyosity and sync turned on…</div>
+              {/each}
+            </div>
+            {#if lanSync.error}
+              <div class="form-hint fail">{lanSync.error}</div>
+            {/if}
+          </div>
+        </section>
+
+        <section class="form-section">
+          <div class="form-section-title form-section-title--with-icon"><SectionIcon name="clipboard-panel" />Paired devices</div>
+          <div class="form-section-body">
+            <div class="inset-list">
+              {#each st.peers as p (p.deviceId)}
+                <div class="status-step">
+                  <div class="status-row">
+                    <span class="status-dot" class:ok={p.online} class:disabled={!p.online}></span>
+                    <span class="status-text">
+                      <strong>{p.name}</strong> · {p.os} ·
+                      {p.online ? "syncing" : p.visible ? "connecting…" : "not on this network"}
+                      {#if p.lastSeen}<span class="form-hint"> · last sync {formatSeen(p.lastSeen)}</span>{/if}
+                    </span>
+                    <button class="status-action app-btn" type="button" disabled={lanSync.busy} onclick={() => unpairDevice(p.deviceId)}>Unpair</button>
+                  </div>
+                </div>
+              {:else}
+                <div class="status-hint">No paired devices yet.</div>
+              {/each}
+            </div>
+          </div>
+        </section>
+      {/if}
     {:else if activePane === "ai"}
       <div class="pane-head">
         <div class="pane-title">Local AI</div>
@@ -1831,7 +1951,7 @@
               </span>
               <span class="form-checkbox-label ui-selectable-text">
                 <span class="form-pref-label">Vertical board</span>
-                <span class="form-pref-hint">Tall panel docked to the screen edge instead of the horizontal bottom bar. Opens on the screen where your cursor is (⌘⇧V).</span>
+                <span class="form-pref-hint">Tall panel docked to the screen edge instead of the horizontal bottom bar. Opens on the screen where your cursor is ({keyLabel("⌘⇧V")}).</span>
               </span>
             </label>
             <label class="form-checkbox">
@@ -1869,7 +1989,7 @@
       <section class="form-section">
         <div class="form-section-title form-section-title--with-icon"><SectionIcon name="privacy" />Privacy</div>
         <div class="form-section-body">
-      {#if platformIsMacOS()}
+      {#if platformSupportsAppExclusion()}
         <div class="form-field excluded-apps-field">
           <span class="form-label">Excluded apps</span>
           <div class="form-hint">
@@ -1995,7 +2115,7 @@
           </div>
         </div>
       {:else}
-        <div class="form-hint">App exclusion is available on macOS only.</div>
+        <div class="form-hint">App exclusion is available on macOS and Windows.</div>
       {/if}
     </div>
       </section>
@@ -2216,6 +2336,18 @@
     min-width: 0;
     min-height: 0;
     overflow: hidden auto;
+  }
+
+  .pairing-code {
+    font: 600 34px/1.1 var(--font-family-mono);
+    letter-spacing: 0.3em;
+    margin: 4px 0 6px;
+  }
+
+  .pairing-entry {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
   }
 
   .pane-head {

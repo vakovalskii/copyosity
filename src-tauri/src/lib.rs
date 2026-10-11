@@ -6,11 +6,16 @@ mod agent;
 mod app_exclusion;
 mod clipboard_macos;
 mod clipboard_monitor;
+#[cfg(target_os = "windows")]
+mod clipboard_windows; // GetClipboardSequenceNumber gate, own-write and concealed checks
 mod clipboard_write;
 mod commands;
 mod db;
 mod hub;
 mod image_format;
+#[cfg(feature = "lan-sync")]
+mod lan_sync; // experimental LAN sync, docs/plans/windows-port-and-lan-sync.md part B
+mod lan_sync_cmds;
 mod macos_app;
 mod macos_window;
 mod mactools;
@@ -26,6 +31,10 @@ mod transcription;
 #[cfg(target_os = "macos")]
 mod tray_macos; // docs/architecture/macos-tray-menu.md §4–§5
 mod whisper;
+#[cfg(target_os = "windows")]
+#[cfg(target_os = "windows")]
+mod win_apps; // foreground app identity (exe name + FileDescription)
+mod win_platform; // Windows paste-back + foreground tracking (macOS parity)
 
 use db::Database;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
@@ -580,6 +589,9 @@ pub fn run() {
             }
             // --- end TRAY STARTUP ---
 
+            #[cfg(target_os = "windows")]
+            win_platform::install_last_frontmost_observer();
+
             let shortcut = {
                 #[cfg(target_os = "macos")]
                 {
@@ -651,6 +663,8 @@ pub fn run() {
             }
             clipboard_write::sweep_stale_gif_temp_files();
             clipboard_monitor::start_clipboard_monitor(app.handle().clone());
+            #[cfg(feature = "lan-sync")]
+            lan_sync::init(app.handle());
 
             Ok(())
         })
@@ -711,6 +725,12 @@ pub fn run() {
             commands::hub_test_connection,
             commands::hub_list_models,
             commands::get_platform,
+            lan_sync_cmds::lan_sync_status,
+            lan_sync_cmds::lan_sync_set_enabled,
+            lan_sync_cmds::lan_sync_start_pairing,
+            lan_sync_cmds::lan_sync_cancel_pairing,
+            lan_sync_cmds::lan_sync_pair,
+            lan_sync_cmds::lan_sync_unpair,
             palette_search,
             palette_hide,
             palette_insert,
@@ -900,6 +920,9 @@ fn toggle_window(app: &tauri::AppHandle) {
                 hide_command_palette(app);
                 LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
                 position_window_bottom(&window, remembered_overlay_height());
+                // Float above other windows while open, like the macOS panel (level 24).
+                #[cfg(target_os = "windows")]
+                let _ = window.set_always_on_top(true);
                 let _ = window.show();
                 let _ = window.set_focus();
                 let _ = app.emit("window-show", ());
@@ -958,6 +981,8 @@ pub(crate) fn finalize_panel_hide(app: &tauri::AppHandle) {
     if PENDING_PASTE_AFTER_HIDE.swap(false, Ordering::AcqRel) {
         #[cfg(target_os = "macos")]
         crate::clipboard_macos::spawn_automated_paste(true);
+        #[cfg(target_os = "windows")]
+        crate::win_platform::spawn_automated_paste(true);
     }
 }
 
@@ -2007,9 +2032,16 @@ fn palette_insert(app: tauri::AppHandle, text: String) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: `target_pid` is a macOS notion; win_platform restores the window that was in
+/// front before our UI and sends Ctrl+V there.
+#[cfg(target_os = "windows")]
 fn simulate_cmd_v(target_pid: i32) {
-    // Non-macOS: post synthetic Cmd+V via platform APIs when available.
+    let _ = target_pid;
+    crate::win_platform::spawn_automated_paste(false);
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn simulate_cmd_v(target_pid: i32) {
     let _ = target_pid;
 }
 
