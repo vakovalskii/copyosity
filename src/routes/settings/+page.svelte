@@ -81,7 +81,7 @@
     isAppNotFoundError,
   } from "$lib/exclusion-label";
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { initPlatform, platformIsMacOS } from "$lib/platform.svelte";
+  import { initPlatform, keyLabel, platformIsMacOS } from "$lib/platform.svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { checkForUpdate, currentVersion, type Update } from "$lib/updater";
   import { appendUpdateLog, readUpdateLog, clearUpdateLog, errorToString } from "$lib/update-log";
@@ -1173,7 +1173,7 @@
               </label>
             </div>
             <div class="form-hint">
-              <strong>Web search:</strong> press <code>⌘⇧Space</code> anywhere (or tray → Agent Search,
+              <strong>Web search:</strong> press <code>{keyLabel("⌘⇧Space")}</code> anywhere (or tray → Agent Search,
               or the search button in the main window) to query the web via the hub.
             </div>
           </div>
@@ -1831,7 +1831,7 @@
               </span>
               <span class="form-checkbox-label ui-selectable-text">
                 <span class="form-pref-label">Vertical board</span>
-                <span class="form-pref-hint">Tall panel docked to the screen edge instead of the horizontal bottom bar. Opens on the screen where your cursor is (⌘⇧V).</span>
+                <span class="form-pref-hint">Tall panel docked to the screen edge instead of the horizontal bottom bar. Opens on the screen where your cursor is ({keyLabel("⌘⇧V")}).</span>
               </span>
             </label>
             <label class="form-checkbox">

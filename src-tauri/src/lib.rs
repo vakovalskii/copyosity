@@ -907,6 +907,9 @@ fn toggle_window(app: &tauri::AppHandle) {
                 hide_command_palette(app);
                 LAST_SHOW_MS.store(now_ms(), Ordering::Relaxed);
                 position_window_bottom(&window, remembered_overlay_height());
+                // Float above other windows while open, like the macOS panel (level 24).
+                #[cfg(target_os = "windows")]
+                let _ = window.set_always_on_top(true);
                 let _ = window.show();
                 let _ = window.set_focus();
                 let _ = app.emit("window-show", ());

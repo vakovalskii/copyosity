@@ -77,12 +77,12 @@
     shouldRunScrollToSelectedGeneration,
     shouldScheduleTrackpadLeadingSync,
   } from "$lib/overlay-browse-sync";
-  import { initPlatform, platformIsMacOS } from "$lib/platform.svelte";
+  import { initPlatform, keyLabel, platformIsMacOS } from "$lib/platform.svelte";
 
   const overlayShortcutHints = $derived<KeyboardHint[]>([
     { prefix: "Click", action: $t("overlay.hint.copy") },
     { keys: "Space", action: $t("overlay.hint.preview") },
-    { keys: "⌘Y", action: $t("overlay.hint.preview") },
+    { keys: keyLabel("⌘Y"), action: $t("overlay.hint.preview") },
     { keys: "↵", action: $t("overlay.hint.paste") },
     { prefix: "Double-click", action: $t("overlay.hint.paste") },
     { keys: ["←", "→"], action: $t("overlay.hint.browse") },
@@ -92,7 +92,7 @@
   const overlayVerticalShortcutHints = $derived<KeyboardHint[]>([
     { prefix: "Click", action: $t("overlay.hint.copy") },
     { keys: "Space", action: $t("overlay.hint.preview") },
-    { keys: "⌘Y", action: $t("overlay.hint.preview") },
+    { keys: keyLabel("⌘Y"), action: $t("overlay.hint.preview") },
     { keys: "↵", action: $t("overlay.hint.paste") },
     { prefix: "2× click", action: $t("overlay.hint.paste") },
     { keys: ["↑", "↓"], action: $t("overlay.hint.browse") },
@@ -1326,7 +1326,7 @@
             class="overlay-icon-btn overlay-icon-btn--agent app-btn"
             type="button"
             aria-label="Open command palette (Cmd+Shift+Space)"
-            title="Open command palette · ⌘⇧Space"
+            title={`Open command palette · ${keyLabel("⌘⇧Space")}`}
             onclick={() => void openCommandPalette()}
           >
             <svg class="overlay-icon-btn-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -1393,7 +1393,7 @@
             class="overlay-icon-btn overlay-icon-btn--agent app-btn"
             type="button"
             aria-label="Open command palette (Cmd+Shift+Space)"
-            title="Open command palette · ⌘⇧Space"
+            title={`Open command palette · ${keyLabel("⌘⇧Space")}`}
             onclick={() => void openCommandPalette()}
           >
             <svg class="overlay-icon-btn-icon" viewBox="0 0 24 24" aria-hidden="true">

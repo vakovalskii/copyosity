@@ -9,7 +9,7 @@
 //!   showing the overlay fires no activation event and does not dismiss itself.
 
 /// Grace after panel show during which outside-click dismiss is ignored.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 pub(crate) const SHOW_DISMISS_GRACE_MS: u64 = 500;
 
 /// Pure geometry helper (Cocoa screen coordinates, bottom-left origin).
@@ -35,7 +35,7 @@ pub(crate) fn dismiss_suppressed(now_ms: u64, suppress_until_ms: u64) -> bool {
 }
 
 /// Returns true during the short grace window right after the panel is shown.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 pub(crate) fn within_show_grace(now_ms: u64, last_show_ms: u64, grace_ms: u64) -> bool {
     last_show_ms == 0 || now_ms.saturating_sub(last_show_ms) <= grace_ms
 }
@@ -298,7 +298,38 @@ mod imp {
 #[cfg(target_os = "macos")]
 pub use imp::*;
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: the overlay takes keyboard focus when it opens (there is no non-activating
+/// NSPanel), so a click anywhere else, Alt+Tab or Win key moves focus away. Treat that as
+/// the macOS "outside click": hide after a short delay unless focus came back.
+#[cfg(target_os = "windows")]
+pub fn handle_focus_lost(app: &tauri::AppHandle) {
+    use crate::{animated_hide_panel, main_panel_visible, now_ms, LAST_SHOW_MS};
+    use std::sync::atomic::Ordering;
+    use tauri::Manager;
+
+    const FOCUS_DISMISS_DELAY_MS: u64 = 150;
+    if within_show_grace(
+        now_ms(),
+        LAST_SHOW_MS.load(Ordering::Relaxed),
+        SHOW_DISMISS_GRACE_MS,
+    ) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(FOCUS_DISMISS_DELAY_MS)).await;
+        if let Some(window) = app.get_webview_window("main") {
+            if window.is_focused().unwrap_or(false) {
+                return;
+            }
+        }
+        if main_panel_visible(&app) {
+            animated_hide_panel(&app);
+        }
+    });
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn handle_focus_lost(_app: &tauri::AppHandle) {}
 
 #[cfg(not(target_os = "macos"))]

@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { formatKeys } from "./key-label";
+
 let platform = $state<"macos" | "windows" | "linux" | "unknown" | null>(null);
 
 export async function initPlatform(): Promise<void> {
@@ -17,4 +19,9 @@ export function platformIsMacOS(): boolean {
 
 export function platformLoaded(): boolean {
   return platform !== null;
+}
+
+/** Shortcut label for the current platform, see `key-label.ts`. Reactive: reads `platform`. */
+export function keyLabel(mac: string): string {
+  return formatKeys(mac, platform);
 }

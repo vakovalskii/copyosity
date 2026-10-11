@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyLabel } from "$lib/platform.svelte";
   import { onMount } from "svelte";
   import type { ClipboardEntry } from "$lib/types";
   import { copyEntry, copyText, activateEntry, deleteEntry, pinEntry, retagEntry } from "$lib/api";
@@ -432,7 +433,7 @@
             class="type-preview-btn app-btn"
             type="button"
             aria-label="Open preview"
-            title="Preview · Space or ⌘Y"
+            title={`Preview · Space or ${keyLabel("⌘Y")}`}
             onclick={handlePreviewClick}
             onmousedown={(e) => e.stopPropagation()}
           >
