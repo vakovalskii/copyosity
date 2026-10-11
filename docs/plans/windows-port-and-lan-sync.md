@@ -118,6 +118,17 @@ The exact list of modules, `cfg(target_os = "macos")` blocks and current stubs i
 | 6   | LAN sync: text, pins, snippets, then images                   | copy on one, paste from history on the other |
 | 7   | test on Air + PC for a few days, fix, decide on release       | owner decision                               |
 
+## Progress
+
+| date  | done                                                                                                                                                                                      |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 11.10 | plan + inventory; paste-back via SendInput (from `prerelease/windows-port`)                                                                                                               |
+| 11.10 | stage 1: clipboard change gate (`GetClipboardSequenceNumber`), own-write marker, password-manager markers, Copy writes kept out of Win+V history                                          |
+| 11.10 | stage 2 (part): overlay on top while open, closes on focus loss; `simulate_cmd_v` pastes on Windows                                                                                       |
+| 11.10 | stage 4 (part): source app = exe name + FileDescription, app exclusions enabled on Windows                                                                                                |
+| 11.10 | key labels: `⌘⇧Space` → `Ctrl+Shift+Space` on Windows via `keyLabel()`                                                                                                                    |
+| 11.10 | stages 5–6 (code): `lan_sync` module (triggers + `sync_log`, SPAKE2 pairing, ChaCha20-Poly1305 channel, mDNS), Settings → Sync (beta); 7 unit tests; not yet run between two real devices |
+
 ## Open questions
 
 1. Font: Inter on Windows only, or on both systems?

@@ -5,6 +5,7 @@ export const SETTINGS_PANE_IDS = [
   "ai",
   "history",
   "permissions",
+  "sync",
   "updates",
   "general",
 ] as const;

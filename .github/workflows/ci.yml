@@ -83,3 +83,11 @@ jobs:
       - name: Backend check (cargo, Windows)
         working-directory: src-tauri
         run: cargo check
+
+      # Experimental LAN sync (docs/plans/windows-port-and-lan-sync.md): must compile on
+      # Windows too; its unit tests run there as well (store + crypto are platform-neutral).
+      - name: Backend check with lan-sync (cargo, Windows)
+        working-directory: src-tauri
+        run: |
+          cargo check --features lan-sync
+          cargo test --features lan-sync lan_sync

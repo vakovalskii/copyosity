@@ -13,6 +13,9 @@ mod commands;
 mod db;
 mod hub;
 mod image_format;
+#[cfg(feature = "lan-sync")]
+mod lan_sync; // experimental LAN sync, docs/plans/windows-port-and-lan-sync.md part B
+mod lan_sync_cmds;
 mod macos_app;
 mod macos_window;
 mod mactools;
@@ -660,6 +663,8 @@ pub fn run() {
             }
             clipboard_write::sweep_stale_gif_temp_files();
             clipboard_monitor::start_clipboard_monitor(app.handle().clone());
+            #[cfg(feature = "lan-sync")]
+            lan_sync::init(app.handle());
 
             Ok(())
         })
@@ -720,6 +725,12 @@ pub fn run() {
             commands::hub_test_connection,
             commands::hub_list_models,
             commands::get_platform,
+            lan_sync_cmds::lan_sync_status,
+            lan_sync_cmds::lan_sync_set_enabled,
+            lan_sync_cmds::lan_sync_start_pairing,
+            lan_sync_cmds::lan_sync_cancel_pairing,
+            lan_sync_cmds::lan_sync_pair,
+            lan_sync_cmds::lan_sync_unpair,
             palette_search,
             palette_hide,
             palette_insert,
