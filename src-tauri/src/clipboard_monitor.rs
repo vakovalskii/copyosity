@@ -7,6 +7,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
+// Cheap change counter + own-write + concealed checks, one API per platform.
+#[cfg(target_os = "macos")]
+use crate::clipboard_macos as clip_signal;
+#[cfg(target_os = "windows")]
+use crate::clipboard_windows as clip_signal;
+
 /// Bumped when history is cleared so the monitor can recapture clipboard content
 /// whose hash is still in `last_content_hash` but no longer in the database.
 static HISTORY_CLEAR_EPOCH: AtomicU64 = AtomicU64::new(0);
@@ -605,15 +611,16 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                 }
             }
         };
-        #[cfg(target_os = "macos")]
-        let mut last_change_count = crate::clipboard_macos::change_count();
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let mut last_change_count = clip_signal::change_count();
         // Cache the probe hash so the pasteboard is only re-read + hashed when it
         // actually changes. Re-hashing every 300ms tick pegged a CPU core (and the
         // battery, "high energy" in Activity Monitor) whenever a large item sat on
         // the clipboard — a copied screenshot is tens of MB of RGBA, and it was
-        // hashed ~3x/second forever. macOS gives us a cheap `change_count()`; gate
+        // hashed ~3x/second forever. macOS (`changeCount`) and Windows (`GetClipboardSequenceNumber`)
+        // give us a cheap `change_count()`; gate
         // the expensive probe behind it.
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         let mut cached_probe: Option<String> = probe_clipboard_hash(&mut clipboard);
         let mut state = CaptureRetryState::new();
         let mut last_activity = std::time::Instant::now();
@@ -623,16 +630,16 @@ pub fn start_clipboard_monitor(app: AppHandle) {
             // Drain autoreleased NSPasteboard objects (NSData up to tens of MB) every tick:
             // this is a plain std::thread with no run loop, so nothing else would.
             with_autorelease_pool(|| {
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
                 let probe_hash = {
-                    let change_count = crate::clipboard_macos::change_count();
+                    let change_count = clip_signal::change_count();
                     if change_count != last_change_count {
                         last_change_count = change_count;
                         last_activity = std::time::Instant::now();
                         // Own writes and concealed/transient items are skipped *before* reading:
                         // no payload read, no hash of a password kept around.
-                        if crate::clipboard_macos::should_ignore_capture(change_count)
-                            || crate::clipboard_macos::is_concealed()
+                        if clip_signal::should_ignore_capture(change_count)
+                            || clip_signal::is_concealed()
                         {
                             cached_probe = None;
                             state.capture_pending = false;
@@ -645,9 +652,8 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                     cached_probe.clone()
                 };
 
-                // No cheap change signal off macOS yet, so probe each tick (the Windows
-                // port will switch this to WM_CLIPBOARDUPDATE).
-                #[cfg(not(target_os = "macos"))]
+                // No cheap change signal on other platforms, so probe each tick.
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
                 let probe_hash = {
                     state.capture_pending = true;
                     probe_clipboard_hash(&mut clipboard)

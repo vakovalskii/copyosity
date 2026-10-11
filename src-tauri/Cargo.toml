@@ -106,6 +106,7 @@ windows-sys = { version = "0.52", features = [
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_System_Threading",
+  "Win32_System_DataExchange",
 ] }
 
 # §6 Agent guardrail: docs/architecture/macos-tray-menu.md — do not remove pin without upstream merge.

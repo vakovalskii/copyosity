@@ -3,6 +3,8 @@ use std::borrow::Cow;
 
 #[cfg(target_os = "macos")]
 use arboard::SetExtApple;
+#[cfg(target_os = "windows")]
+use arboard::SetExtWindows;
 #[cfg(target_os = "macos")]
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
@@ -57,7 +59,27 @@ pub fn write_text<'a>(
         let count = crate::clipboard_macos::change_count();
         crate::clipboard_macos::mark_own_clipboard_write(count);
     }
-    #[cfg(not(target_os = "macos"))]
+    // Copy mode keeps the item out of Win+V history and cloud clipboard (the Windows
+    // counterpart of the macOS transient marker); both modes are marked as our own write.
+    #[cfg(target_os = "windows")]
+    {
+        match mode {
+            ClipboardWriteMode::Copy => {
+                clipboard
+                    .set()
+                    .exclude_from_history()
+                    .exclude_from_cloud()
+                    .text(text)
+                    .map_err(|e| e.to_string())?;
+            }
+            ClipboardWriteMode::Paste => {
+                clipboard.set_text(text).map_err(|e| e.to_string())?;
+            }
+        }
+        let count = crate::clipboard_windows::change_count();
+        crate::clipboard_windows::mark_own_clipboard_write(count);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = mode;
         clipboard.set_text(text).map_err(|e| e.to_string())?;
@@ -88,7 +110,27 @@ pub fn write_image(
         let count = crate::clipboard_macos::change_count();
         crate::clipboard_macos::mark_own_clipboard_write(count);
     }
-    #[cfg(not(target_os = "macos"))]
+    // Copy mode keeps the item out of Win+V history and cloud clipboard (the Windows
+    // counterpart of the macOS transient marker); both modes are marked as our own write.
+    #[cfg(target_os = "windows")]
+    {
+        match mode {
+            ClipboardWriteMode::Copy => {
+                clipboard
+                    .set()
+                    .exclude_from_history()
+                    .exclude_from_cloud()
+                    .image(image)
+                    .map_err(|e| e.to_string())?;
+            }
+            ClipboardWriteMode::Paste => {
+                clipboard.set_image(image).map_err(|e| e.to_string())?;
+            }
+        }
+        let count = crate::clipboard_windows::change_count();
+        crate::clipboard_windows::mark_own_clipboard_write(count);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = mode;
         clipboard.set_image(image).map_err(|e| e.to_string())?;

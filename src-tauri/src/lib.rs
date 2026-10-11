@@ -6,6 +6,8 @@ mod agent;
 mod app_exclusion;
 mod clipboard_macos;
 mod clipboard_monitor;
+#[cfg(target_os = "windows")]
+mod clipboard_windows; // GetClipboardSequenceNumber gate, own-write and concealed checks
 mod clipboard_write;
 mod commands;
 mod db;
