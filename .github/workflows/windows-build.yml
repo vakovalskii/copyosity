@@ -11,6 +11,11 @@ name: Build Windows installer (experimental)
 
 on:
   workflow_dispatch:
+    inputs:
+      features:
+        description: "Cargo features, e.g. lan-sync (experimental builds only)"
+        required: false
+        default: ""
   push:
     tags:
       - "win-v*"
@@ -48,7 +53,14 @@ jobs:
           # Signs the updater artifacts (.sig) so auto-update can verify them.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-        run: npm run tauri build
+          FEATURES: ${{ inputs.features }}
+        shell: bash
+        run: |
+          if [ -n "$FEATURES" ]; then
+            npm run tauri build -- --features "$FEATURES"
+          else
+            npm run tauri build
+          fi
 
       - name: Upload installers
         uses: actions/upload-artifact@v5
