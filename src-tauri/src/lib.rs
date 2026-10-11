@@ -775,6 +775,10 @@ pub fn run() {
                 }
             }
             tauri::RunEvent::WindowEvent { label, event, .. } => match (label.as_str(), &event) {
+                _ if {
+                    commands::settings_trace(&format!("event {label} {event:?}"));
+                    false
+                } => {}
                 ("main", tauri::WindowEvent::CloseRequested { api, .. }) => {
                     api.prevent_close();
                     animated_hide_panel(app);

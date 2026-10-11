@@ -287,16 +287,48 @@ pub fn open_settings_window(
     show_settings_window(app, initial_pane)
 }
 
+/// TEMP diagnostics for the white settings window on Windows: appends steps to
+/// %APPDATA%\\com.vkovalskii.copyosity\\settings-trace.log.
+pub(crate) fn settings_trace(msg: &str) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::io::Write;
+        if let Some(dir) = std::env::var_os("APPDATA") {
+            let path = std::path::Path::new(&dir)
+                .join("com.vkovalskii.copyosity")
+                .join("settings-trace.log");
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                let _ = writeln!(
+                    f,
+                    "{} {:?} {}",
+                    crate::now_ms(),
+                    std::thread::current().id(),
+                    msg
+                );
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = msg;
+}
+
 fn show_settings_window(app: tauri::AppHandle, initial_pane: Option<String>) -> Result<(), String> {
+    settings_trace("show_settings_window: enter");
     #[cfg(target_os = "macos")]
     crate::clipboard_macos::remember_paste_target();
 
     // The clipboard panel is always-on-top; if it stays visible, macOS delivers mouse
     // events to the panel instead of settings — no hover, pointer cursor, or focus rings.
     if crate::main_panel_visible(&app) {
+        settings_trace("hiding main panel");
         crate::PANEL_HIDE_SCHEDULED.store(false, Ordering::Release);
         crate::finalize_panel_hide(&app);
     }
+    settings_trace("panel handled");
 
     // If settings window already exists, just focus it
     if let Some(window) = app.get_webview_window("settings") {
@@ -326,11 +358,15 @@ fn show_settings_window(app: tauri::AppHandle, initial_pane: Option<String>) -> 
     .resizable(true)
     .center();
 
+    settings_trace("build: start");
     let window = builder.build().map_err(|e| e.to_string())?;
+    settings_trace("build: done");
     crate::present_settings_window(&window);
+    settings_trace("presented");
     #[cfg(target_os = "macos")]
     activate_for_settings_window(&app);
     let _ = window.emit("settings-shown", ());
+    settings_trace("emitted settings-shown");
 
     Ok(())
 }
