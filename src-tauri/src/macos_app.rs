@@ -679,6 +679,7 @@ mod tests {
         assert_eq!(names, vec!["Safari", "Safari", ""]);
     }
 
+    #[cfg(target_os = "macos")] // the function is macOS-only
     #[test]
     fn choose_user_visible_app_name_prefers_plist_over_renamed_stem() {
         assert_eq!(
@@ -687,6 +688,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")] // the function is macOS-only
     #[test]
     fn choose_user_visible_app_name_prefers_folder_for_full_marketing_name() {
         assert_eq!(
@@ -695,6 +697,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")] // the function is macOS-only
     #[test]
     fn choose_user_visible_app_name_prefers_folder_when_plist_is_internal_id() {
         assert_eq!(
