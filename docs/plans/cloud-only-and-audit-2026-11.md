@@ -113,3 +113,40 @@ Expected size: −~1,280 Rust lines, −~400 Svelte/TS lines, −6 IPC commands,
 - Unit tests: credential guard (sk-keys, JWT, PEM, `password=`), backfill eligibility, endpoint failure hides the voice capsule, concurrent launch/Settings install.
 - Launch updater exercised from the real main-window capability.
 - `make verify-tray` is not required unless tray/activation code is touched (P0 #3 touches startup — run it then).
+
+---
+
+## 5. Codex full-app audit (2026-11-03, `gpt-6-astra`, read-only)
+
+Report: `~/.codex-reviews/copyosity-full-1103-2230.md`. ✅ = re-verified by hand in code; others are traced statically by Codex and still need a check before fixing.
+
+### Security / privacy / crash — fix first (own PR, before cloud-only)
+
+| #   | Finding                                                                                                                                                                                                  | Where                                      | Check |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ----- |
+| S1  | **`make clean-all` deletes the updater signing key** (`rm -rf $(APP_DIR)/.tauri`). Losing it breaks auto-update for every installed copy.                                                                | `Makefile:129`                             | ✅    |
+| S2  | **Excluded-app content gets captured after an app switch**: `should_skip_source` → `None` leaves `capture_pending=true`; the retry attributes it to the new frontmost app and saves (and cloud-tags) it. | `clipboard_monitor.rs:411,588`             | ✅    |
+| S3  | **Double `CFRelease` in AX window traversal** — windows released in-loop are released again in the success cleanup → crash in paste targeting.                                                           | `clipboard_macos/accessibility.rs:137-150` | ✅    |
+| S4  | AX focused element used after the mutex is dropped → use-after-free under concurrent target capture.                                                                                                     | `accessibility.rs:52`                      |       |
+| S5  | **Palette Esc/hide keeps the mic recording** (`palette-hide` only resets focus; session in `palette_recording_mutex` untouched, unbounded buffer, uploaded on next stop).                                | `lib.rs:995`, `palette/+page.svelte:581`   | ✅    |
+| S6  | Selected-text voice mode restores a concealed password with plain `set_text` → loses the concealment marker, monitor may store / cloud-tag it; non-text formats lost.                                    | `lib.rs:2064`                              |       |
+| S7  | "Screenshot of the target window" captures the whole display; palette falls back to full screen silently.                                                                                                | `lib.rs:1239`, `screen.rs:56`              |       |
+| S8  | Overlapping dictations share global target/context → A's transcript can paste into app B.                                                                                                                | `lib.rs:1389`                              |       |
+| S9  | **Content hash covers only the first 4 KB + length** → different texts with equal prefix/length dedupe to the old entry (pastes stale content).                                                          | `clipboard_monitor.rs:156`                 | ✅    |
+| S10 | Clipboard write failure still triggers paste → target gets the previous clipboard (possibly a password).                                                                                                 | `lib.rs:1381,1988`                         |       |
+| S11 | Failed selected-text rewrite pastes the raw instruction over the user's selection.                                                                                                                       | `lib.rs:1188`                              |       |
+
+### Reliability / release
+
+- Release: `release.sh:80` stale-bundle publish (also in §1); `.github/workflows/release.yml:217` tag workflow publishes DMGs without `latest.json`/tarballs — pick one pipeline; mirror race (`publish-mirrors.sh:48,68`).
+- Transcription has no HTTP timeout (`whisper.rs:206`) → worker blocks forever.
+- Voice config failure leaves the capsule on "Transcribing…" (`lib.rs:1331`, also in §2 corrections).
+- CSP allows only NeuralDeep domains, so a custom hub URL passes the connection test but agent chat fails (`tauri.conf.json:15`) — restrict hub URL in Settings or proxy agent requests through Rust.
+- Retention / vacuum / first-run paste / launch updater — same as §1 P0.
+
+### Revised PR order
+
+1. **PR A — security & crash fixes** S1–S11 (+ tests: exclusion retry, full-payload hash, palette hide cancels recording, AX ownership).
+2. **PR B (this one) — cloud-only** per §2 with Codex corrections.
+3. **PR C — P0 runtime**: updater shared install path, periodic retention + VACUUM, transcription timeouts, voice error cleanup.
+4. **PR D — onboarding + notifications**, **PR E — release pipeline**, **PR F — i18n/design**.
