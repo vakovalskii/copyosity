@@ -197,7 +197,19 @@ fn contains_auth_header_token(text: &str) -> bool {
     ]
     .iter()
     .any(|h| lower.contains(h));
-    let words: Vec<&str> = text.split_whitespace().collect();
+    // JSON / minified JSON: `{"Authorization":"Basic …"}` — treat structural punctuation as
+    // whitespace so the scheme and its token split into words.
+    let spaced: String = text
+        .chars()
+        .map(|c| {
+            if matches!(c, '"' | '{' | '}' | '[' | ']' | ',') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    let words: Vec<&str> = spaced.split_whitespace().collect();
     words.windows(2).any(|pair| {
         let scheme = pair[0]
             .trim_matches(|c: char| !c.is_ascii_alphanumeric())
@@ -205,7 +217,7 @@ fn contains_auth_header_token(text: &str) -> bool {
         if scheme != "bearer" && scheme != "basic" {
             return false;
         }
-        let token = pair[1].trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';'));
+        let token = pair[1].trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';' | ')'));
         let token_chars = !token.is_empty()
             && token.chars().all(|c| {
                 c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~' | '+' | '/' | '=')
@@ -226,7 +238,8 @@ fn contains_secret_assignment(text: &str) -> bool {
     ]
     .iter()
     .any(|m| lower.contains(m))
-        || lower.contains(';');
+        // A trailing `;` marks code — except shell lines (`export DB_PASSWORD=a.b.c;`).
+        || (lower.contains(';') && !lower.trim_start().starts_with("export "));
     for key in SECRET_KEYS {
         let mut start = 0;
         while let Some(pos) = lower[start..].find(key) {
@@ -315,7 +328,8 @@ fn literal_value_follows(rest: &str, sep: u8, spaced: bool, looks_like_code: boo
         // Prose like "The secret: we ship on Monday" — a YAML-style value is
         // the last thing on its line.
         let line_rest = rest[raw.len()..].lines().next().unwrap_or("").trim();
-        if !line_rest.is_empty() {
+        // A trailing YAML comment (`password: hunter2 # prod`) is not prose.
+        if !line_rest.is_empty() && !line_rest.starts_with('#') {
             return false;
         }
     }
@@ -1002,6 +1016,14 @@ mod tests {
         assert!(blocked("Authorization: Basic dXNlcjpwYXNz"));
         assert!(blocked("Authorization: Bearer abcdefghijklmnop"));
         assert!(blocked("authorization: bearer abc"));
+    }
+
+    #[test]
+    fn guard_blocks_json_shell_and_yaml_credentials() {
+        assert!(blocked(r#"{"Authorization": "Basic dXNlcjpwYXNz"}"#));
+        assert!(blocked(r#"{"Authorization":"Bearer abc"}"#));
+        assert!(blocked("export DB_PASSWORD=correct.horse.battery.staple;"));
+        assert!(blocked("password: hunter2 # production"));
     }
 
     #[test]
