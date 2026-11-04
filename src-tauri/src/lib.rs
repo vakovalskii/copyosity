@@ -15,7 +15,6 @@ mod macos_app;
 mod macos_window;
 mod mactools;
 mod ocr;
-mod ollama;
 mod overlay_dismiss;
 mod palette_window;
 mod quick_menu;
@@ -154,7 +153,7 @@ fn palette_recording_mutex() -> &'static std::sync::Mutex<Option<whisper::Record
     PALETTE_RECORDING.get_or_init(|| std::sync::Mutex::new(None))
 }
 
-/// Transcribe finished audio using hub or standalone Whisper, per settings.
+/// Transcribe finished audio via the NeuralDeep hub.
 fn transcribe_with_settings(
     settings: &db::AppSettings,
     samples: Vec<f32>,
@@ -669,7 +668,6 @@ pub fn run() {
             // toggle_command_palette). Do NOT pre-create here — regresses tray first-click blink.
 
             let settings = db.get_app_settings().expect("Failed to load app settings");
-            ollama::set_active_model(&settings.ollama_model);
             let _ = db.cleanup_old_entries(settings.retention_days);
 
             {
@@ -686,10 +684,8 @@ pub fn run() {
                 });
             }
 
-            if settings.ai_tagging_enabled {
-                ollama::ensure_runtime();
-                ollama::backfill_existing_tags(app.handle().clone(), db);
-            }
+            // Tag old untagged text entries via the hub (no-op unless configured).
+            tagging::spawn_backfill_if_configured(app.handle().clone(), db);
             clipboard_write::sweep_stale_gif_temp_files();
             clipboard_monitor::start_clipboard_monitor(app.handle().clone());
 
@@ -714,7 +710,6 @@ pub fn run() {
             commands::open_settings_window,
             commands::quit_app,
             commands::get_app_settings,
-            commands::get_model_catalog,
             commands::get_excluded_apps,
             commands::add_excluded_app,
             commands::remove_excluded_app,
@@ -730,11 +725,6 @@ pub fn run() {
             commands::paste_entry,
             commands::check_accessibility,
             commands::open_accessibility_settings,
-            commands::check_ollama_status,
-            commands::start_ollama_server,
-            commands::pull_ollama_model,
-            commands::unload_ollama_model,
-            commands::test_ollama_tagging,
             commands::rebind_voice_shortcut,
             commands::rebind_palette_shortcut,
             commands::get_quick_menu_shortcut,

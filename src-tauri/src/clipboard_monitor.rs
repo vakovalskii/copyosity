@@ -349,14 +349,11 @@ impl CaptureContext {
                     let png_b64_for_ocr = encoded.full_b64;
                     let thumb_b64_for_tag = encoded.thumb_b64;
                     std::thread::spawn(move || {
-                        let ocr_text = base64::Engine::decode(
-                            &base64::engine::general_purpose::STANDARD,
-                            &png_b64_for_ocr,
-                        )
-                        .ok()
-                        .and_then(|bytes| crate::ocr::ocr_image_png(&bytes))
-                        .map(|t| t.trim().to_string())
-                        .filter(|t| !t.is_empty());
+                        // OCR status matters: the image may only be uploaded once
+                        // OCR has completed and its text passed the upload guard.
+                        let ocr_result =
+                            crate::tagging::ocr_b64(&png_b64_for_ocr).map(|t| t.trim().to_string());
+                        let ocr_text = ocr_result.as_ref().ok().filter(|t| !t.is_empty()).cloned();
 
                         if let Some(text) = &ocr_text {
                             if db.set_ocr_text(id, text).is_ok() {
@@ -371,26 +368,13 @@ impl CaptureContext {
                             }
                         }
 
-                        let settings = db.get_app_settings().ok();
-                        let use_hub = settings
-                            .as_ref()
-                            .map(crate::tagging::hub_tagging_configured)
-                            .unwrap_or(false);
-
-                        let tags = if use_hub {
-                            let s = settings.as_ref().unwrap();
-                            crate::hub::tag_image(
-                                &s.hub_url,
-                                &s.hub_token,
-                                crate::tagging::HUB_IMAGE_TAG_MODEL,
-                                &thumb_b64_for_tag,
-                            )
-                            .or_else(|| ocr_text.as_ref().and_then(|t| crate::tagging::tag(&db, t)))
-                        } else if crate::tagging::should_auto_tag_text_on_capture(&db) {
-                            ocr_text.as_ref().and_then(|t| crate::tagging::tag(&db, t))
-                        } else {
-                            None
+                        // OCR first: if it failed, or its text trips the upload guard,
+                        // the image is never sent to the hub.
+                        let ocr = match &ocr_result {
+                            Ok(text) => crate::tagging::ImageOcr::Done(text),
+                            Err(()) => crate::tagging::ImageOcr::Unavailable,
                         };
+                        let tags = crate::tagging::tag_image(&db, &thumb_b64_for_tag, ocr);
 
                         if let Some(tags) = tags {
                             if db.set_entry_tags(id, &tags).is_ok() {
@@ -451,16 +435,21 @@ impl CaptureContext {
                         if !crate::tagging::should_auto_tag_text_on_capture(&db) {
                             return;
                         }
-                        if let Some(tags) = crate::tagging::tag(&db, &text) {
-                            if db.set_entry_tags(id, &tags).is_ok() {
-                                let _ = app.emit_to(
-                                    "main",
-                                    "entry-tagged",
-                                    EntryTaggedPayload { entry_id: id, tags },
-                                );
+                        match crate::tagging::tag(&db, &text) {
+                            crate::tagging::TagOutcome::Tags(tags) => {
+                                if db.set_entry_tags(id, &tags).is_ok() {
+                                    let _ = app.emit_to(
+                                        "main",
+                                        "entry-tagged",
+                                        EntryTaggedPayload { entry_id: id, tags },
+                                    );
+                                }
                             }
-                        } else {
-                            let _ = db.set_entry_tag_state(id, "skipped");
+                            crate::tagging::TagOutcome::Empty => {
+                                let _ = db.set_entry_tag_state(id, "skipped");
+                            }
+                            // Transient hub failure: no state, the backfill retries it.
+                            crate::tagging::TagOutcome::Failed => {}
                         }
                     });
                 }

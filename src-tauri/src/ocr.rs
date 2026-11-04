@@ -2,8 +2,10 @@
 //! Fully local, no network, no special entitlement. Runs synchronously, so
 //! callers should invoke it off the main thread.
 
+/// OCR an image. `Ok("")` means OCR completed and found no text; `Err` means
+/// OCR could not run (bad data, Vision error, unsupported platform).
 #[cfg(target_os = "macos")]
-pub fn ocr_image_png(png_bytes: &[u8]) -> Option<String> {
+pub fn ocr_image_png_result(png_bytes: &[u8]) -> Result<String, ()> {
     use objc2::rc::{autoreleasepool, Retained};
     use objc2::runtime::AnyObject;
     use objc2::AllocAnyThread;
@@ -14,7 +16,7 @@ pub fn ocr_image_png(png_bytes: &[u8]) -> Option<String> {
     };
 
     if png_bytes.is_empty() {
-        return None;
+        return Err(());
     }
 
     autoreleasepool(|_pool| {
@@ -40,10 +42,12 @@ pub fn ocr_image_png(png_bytes: &[u8]) -> Option<String> {
         let req_base: &VNRequest = &request;
         let requests = NSArray::from_slice(&[req_base]);
         if handler.performRequests_error(&requests).is_err() {
-            return None;
+            return Err(());
         }
 
-        let results = request.results()?;
+        let Some(results) = request.results() else {
+            return Ok(String::new());
+        };
         let mut lines: Vec<String> = Vec::new();
         for i in 0..results.count() {
             let obs = results.objectAtIndex(i);
@@ -54,17 +58,13 @@ pub fn ocr_image_png(png_bytes: &[u8]) -> Option<String> {
             }
         }
 
-        if lines.is_empty() {
-            None
-        } else {
-            Some(lines.join("\n"))
-        }
+        Ok(lines.join("\n"))
     })
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn ocr_image_png(_png_bytes: &[u8]) -> Option<String> {
-    None
+pub fn ocr_image_png_result(_png_bytes: &[u8]) -> Result<String, ()> {
+    Err(())
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -72,7 +72,7 @@ mod tests {
     use super::*;
 
     /// Smoke test: the Vision FFI path must execute without panicking on a
-    /// valid (blank) PNG. A blank image has no text, so we expect None.
+    /// valid (blank) PNG.
     #[test]
     fn ocr_blank_image_runs_without_panic() {
         use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
@@ -84,12 +84,15 @@ mod tests {
         dynimg.write_to(&mut buf, ImageFormat::Png).unwrap();
         let png = buf.into_inner();
 
-        let result = ocr_image_png(&png);
-        assert!(result.is_none(), "blank image should yield no text");
+        // A blank image has no text: OCR succeeds with an empty result.
+        assert_eq!(ocr_image_png_result(&png), Ok(String::new()));
     }
 
     #[test]
-    fn ocr_empty_bytes_returns_none() {
-        assert!(ocr_image_png(&[]).is_none());
+    fn ocr_empty_bytes_is_an_error() {
+        assert!(
+            ocr_image_png_result(&[]).is_err(),
+            "no data is a failure, not 'no text'"
+        );
     }
 }

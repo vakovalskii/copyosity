@@ -1,12 +1,11 @@
 use crate::app_exclusion::{self, ExcludableAppSource};
 use crate::db::{
     AppSettings, ClipboardEntry, Collection, Database, EntryTaggedPayload, ExcludedApp,
-    HistoryCounts, ModelCatalog, OverlayTagCounts,
+    HistoryCounts, OverlayTagCounts,
 };
 use crate::macos_app;
 use serde::Serialize;
 
-use crate::ollama;
 use arboard::{Clipboard, ImageData};
 use base64::Engine;
 use image::GenericImageView;
@@ -220,14 +219,13 @@ fn ensure_settings_window_size(window: &tauri::WebviewWindow) {
 }
 
 const SETTINGS_PANES: &[&str] = &[
+    "general",
     "hub",
     "voice",
     "quickmenu",
-    "ai",
     "history",
     "permissions",
     "updates",
-    "general",
 ];
 
 fn is_settings_pane(pane: &str) -> bool {
@@ -327,20 +325,26 @@ pub fn get_app_settings(db: State<'_, Arc<Database>>) -> Result<AppSettings, Str
     db.get_app_settings().map_err(|e| e.to_string())
 }
 
+/// Hub tagging inputs whose change should (re)start the tagging backfill, e.g.
+/// after a run paused on hub failures and the user fixed the credentials.
+fn hub_tagging_inputs_changed(prior: &AppSettings, next: &AppSettings) -> bool {
+    prior.hub_enabled != next.hub_enabled
+        || prior.hub_tagging_enabled != next.hub_tagging_enabled
+        || prior.hub_url != next.hub_url
+        || prior.hub_token != next.hub_token
+        || prior.hub_chat_model != next.hub_chat_model
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn update_app_settings(
     app: tauri::AppHandle,
     db: State<'_, Arc<Database>>,
-    ollama_model: Option<String>,
     retention_days: Option<i64>,
-    whisper_server_url: Option<String>,
-    whisper_server_token: Option<String>,
     whisper_server_model: Option<String>,
     voice_shortcut: Option<String>,
     selected_microphone: Option<String>,
     voice_transcription_enabled: Option<bool>,
-    ai_tagging_enabled: Option<bool>,
     overlay_shortcut_hints_enabled: Option<bool>,
     hub_enabled: Option<bool>,
     hub_url: Option<String>,
@@ -356,16 +360,11 @@ pub fn update_app_settings(
     voice_dictionary: Option<String>,
     voice_selected_text: Option<bool>,
     board_vertical: Option<bool>,
+    setup_notice_local_tagging_removed: Option<bool>,
+    setup_notice_custom_whisper_removed: Option<bool>,
 ) -> Result<AppSettings, String> {
-    if let Some(model) = ollama_model.as_deref() {
-        ollama::validate_model_name(model)?;
-    }
-
-    let was_tagging_enabled = db.is_ai_tagging_enabled();
-    let prior_hub_enabled = db
-        .get_app_settings()
-        .map_err(|e| e.to_string())?
-        .hub_enabled;
+    let prior = db.get_app_settings().map_err(|e| e.to_string())?;
+    let prior_hub_enabled = prior.hub_enabled;
     let next_hub_enabled = hub_enabled.unwrap_or(prior_hub_enabled);
 
     if hub_enabled.is_some() {
@@ -374,15 +373,11 @@ pub fn update_app_settings(
 
     let settings = db
         .update_app_settings(
-            ollama_model.as_deref(),
             retention_days,
-            whisper_server_url.as_deref(),
-            whisper_server_token.as_deref(),
             whisper_server_model.as_deref(),
             voice_shortcut.as_deref(),
             selected_microphone.as_deref(),
             voice_transcription_enabled,
-            ai_tagging_enabled,
             overlay_shortcut_hints_enabled,
             hub_enabled,
             hub_url.as_deref(),
@@ -398,6 +393,8 @@ pub fn update_app_settings(
             voice_dictionary.as_deref(),
             voice_selected_text,
             board_vertical,
+            setup_notice_local_tagging_removed,
+            setup_notice_custom_whisper_removed,
         )
         .map_err(|e| {
             if hub_enabled.is_some() {
@@ -406,13 +403,11 @@ pub fn update_app_settings(
             e.to_string()
         })?;
 
-    ollama::set_active_model(&settings.ollama_model);
-
-    if settings.ai_tagging_enabled {
-        ollama::ensure_runtime();
-        if !was_tagging_enabled {
-            ollama::backfill_existing_tags(app.clone(), db.inner().clone());
-        }
+    // Hub tagging just became usable: tag existing untagged history once.
+    if crate::tagging::hub_text_tagging_ready(&settings)
+        && hub_tagging_inputs_changed(&prior, &settings)
+    {
+        crate::tagging::spawn_backfill_if_configured(app.clone(), db.inner().clone());
     }
 
     db.cleanup_old_entries(settings.retention_days)
@@ -426,11 +421,6 @@ pub fn update_app_settings(
     }
 
     Ok(settings)
-}
-
-#[tauri::command(async)]
-pub fn get_model_catalog() -> Result<ModelCatalog, String> {
-    Ok(ollama::model_catalog())
 }
 
 #[tauri::command]
@@ -545,28 +535,33 @@ pub fn retag_entry(
         return Ok(Vec::new());
     };
 
+    use crate::tagging::TagOutcome;
     let tagged = match entry.content_type.as_str() {
         "text" => entry
             .text_content
             .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .and_then(|text| crate::tagging::tag(db.inner(), text)),
-        "image" => crate::tagging::tag_image_entry(db.inner(), &entry),
-        _ => None,
+            .map(|text| crate::tagging::tag(db.inner(), text))
+            .unwrap_or(TagOutcome::Empty),
+        "image" => match crate::tagging::tag_image_entry(db.inner(), &entry) {
+            Some(tags) if !tags.is_empty() => TagOutcome::Tags(tags),
+            _ => TagOutcome::Empty,
+        },
+        _ => TagOutcome::Empty,
     };
 
     let tags = match tagged {
-        Some(tags) => {
+        TagOutcome::Tags(tags) => {
             db.set_entry_tags(entry_id, &tags)
                 .map_err(|e| e.to_string())?;
             tags
         }
-        None => {
+        TagOutcome::Empty => {
             db.set_entry_tag_state(entry_id, "skipped")
                 .map_err(|e| e.to_string())?;
             Vec::new()
         }
+        // Transient hub failure: leave the entry eligible for a later retry.
+        TagOutcome::Failed => Vec::new(),
     };
 
     let _ = app.emit_to(
@@ -907,41 +902,8 @@ pub fn open_accessibility_settings() -> Result<(), String> {
 }
 
 #[tauri::command(async)]
-pub fn check_ollama_status() -> Result<ollama::OllamaStatus, String> {
-    Ok(ollama::check_status())
-}
-
-#[tauri::command(async)]
 pub fn is_tagging_ready(db: State<'_, Arc<Database>>) -> Result<bool, String> {
     Ok(crate::tagging::is_retag_ready(db.inner()))
-}
-
-#[tauri::command(async)]
-pub fn start_ollama_server() -> Result<bool, String> {
-    Ok(ollama::try_start_server())
-}
-
-#[tauri::command]
-pub fn pull_ollama_model(app: tauri::AppHandle) -> Result<(), String> {
-    std::thread::spawn(move || {
-        let result = ollama::try_pull_model(Some(&app));
-        let _ = app.emit("ollama-pull-done", result);
-    });
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn unload_ollama_model() -> Result<bool, String> {
-    tauri::async_runtime::spawn_blocking(ollama::unload_model)
-        .await
-        .map_err(|err| format!("Unload failed: {err}"))
-}
-
-#[tauri::command]
-pub async fn test_ollama_tagging() -> Result<Option<Vec<String>>, String> {
-    tauri::async_runtime::spawn_blocking(ollama::test_tagging)
-        .await
-        .map_err(|err| format!("Tagging test failed: {err}"))
 }
 
 #[tauri::command]
@@ -1078,8 +1040,29 @@ mod tests {
     }
 
     #[test]
+    fn backfill_restarts_on_hub_tagging_input_change() {
+        let db = crate::db::tests::test_db();
+        let base = db.get_app_settings().unwrap();
+        assert!(!hub_tagging_inputs_changed(&base, &base.clone()));
+        let mut next = base.clone();
+        next.hub_token = "fixed".into();
+        assert!(hub_tagging_inputs_changed(&base, &next));
+        let mut next = base.clone();
+        next.hub_url = "https://other".into();
+        assert!(hub_tagging_inputs_changed(&base, &next));
+        let mut next = base.clone();
+        next.hub_chat_model = "other".into();
+        assert!(hub_tagging_inputs_changed(&base, &next));
+        let mut next = base.clone();
+        next.voice_polish_enabled = !base.voice_polish_enabled;
+        assert!(!hub_tagging_inputs_changed(&base, &next));
+    }
+
+    #[test]
     fn settings_app_path_rejects_unknown_pane() {
         assert_eq!(settings_app_path(Some("not-a-pane")), "/settings");
+        // Local AI pane was removed in the cloud-only release.
+        assert_eq!(settings_app_path(Some("ai")), "/settings");
         assert_eq!(settings_app_path(Some("QuickMenu")), "/settings");
     }
 
