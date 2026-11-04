@@ -803,6 +803,10 @@ fn run_backfill(
             if !hub_text_tagging_ready(&settings) {
                 return;
             }
+            // Deleted / cleared / retagged since the batch was loaded → never upload it.
+            if !matches!(db.is_entry_backfill_eligible(entry_id), Ok(true)) {
+                continue;
+            }
             match tagger(&settings, &text) {
                 TagOutcome::Tags(tags) => {
                     consecutive_failures = 0;
@@ -1264,6 +1268,27 @@ mod tests {
                 requests += 1;
                 // User turns cloud tagging off while the first request runs.
                 db.set_setting("hub_tagging_enabled", "false").unwrap();
+                TagOutcome::Tags(vec!["note".to_owned()])
+            },
+            |_, _| {},
+        );
+        assert_eq!(requests, 1);
+    }
+
+    #[test]
+    fn backfill_skips_entries_deleted_mid_batch() {
+        let db = crate::db::tests::test_db();
+        let _ = hub_ready_settings(&db);
+        for i in 0..5 {
+            crate::db::tests::insert_text(&db, &format!("note {i}"), &format!("h{i}"));
+        }
+        let mut requests = 0;
+        run_backfill(
+            &db,
+            |_, _| {
+                requests += 1;
+                // User clears history while the first request runs.
+                db.clear_all_history().unwrap();
                 TagOutcome::Tags(vec!["note".to_owned()])
             },
             |_, _| {},

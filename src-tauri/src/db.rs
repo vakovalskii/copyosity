@@ -1610,6 +1610,19 @@ impl Database {
         Ok(true)
     }
 
+    /// Backfill pre-upload check: the entry still exists (not deleted / history not cleared)
+    /// and is still untagged without state. Called right before each hub request so a batch
+    /// loaded earlier never uploads entries the user has since removed.
+    pub fn is_entry_backfill_eligible(&self, entry_id: i64) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM clipboard_entries WHERE id = ?1)",
+            params![entry_id],
+            |row| row.get(0),
+        )?;
+        Ok(exists && entry_untagged_without_state(&conn, entry_id)?)
+    }
+
     /// Backfill write: mark `skipped` only if the entry is still untouched.
     pub fn mark_entry_skipped_if_untagged(&self, entry_id: i64) -> Result<bool, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
