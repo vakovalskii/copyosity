@@ -153,14 +153,12 @@ fn encode_image_file(path: &Path) -> Option<EncodedImage> {
     Some(encoded)
 }
 
+/// Hash of the full payload (+ length, kept so hashes of payloads ≤ 4 KB match the
+/// historical prefix-only scheme and existing history still dedupes). Hashing only a
+/// prefix made two different texts with equal prefix + length dedupe into the old entry.
 fn hash_bytes(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
-    let prefix = if data.len() > 4096 {
-        &data[..4096]
-    } else {
-        data
-    };
-    hasher.update(prefix);
+    hasher.update(data);
     hasher.update(data.len().to_le_bytes());
     hex::encode(hasher.finalize())
 }
@@ -295,14 +293,9 @@ impl CaptureContext {
         &self,
         encoded: EncodedImage,
         base_hash: String,
-        source_bundle_id: Option<String>,
         source_app: Option<String>,
         format_hint: Option<&str>,
     ) -> Option<String> {
-        if should_skip_source(&self.db, &source_bundle_id) {
-            return None;
-        }
-
         let content_hash = entry_content_hash(&base_hash);
         let image_format = format_hint
             .map(|hint| crate::image_format::normalize(hint).to_owned())
@@ -405,13 +398,8 @@ impl CaptureContext {
         &self,
         text: String,
         base_hash: String,
-        source_bundle_id: Option<String>,
         source_app: Option<String>,
     ) -> Option<String> {
-        if should_skip_source(&self.db, &source_bundle_id) {
-            return None;
-        }
-
         let content_hash = entry_content_hash(&base_hash);
 
         let entry = ClipboardEntry {
@@ -465,22 +453,52 @@ impl CaptureContext {
     }
 }
 
-fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -> Option<String> {
-    let source = crate::macos_app::frontmost_app_identity();
-    let source_bundle_id = source.as_ref().map(|app| app.bundle_id.clone());
-    let source_app = source.map(|app| app.display_name);
+/// Result of one capture attempt.
+#[derive(Debug, PartialEq, Eq)]
+enum CaptureOutcome {
+    /// Stored (or deduped) — carries the entry content hash.
+    Stored(String),
+    /// Intentionally not stored (excluded app / Copyosity itself). Must NOT be retried:
+    /// a retry would re-resolve the source after an app switch and store excluded content.
+    Skipped,
+    /// Transient failure (encode error, empty read) — retry on the next tick.
+    Retry,
+}
 
+impl From<Option<String>> for CaptureOutcome {
+    fn from(value: Option<String>) -> Self {
+        match value {
+            Some(hash) => CaptureOutcome::Stored(hash),
+            None => CaptureOutcome::Retry,
+        }
+    }
+}
+
+/// `source` is the frontmost app captured when the pasteboard change was first seen, not at
+/// (re)try time — otherwise switching apps before a retry re-attributes the copy.
+fn try_capture_from_clipboard(
+    clipboard: &mut Clipboard,
+    ctx: &CaptureContext,
+    source: Option<crate::macos_app::AppIdentity>,
+) -> CaptureOutcome {
+    let source_bundle_id = source.as_ref().map(|app| app.bundle_id.clone());
+    if should_skip_source(&ctx.db, &source_bundle_id) {
+        return CaptureOutcome::Skipped;
+    }
+    let source_app = source.map(|app| app.display_name);
+    try_capture_payload(clipboard, ctx, source_app).into()
+}
+
+fn try_capture_payload(
+    clipboard: &mut Clipboard,
+    ctx: &CaptureContext,
+    source_app: Option<String>,
+) -> Option<String> {
     // 1. Animated GIF from pasteboard (Telegram/browsers) — keep raw bytes.
     if let Some(gif_bytes) = crate::clipboard_macos::pasteboard_gif_bytes() {
         let base_hash = hash_bytes(&gif_bytes);
         if let Some(encoded) = encode_stored_gif(&gif_bytes) {
-            return ctx.try_image(
-                encoded,
-                base_hash,
-                source_bundle_id,
-                source_app,
-                Some("GIF"),
-            );
+            return ctx.try_image(encoded, base_hash, source_app, Some("GIF"));
         }
     }
 
@@ -497,13 +515,8 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
                 continue;
             };
             let format = crate::image_format::detect_from_path(&path);
-            if let Some(hash) = ctx.try_image(
-                encoded,
-                base_hash,
-                source_bundle_id.clone(),
-                source_app.clone(),
-                Some(format),
-            ) {
+            if let Some(hash) = ctx.try_image(encoded, base_hash, source_app.clone(), Some(format))
+            {
                 stored_hash = Some(hash);
             }
         }
@@ -516,7 +529,7 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
         if !img.bytes.is_empty() {
             let base_hash = hash_raster_image(&img.bytes, img.width, img.height);
             if let Some(encoded) = encode_image_from_rgba(&img.bytes, img.width, img.height) {
-                return ctx.try_image(encoded, base_hash, source_bundle_id, source_app, None);
+                return ctx.try_image(encoded, base_hash, source_app, None);
             }
         }
     }
@@ -530,7 +543,7 @@ fn try_capture_from_clipboard(clipboard: &mut Clipboard, ctx: &CaptureContext) -
             return None;
         }
         let base_hash = hash_bytes(text.as_bytes());
-        return ctx.try_text(text, base_hash, source_bundle_id, source_app);
+        return ctx.try_text(text, base_hash, source_app);
     }
 
     None
@@ -541,6 +554,8 @@ struct CaptureRetryState {
     last_content_hash: String,
     capture_pending: bool,
     history_epoch: u64,
+    /// Frontmost app at the moment the pending pasteboard change was detected.
+    pending_source: Option<crate::macos_app::AppIdentity>,
 }
 
 impl CaptureRetryState {
@@ -549,6 +564,7 @@ impl CaptureRetryState {
             last_content_hash: String::new(),
             capture_pending: false,
             history_epoch: HISTORY_CLEAR_EPOCH.load(Ordering::Acquire),
+            pending_source: None,
         }
     }
 
@@ -568,9 +584,14 @@ impl CaptureRetryState {
     /// One capture attempt after pasteboard change (when `capture_pending` is true).
     /// On failure (e.g. GIF encode error), keeps `capture_pending` so the next tick retries
     /// without advancing `last_content_hash` (hash poisoning fix).
-    fn attempt_capture<F>(&mut self, probe_hash: Option<String>, hash_in_db: bool, try_capture: F)
-    where
-        F: FnOnce() -> Option<String>,
+    fn attempt_capture<F, R>(
+        &mut self,
+        probe_hash: Option<String>,
+        hash_in_db: bool,
+        try_capture: F,
+    ) where
+        F: FnOnce() -> R,
+        R: Into<CaptureOutcome>,
     {
         if !self.capture_pending {
             return;
@@ -585,9 +606,15 @@ impl CaptureRetryState {
             return;
         }
 
-        if let Some(captured_hash) = try_capture() {
-            self.last_content_hash = captured_hash;
-            self.capture_pending = false;
+        match try_capture().into() {
+            CaptureOutcome::Stored(captured_hash) => {
+                self.last_content_hash = captured_hash;
+                self.capture_pending = false;
+            }
+            CaptureOutcome::Skipped => {
+                self.capture_pending = false;
+            }
+            CaptureOutcome::Retry => {}
         }
     }
 }
@@ -640,6 +667,7 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                             // Pasteboard genuinely changed — only now pay for the read + hash.
                             cached_probe = probe_clipboard_hash(&mut clipboard);
                             state.capture_pending = true;
+                            state.pending_source = crate::macos_app::frontmost_app_identity();
                         }
                     }
                     cached_probe.clone()
@@ -650,6 +678,7 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                 #[cfg(not(target_os = "macos"))]
                 let probe_hash = {
                     state.capture_pending = true;
+                    state.pending_source = crate::macos_app::frontmost_app_identity();
                     probe_clipboard_hash(&mut clipboard)
                 };
 
@@ -666,8 +695,9 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                     app: app.clone(),
                     db: db.clone(),
                 };
+                let source = state.pending_source.clone();
                 state.attempt_capture(probe_hash, hash_in_db, || {
-                    try_capture_from_clipboard(&mut clipboard, &ctx)
+                    try_capture_from_clipboard(&mut clipboard, &ctx, source)
                 });
             });
         }
@@ -741,6 +771,44 @@ mod tests {
         let short = hash_bytes(b"abcdefghijklmnop");
         let long = hash_bytes(b"abcdefghijklmnop-extra");
         assert_ne!(short, long);
+    }
+
+    #[test]
+    fn hash_bytes_covers_bytes_past_4k() {
+        let mut a = vec![b'x'; 5000];
+        let mut b = a.clone();
+        a[4999] = b'A';
+        b[4999] = b'B';
+        assert_ne!(hash_bytes(&a), hash_bytes(&b));
+    }
+
+    #[test]
+    fn hash_bytes_short_payload_matches_legacy_prefix_scheme() {
+        let data = b"legacy-compatible";
+        let mut hasher = Sha256::new();
+        hasher.update(&data[..]);
+        hasher.update(data.len().to_le_bytes());
+        assert_eq!(hash_bytes(data), hex::encode(hasher.finalize()));
+    }
+
+    #[test]
+    fn skipped_capture_is_not_retried() {
+        let mut state = CaptureRetryState::new();
+        state.capture_pending = true;
+        state.attempt_capture(Some("probe".to_owned()), false, || CaptureOutcome::Skipped);
+        assert!(
+            !state.capture_pending,
+            "excluded content must not be retried after an app switch"
+        );
+        assert_eq!(state.last_content_hash, "");
+    }
+
+    #[test]
+    fn retry_outcome_keeps_capture_pending() {
+        let mut state = CaptureRetryState::new();
+        state.capture_pending = true;
+        state.attempt_capture(Some("probe".to_owned()), false, || CaptureOutcome::Retry);
+        assert!(state.capture_pending);
     }
 
     #[test]
