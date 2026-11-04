@@ -81,11 +81,17 @@ struct VoiceJobGuard {
 
 impl Drop for VoiceJobGuard {
     fn drop(&mut self) {
-        VOICE_JOB_IN_FLIGHT.store(false, Ordering::SeqCst);
+        // Hide and clear together on the main thread (where hotkey presses are handled):
+        // clearing first would let a new press show its capsule and start recording, and
+        // this queued hide would then hide the *new* capsule while the mic keeps running.
         let hide_app = self.app.clone();
-        let _ = self.app.run_on_main_thread(move || {
+        let queued = self.app.run_on_main_thread(move || {
             hide_voice_overlay(&hide_app);
+            VOICE_JOB_IN_FLIGHT.store(false, Ordering::SeqCst);
         });
+        if queued.is_err() {
+            VOICE_JOB_IN_FLIGHT.store(false, Ordering::SeqCst);
+        }
     }
 }
 
@@ -104,7 +110,14 @@ static VOICE_APP_KIND: std::sync::Mutex<String> = std::sync::Mutex::new(String::
 
 /// Text selected in the target app at hotkey-press time (selected-text command
 /// mode): the spoken transcription becomes an instruction applied to this text.
-static VOICE_SELECTION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// A channel owned by the current recording: the voice worker waits for the result
+/// (bounded) instead of racing the capture thread, and a late result can't leak into
+/// a later recording because each press installs a fresh receiver.
+static VOICE_SELECTION: std::sync::Mutex<Option<std::sync::mpsc::Receiver<Option<String>>>> =
+    std::sync::Mutex::new(None);
+
+/// Upper bound for waiting on the selection capture (it may wait for the clipboard gate).
+const VOICE_SELECTION_WAIT: std::time::Duration = std::time::Duration::from_secs(4);
 
 /// PID of the app that was frontmost when the command palette was opened, so the
 /// agent answer can be inserted back into it.
@@ -1165,7 +1178,16 @@ fn handle_tray_menu_event(app: &tauri::AppHandle, id: &str) {
 fn maybe_polish(settings: &db::AppSettings, raw: &str) -> Result<String, String> {
     let screenshot = VOICE_SCREENSHOT.lock().unwrap().take();
     let app_kind = std::mem::take(&mut *VOICE_APP_KIND.lock().unwrap());
-    let selection = VOICE_SELECTION.lock().unwrap().take();
+    let selection = match VOICE_SELECTION.lock().unwrap().take() {
+        Some(rx) => match rx.recv_timeout(VOICE_SELECTION_WAIT) {
+            Ok(selection) => selection,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                return Err("Could not read the selected text in time. Your selection was left unchanged — try again.".to_string());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => None,
+        },
+        None => None,
+    };
     let selected_command =
         settings.voice_polish_enabled && settings.voice_selected_text && selection.is_some();
 
@@ -1266,6 +1288,7 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
             // Reset any leftover context from a previous run.
             *VOICE_SCREENSHOT.lock().unwrap() = None;
             *VOICE_APP_KIND.lock().unwrap() = String::new();
+            *VOICE_SELECTION.lock().unwrap() = None;
 
             #[cfg(target_os = "macos")]
             if let Some(pid) = frontmost_app_pid() {
@@ -1314,8 +1337,10 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                             // now (clipboard saved & restored) so the transcription
                             // can be applied to it as an instruction.
                             if s.voice_selected_text {
+                                let (tx, rx) = std::sync::mpsc::channel();
+                                *VOICE_SELECTION.lock().unwrap() = Some(rx);
                                 std::thread::spawn(move || {
-                                    *VOICE_SELECTION.lock().unwrap() = capture_selection(pid);
+                                    let _ = tx.send(capture_selection(pid));
                                 });
                             }
                         }

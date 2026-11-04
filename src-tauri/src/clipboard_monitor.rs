@@ -277,9 +277,22 @@ fn should_skip_source(db: &Database, bundle_id: &Option<String>) -> bool {
 struct CaptureContext {
     app: AppHandle,
     db: Arc<Database>,
+    /// Pasteboard change count when the change was detected (macOS). The payload is only
+    /// stored if the pasteboard is still at this count right before the insert — otherwise a
+    /// copy made while we were blocked (e.g. on the DB lock) could be stored under the
+    /// previously approved source, including content copied in an excluded app.
+    expected_change_count: Option<i64>,
 }
 
 impl CaptureContext {
+    fn payload_still_current(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        if let Some(expected) = self.expected_change_count {
+            return crate::clipboard_macos::change_count() == expected;
+        }
+        true
+    }
+
     /// Notify the history views after a capture. Listeners only refetch, so send just the id —
     /// no DB read of the (possibly multi-MB) row, no broadcast to voice/palette webviews.
     fn emit_clipboard_changed(&self, entry_id: i64) {
@@ -323,6 +336,9 @@ impl CaptureContext {
             image_byte_size: Some(encoded.byte_size),
         };
 
+        if !self.payload_still_current() {
+            return None;
+        }
         match self.db.insert_entry(&entry) {
             Ok((id, is_new)) => {
                 if is_new {
@@ -423,6 +439,9 @@ impl CaptureContext {
             image_byte_size: None,
         };
 
+        if !self.payload_still_current() {
+            return None;
+        }
         match self.db.insert_entry(&entry) {
             Ok((id, is_new)) => {
                 if is_new {
@@ -700,6 +719,10 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                 let ctx = CaptureContext {
                     app: app.clone(),
                     db: db.clone(),
+                    #[cfg(target_os = "macos")]
+                    expected_change_count: Some(last_change_count),
+                    #[cfg(not(target_os = "macos"))]
+                    expected_change_count: None,
                 };
                 let source = state.pending_source.clone();
                 state.attempt_capture(probe_hash, hash_in_db, || {
