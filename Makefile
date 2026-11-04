@@ -126,7 +126,8 @@ clean-all:
 	@echo "[clean-all] target, node_modules, frontend cache, bundles"
 	cd $(TAURI_DIR) && cargo clean
 	rm -rf $(APP_DIR)/node_modules $(APP_DIR)/dist $(APP_DIR)/.svelte-kit $(APP_DIR)/build
-	rm -rf $(TAURI_DIR)/bundle $(APP_DIR)/.tauri
+	@# Never delete $(APP_DIR)/.tauri — it holds the updater signing key.
+	rm -rf $(TAURI_DIR)/bundle
 	rm -f $(APP_DIR)/*.dmg
 	@echo "[clean-all] done — run 'make install' before dev/build if node_modules was removed"
 
