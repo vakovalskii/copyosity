@@ -7,17 +7,15 @@ export type ContentKind = "all" | "text" | "image";
 
 /** Settings fields that gate semantic tag chips and card tag rows in the overlay. */
 export type SemanticTagUiSettings = {
-  ai_tagging_enabled: boolean;
   hub_enabled: boolean;
   hub_tagging_enabled: boolean;
   hub_token: string;
 };
 
-/** Semantic tags/filters are shown when local AI tagging or hub tagging is configured. */
+/** Semantic tags/filters are shown when hub (cloud) tagging is configured. */
 export function isSemanticTagUiEnabled(settings: SemanticTagUiSettings): boolean {
   return (
-    settings.ai_tagging_enabled ||
-    (settings.hub_enabled && settings.hub_tagging_enabled && Boolean(settings.hub_token?.trim()))
+    settings.hub_enabled && settings.hub_tagging_enabled && Boolean(settings.hub_token?.trim())
   );
 }
 

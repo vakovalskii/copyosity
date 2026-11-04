@@ -9,7 +9,6 @@ import type {
   ExcludableAppCandidate,
   ExcludeAppResult,
   HistoryCounts,
-  ModelCatalog,
   OverlayTagCounts,
   Snippet,
   SnippetFolder,
@@ -106,10 +105,7 @@ export async function getAppSettings(): Promise<AppSettings> {
 }
 
 export async function updateAppSettings(opts: {
-  ollama_model?: string | null;
   retention_days?: number | null;
-  whisper_server_url?: string | null;
-  whisper_server_token?: string | null;
   whisper_server_model?: string | null;
   voice_shortcut?: string | null;
   selected_microphone?: string | null;
@@ -128,14 +124,12 @@ export async function updateAppSettings(opts: {
   voice_selected_text?: boolean | null;
   board_vertical?: boolean | null;
   voice_transcription_enabled?: boolean | null;
-  ai_tagging_enabled?: boolean | null;
   overlay_shortcut_hints_enabled?: boolean | null;
+  setup_notice_local_tagging_removed?: boolean | null;
+  setup_notice_custom_whisper_removed?: boolean | null;
 }): Promise<AppSettings> {
   return invoke("update_app_settings", {
-    ollamaModel: opts.ollama_model ?? null,
     retentionDays: opts.retention_days ?? null,
-    whisperServerUrl: opts.whisper_server_url ?? null,
-    whisperServerToken: opts.whisper_server_token ?? null,
     whisperServerModel: opts.whisper_server_model ?? null,
     voiceShortcut: opts.voice_shortcut ?? null,
     selectedMicrophone: opts.selected_microphone ?? null,
@@ -154,8 +148,9 @@ export async function updateAppSettings(opts: {
     voiceSelectedText: opts.voice_selected_text ?? null,
     boardVertical: opts.board_vertical ?? null,
     voiceTranscriptionEnabled: opts.voice_transcription_enabled ?? null,
-    aiTaggingEnabled: opts.ai_tagging_enabled ?? null,
     overlayShortcutHintsEnabled: opts.overlay_shortcut_hints_enabled ?? null,
+    setupNoticeLocalTaggingRemoved: opts.setup_notice_local_tagging_removed ?? null,
+    setupNoticeCustomWhisperRemoved: opts.setup_notice_custom_whisper_removed ?? null,
   });
 }
 
@@ -243,10 +238,6 @@ export async function pasteSnippet(id: number): Promise<void> {
   return invoke("paste_snippet", { id });
 }
 
-export async function getModelCatalog(): Promise<ModelCatalog> {
-  return invoke("get_model_catalog");
-}
-
 export async function getExcludedApps(): Promise<ExcludedApp[]> {
   return invoke("get_excluded_apps");
 }
@@ -312,38 +303,10 @@ export async function pasteEntry(text: string): Promise<void> {
   return invoke("paste_entry", { text });
 }
 
-export interface OllamaStatus {
-  cli_installed: boolean;
-  server_running: boolean;
-  model_installed: boolean;
-  model_loaded: boolean;
-  model_name: string;
-}
-
 export async function checkAccessibility(prompt = false): Promise<boolean> {
   return invoke("check_accessibility", { prompt });
 }
 
 export async function openAccessibilitySettings(): Promise<void> {
   return invoke("open_accessibility_settings");
-}
-
-export async function checkOllamaStatus(): Promise<OllamaStatus> {
-  return invoke("check_ollama_status");
-}
-
-export async function startOllamaServer(): Promise<boolean> {
-  return invoke("start_ollama_server");
-}
-
-export async function pullOllamaModel(): Promise<void> {
-  return invoke("pull_ollama_model");
-}
-
-export async function unloadOllamaModel(): Promise<boolean> {
-  return invoke("unload_ollama_model");
-}
-
-export async function testOllamaTagging(): Promise<string[] | null> {
-  return invoke("test_ollama_tagging");
 }
