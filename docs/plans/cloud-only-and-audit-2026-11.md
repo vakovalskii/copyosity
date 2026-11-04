@@ -1,6 +1,8 @@
 # Cloud-only Copyosity + app audit (2026-11)
 
-Status: **plan** — branch `feat/cloud-only`, draft PR. Audit snapshot taken on 2026-11-03 against `main` @ `aad3c2b` (1.0.4 bumped, not notarized; 1.0.3 is what users run).
+Status: **§2 implemented** on `feat/cloud-only` (Ollama + custom Whisper removed, `tagging.rs` upload guard, fixed hub backfill, one-time settings migration with Settings notices, Local AI pane removed, General pane first). The 6-pane IA reshuffle and §3 rows 2–5 remain open.
+
+Original status: **plan** — branch `feat/cloud-only`, draft PR. Audit snapshot taken on 2026-11-03 against `main` @ `aad3c2b` (1.0.4 bumped, not notarized; 1.0.3 is what users run).
 
 **Decision:** drop all local-model functionality (Ollama tagging, custom/local Whisper server) and keep only cloud (NeuralDeep hub) AI features. On-device Apple Vision OCR stays — it is OS OCR, not an LLM.
 

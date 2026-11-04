@@ -82,7 +82,7 @@ Minimize-to-blob — drag the palette out of the way without closing the session
 ### Settings
 
 NeuralDeep Hub settings — one master switch for tagging, transcription, web
-search, and voice polishing; optional fallback to local Ollama for tagging:
+search, and voice polishing:
 
 <img src="docs/screenshots/settings-neuraldeep.png" alt="Hub settings with master switch" width="640">
 
@@ -97,11 +97,6 @@ snippet folders with inline rename; the native Clipy-style menu lists recent
 history and saved snippets for two-click paste without opening the overlay:
 
 <img src="docs/screenshots/settings-quick-menu.png" alt="Quick Menu settings with hotkey and snippets editor" width="640">
-
-Local AI settings — step-by-step Ollama onboarding (install / start server /
-download model / ready):
-
-<img src="docs/screenshots/settings-local-ai.png" alt="Local AI settings with Ollama onboarding steps" width="640">
 
 History settings — resizable overlay size, excluded apps, and clear-history
 controls with a confirmation dialog:
@@ -163,11 +158,9 @@ Shipped capabilities, grouped by area:
   framework (`VNRecognizeTextRequest`) so the text inside screenshots and photos
   becomes searchable. No image ever leaves your Mac for OCR.
 - **Automatic tagging** — clipboard entries (and images) are tagged with short,
-  practical labels via NeuralDeep Hub or local Ollama; manual **Retag** when
-  tagging is ready.
-- **Local AI option** — optional Ollama integration for fully local tagging,
-  with in‑app onboarding (install / start server / download‑model / test
-  states).
+  practical labels via the NeuralDeep Hub (opt-in); manual **Retag** when
+  tagging is ready. Text that looks like a password, API key, token or one-time
+  code is tagged locally with simple heuristics and is not sent to the hub.
 
 ### 🎙 Voice
 
@@ -251,16 +244,6 @@ most integrations do not work. CI also runs [`build-windows`](.github/workflows/
 Linux has no build pipeline; the same stubs would apply if it compiled, but
 nothing is published or tested.
 
-### 🦙 Local AI (Ollama)
-
-For automatic clipboard tagging when the hub is off or unavailable:
-
-1. Install [Ollama](https://ollama.com/download)
-2. Open Copyosity Settings → **Local AI** — follow the step-by-step status panel
-3. Enable **AI tagging**; the app can start the server and download the model for you
-
-Expected onboarding states: `Ollama not installed` → `Ollama installed, server not running` → `Model not installed` → `Local AI ready`.
-
 <a id="install"></a>
 
 ## ⬇️ Install
@@ -334,7 +317,8 @@ installs and launches, but most clipboard-manager features are not implemented y
 ## 🔒 Privacy
 
 - All data stored locally in `~/Library/Application Support/com.vkovalskii.copyosity/`
-- AI tagging runs on `127.0.0.1` via Ollama — nothing leaves your machine when the hub is off
+- AI features (tagging, transcription, polishing, agent) are cloud-only via the NeuralDeep Hub and off by default — nothing leaves your machine unless you turn a hub feature on
+- Hub tagging skips text that looks like a credential (API keys, JWTs, PEM keys, `password=` assignments, OTPs); this is a heuristic, not a guarantee
 - Exclude sensitive apps in **Settings → History**, or from the overlay when that app is frontmost
 - Clear unpinned or all history anytime from Settings → History
 
@@ -385,8 +369,8 @@ on your Mac. Web search mode in the palette uses the same hub credentials.
 
 These credentials are yours: you supply them, and they are stored locally in the
 app's settings. **No tokens, keys, or endpoints are bundled with Copyosity.** If
-you don't configure a hub, the app falls back to local behavior (e.g. local
-tagging via Ollama and on‑device OCR) where available.
+you don't configure a hub, AI features stay off; clipboard history and
+on‑device OCR keep working locally.
 
 > 🔒 **Privacy note:** Never commit your hub URL or token to a repository or share it publicly.
 
