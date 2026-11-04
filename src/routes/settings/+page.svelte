@@ -10,8 +10,6 @@
     ExcludedApp,
     ExcludableAppCandidate,
     ExcludeAppResult,
-    ModelCatalog,
-    ModelOption,
   } from "$lib/types";
   import {
     addExcludedApp,
@@ -22,7 +20,6 @@
     getExcludedApps,
     getExcludableAppCandidate,
     getHistoryCounts,
-    getModelCatalog,
     pickAppToExclude,
     removeExcludedApp,
     updateAppSettings,
@@ -35,15 +32,9 @@
     listMicrophones,
     checkAccessibility,
     openAccessibilitySettings,
-    checkOllamaStatus,
-    unloadOllamaModel,
-    startOllamaServer,
-    pullOllamaModel,
-    testOllamaTagging,
     hubTestConnection,
     hubListModels,
     resetOverlayBoardSizes,
-    type OllamaStatus,
   } from "$lib/api";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
@@ -87,10 +78,7 @@
   import { appendUpdateLog, readUpdateLog, clearUpdateLog, errorToString } from "$lib/update-log";
 
   let settings = $state<AppSettings>({
-    ollama_model: "qwen3:4b-instruct-2507-q4_K_M",
     retention_days: 30,
-    whisper_server_url: "",
-    whisper_server_token: "",
     whisper_server_model: "whisper-1",
     voice_shortcut: "option+space",
     selected_microphone: "",
@@ -109,16 +97,11 @@
     voice_selected_text: false,
     board_vertical: false,
     voice_transcription_enabled: false,
-    ai_tagging_enabled: false,
     overlay_shortcut_hints_enabled: true,
+    setup_notice_local_tagging_removed: false,
+    setup_notice_custom_whisper_removed: false,
   });
   let microphones: AudioInputDevice[] = $state([]);
-  let modelCatalog = $state<ModelCatalog>({
-    total_memory_gb: 0,
-    recommended_memory_gb: 0,
-    options: [],
-  });
-  let selectedModelPreset = $state("__custom__");
   let excludedApps: ExcludedApp[] = $state([]);
   let excludedAppInput = $state("");
   let excludableCandidate: ExcludableAppCandidate | null = $state(null);
@@ -130,7 +113,6 @@
   let clearHistoryActionInFlight = false;
   let savingSettings = $state(false);
   let settingsNotice = $state("");
-  let savedModel = $state("");
 
   const A11Y_NOTICE_ENABLE = "Enable Copyosity in the list.";
   const A11Y_NOTICE_VERIFIED = "Accessibility verified — paste automation is ready.";
@@ -141,12 +123,6 @@
   let a11yEnablePending = $state(false);
   /** macOS trust prompt already shown this settings-window visit. */
   let a11yPromptedThisVisit = false;
-
-  let ollamaStatus = $state<OllamaStatus | null>(null);
-  let ollamaLoading = $state(false);
-  let pullProgress = $state("");
-  let taggingResult = $state<string[] | null | undefined>(undefined);
-  let taggingLoading = $state(false);
 
   let hubTesting = $state(false);
   let hubTestResult = $state<{ ok: boolean; message: string } | null>(null);
@@ -189,10 +165,7 @@
 
   /** Text fields and selects — saved via the footer bar. Booleans apply immediately. */
   const DEFERRED_SETTING_KEYS = [
-    "ollama_model",
     "retention_days",
-    "whisper_server_url",
-    "whisper_server_token",
     "whisper_server_model",
     "selected_microphone",
     "hub_url",
@@ -214,16 +187,7 @@
 
   async function loadSettings() {
     settings = await getAppSettings();
-    selectedModelPreset = settings.ollama_model;
-    savedModel = settings.ollama_model;
     snapshotDeferred();
-  }
-
-  async function loadModelCatalog() {
-    modelCatalog = await getModelCatalog();
-    if (!modelCatalog.options.some((o) => o.value === settings.ollama_model)) {
-      selectedModelPreset = "__custom__";
-    }
   }
 
   async function loadExcludedApps() {
@@ -292,44 +256,6 @@
     clearHistoryNotice = notice;
   }
 
-  async function refreshOllamaStatus() {
-    ollamaLoading = true;
-    taggingResult = undefined;
-    try {
-      ollamaStatus = await checkOllamaStatus();
-    } finally {
-      ollamaLoading = false;
-    }
-  }
-
-  async function handleStartServer() {
-    ollamaLoading = true;
-    try {
-      await startOllamaServer();
-      await refreshOllamaStatus();
-    } finally {
-      ollamaLoading = false;
-    }
-  }
-
-  async function handlePullModel() {
-    ollamaLoading = true;
-    pullProgress = "Starting download...";
-    await pullOllamaModel();
-    // Command returns immediately, progress comes via events
-    // ollama-pull-done will reset the state
-  }
-
-  async function handleTestTagging() {
-    taggingLoading = true;
-    taggingResult = undefined;
-    try {
-      taggingResult = await testOllamaTagging();
-    } finally {
-      taggingLoading = false;
-    }
-  }
-
   function syncA11yNotice(granted: boolean, showVerified = false) {
     if (granted) {
       a11yEnablePending = false;
@@ -393,7 +319,7 @@
   onMount(() => {
     void initPlatform().then(() => {
       if (!platformIsMacOS() && activePane === "permissions") {
-        activePane = "hub";
+        activePane = "general";
       }
       if (platformIsMacOS()) {
         void refreshExcludedAppsSection();
@@ -407,12 +333,10 @@
       }
       return undefined;
     });
-    loadModelCatalog();
     void loadHistoryCounts();
     void loadQuickMenuShortcut();
     void loadPaletteShortcut();
     void loadLaunchAtLogin();
-    refreshOllamaStatus();
     void currentVersion().then((v) => {
       appVersion = v;
       return undefined;
@@ -426,16 +350,6 @@
 
     const win = getCurrentWindow();
     void promptAccessibilityIfNeeded();
-
-    const unlistenPull = listen<string>("ollama-pull-progress", (event) => {
-      pullProgress = event.payload;
-    });
-
-    const unlistenPullDone = listen<boolean>("ollama-pull-done", async () => {
-      ollamaLoading = false;
-      pullProgress = "";
-      await refreshOllamaStatus();
-    });
 
     const unlistenShown = listen("settings-shown", () => {
       a11yPromptedThisVisit = false;
@@ -461,8 +375,6 @@
     });
 
     return () => {
-      unlistenPull.then((fn) => fn());
-      unlistenPullDone.then((fn) => fn());
       unlistenShown.then((fn) => fn());
       unlistenClipboard.then((fn) => fn());
       unlistenHistory.then((fn) => fn());
@@ -477,26 +389,15 @@
     try {
       const deferred = pickDeferred(settings);
       settings = await updateAppSettings(deferred);
-      savedModel = settings.ollama_model;
       snapshotDeferred();
       settingsNotice = "Saved";
-      taggingResult = undefined;
       await Promise.all([
         rebindVoiceShortcut(),
         rebindPaletteShortcut(),
-        loadModelCatalog(),
-        refreshOllamaStatus(),
         emit("hub-settings-changed"),
       ]);
     } finally {
       savingSettings = false;
-    }
-  }
-
-  function handleModelPresetChange(value: string) {
-    selectedModelPreset = value;
-    if (value !== "__custom__") {
-      settings.ollama_model = value;
     }
   }
 
@@ -661,12 +562,6 @@
     },
   ]);
 
-  let selectedModelMeta = $derived.by<ModelOption | null>(() => {
-    return modelCatalog.options.find((o) => o.value === settings.ollama_model) ?? null;
-  });
-
-  let modelDirty = $derived(settings.ollama_model !== savedModel);
-
   type ImmediateSettingPatch = Partial<
     Pick<
       AppSettings,
@@ -677,9 +572,10 @@
       | "voice_polish_screenshot"
       | "voice_selected_text"
       | "voice_transcription_enabled"
-      | "ai_tagging_enabled"
       | "overlay_shortcut_hints_enabled"
       | "board_vertical"
+      | "setup_notice_local_tagging_removed"
+      | "setup_notice_custom_whisper_removed"
     >
   >;
 
@@ -709,15 +605,6 @@
   function handleVoiceToggle(enabled: boolean) {
     void persistImmediate({ voice_transcription_enabled: enabled }, async () => {
       await rebindVoiceShortcut();
-    });
-  }
-
-  function handleAiTaggingToggle(enabled: boolean) {
-    void persistImmediate({ ai_tagging_enabled: enabled }, async () => {
-      if (enabled) {
-        taggingResult = undefined;
-        await refreshOllamaStatus();
-      }
     });
   }
 
@@ -758,6 +645,14 @@
     void persistImmediate({ voice_selected_text: enabled });
   }
 
+  function dismissLocalTaggingNotice() {
+    void persistImmediate({ setup_notice_local_tagging_removed: false });
+  }
+
+  function dismissCustomWhisperNotice() {
+    void persistImmediate({ setup_notice_custom_whisper_removed: false });
+  }
+
   // ---- Sidebar navigation ----
   function paneFromUrl(): SettingsPane | null {
     if (typeof window === "undefined") return null;
@@ -771,14 +666,13 @@
 
   let activePane = $state<SettingsPane>(coerceSettingsPane(paneFromUrl()));
   const panes: { id: SettingsPane; labelKey: string; icon: SectionIconName }[] = [
+    { id: "general", labelKey: "nav.general", icon: "general" },
     { id: "hub", labelKey: "nav.hub", icon: "hub" },
     { id: "voice", labelKey: "nav.voice", icon: "voice" },
     { id: "quickmenu", labelKey: "nav.quickmenu", icon: "clipboard-panel" },
-    { id: "ai", labelKey: "nav.ai", icon: "ai-tagging" },
     { id: "history", labelKey: "nav.history", icon: "clipboard-panel" },
     { id: "permissions", labelKey: "nav.permissions", icon: "permissions" },
     { id: "updates", labelKey: "nav.updates", icon: "updates" },
-    { id: "general", labelKey: "nav.general", icon: "general" },
   ];
 
   // ---- Quick menu (Clipy-style native menu) ----
@@ -1054,6 +948,27 @@
         <div class="pane-subtitle">Cloud models for tagging, transcription, web search and the research agent.</div>
       </div>
 
+      {#if settings.setup_notice_local_tagging_removed}
+        <div class="setup-notice" role="status">
+          <span class="setup-notice-text ui-selectable-text">
+            Local AI (Ollama) was removed. Turn on cloud tagging below to keep auto-tags.
+          </span>
+          <button class="form-btn form-btn-ghost app-btn" type="button" onclick={dismissLocalTaggingNotice}>
+            Dismiss
+          </button>
+        </div>
+      {/if}
+      {#if settings.setup_notice_custom_whisper_removed}
+        <div class="setup-notice" role="status">
+          <span class="setup-notice-text ui-selectable-text">
+            Custom Whisper server support was removed; voice now uses the NeuralDeep hub.
+          </span>
+          <button class="form-btn form-btn-ghost app-btn" type="button" onclick={dismissCustomWhisperNotice}>
+            Dismiss
+          </button>
+        </div>
+      {/if}
+
       <section class="form-section">
         <div class="form-section-header">
           <div class="form-section-title form-section-title--with-icon"><SectionIcon name="hub" />Hub</div>
@@ -1121,7 +1036,7 @@
           <div class="form-subsection-rule" role="separator"></div>
 
           <div class="form-subsection">
-            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="ollama-model" />Model</div>
+            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="model" />Model</div>
             <div class="inset-list">
               <label class="form-field">
                 <span class="form-label">Chat / agent model (tagging & search)</span>
@@ -1157,7 +1072,7 @@
                   />
                   <span class="form-checkbox-box" aria-hidden="true"></span>
                 </span>
-                <span class="form-checkbox-label ui-selectable-text">Use hub for tagging (falls back to Ollama on error)</span>
+                <span class="form-checkbox-label ui-selectable-text">Auto-tag clipboard items</span>
               </label>
               <label class="form-checkbox">
                 <span class="form-checkbox-leading">
@@ -1255,7 +1170,7 @@
             </div>
             <div class="form-hint">
               {#if settings.hub_enabled}
-                On → hub <code>/v1/audio/transcriptions</code>; off → your local Whisper server.
+                Audio is sent to the hub <code>/v1/audio/transcriptions</code> endpoint.
               {:else}
                 Enable the <strong>NeuralDeep Hub</strong> (Hub tab) to transcribe via the hub.
               {/if}
@@ -1287,10 +1202,9 @@
           <div class="form-subsection-rule" role="separator"></div>
 
           <div class="form-subsection">
-            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="ollama-model" />Transcription model</div>
+            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="model" />Transcription model</div>
             <div class="form-hint">
               With <strong>hub transcription</strong> on (NeuralDeep tab), audio goes to the hub model below.
-              Otherwise it uses the custom Whisper server.
             </div>
             <div class="inset-list">
               <label class="form-field">
@@ -1308,24 +1222,6 @@
                 <div class="form-hint">
                   Pick a transcription model — e.g. <code>whisper-1</code> or <code>подлодка</code>
                 </div>
-              </label>
-              <label class="form-field">
-                <span class="form-label">Custom Whisper server URL (optional)</span>
-                <input
-                  class="form-input"
-                  type="text"
-                  bind:value={settings.whisper_server_url}
-                  placeholder="http://localhost:8000/v1/audio/transcriptions"
-                />
-              </label>
-              <label class="form-field">
-                <span class="form-label">Custom server token (optional)</span>
-                <input
-                  class="form-input"
-                  type="password"
-                  bind:value={settings.whisper_server_token}
-                  placeholder="Bearer token (optional)"
-                />
               </label>
             </div>
           </div>
@@ -1576,238 +1472,6 @@
             <div class="status-hint ok" aria-live="polite">Copied to clipboard.</div>
           {/if}
         </div>
-      </section>
-    {:else if activePane === "ai"}
-      <div class="pane-head">
-        <div class="pane-title">Local AI</div>
-        <div class="pane-subtitle">Run tagging on-device with Ollama — used when the hub is off or unavailable.</div>
-      </div>
-
-      <section class="form-section">
-        <div class="form-section-header">
-          <div class="form-section-title form-section-title--with-icon"><SectionIcon name="ai-tagging" />AI Tagging</div>
-          <label class="toggle">
-            <input
-              type="checkbox"
-              role="switch"
-              aria-label="Enable AI tagging"
-              checked={settings.ai_tagging_enabled}
-              onchange={(e) => handleAiTaggingToggle((e.currentTarget as HTMLInputElement).checked)}
-            />
-            <span class="toggle-slider" aria-hidden="true"></span>
-          </label>
-        </div>
-        <fieldset
-          class="form-section-body form-section-body--subsections toggle-section-body"
-          class:is-disabled={!settings.ai_tagging_enabled}
-          disabled={!settings.ai_tagging_enabled}
-        >
-          <div class="form-hint">
-            Automatically tag clipboard text entries using a local Ollama model.
-            When off, new entries are not auto-tagged (manual retag still works).
-          </div>
-
-          <div class="form-subsection">
-            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="gauge" />Setup</div>
-            <div class="inset-list">
-              {#if ollamaStatus === null}
-                <div class="status-step">
-                  <div class="status-row">
-                    <span class="status-dot checking"></span>
-                    <span class="status-text">Checking...</span>
-                  </div>
-                </div>
-              {:else}
-                <div class="status-step">
-                  <div class="status-row">
-                    <span class="status-dot" class:ok={ollamaStatus.cli_installed} class:fail={!ollamaStatus.cli_installed}></span>
-                    <span class="status-text">
-                      {ollamaStatus.cli_installed ? "Ollama installed" : "Ollama not installed"}
-                    </span>
-                    {#if !ollamaStatus.cli_installed}
-                      <button class="status-action app-btn" type="button" onclick={() => openUrl("https://ollama.com/download")}>
-                        Open ollama.com
-                      </button>
-                    {/if}
-                  </div>
-                  {#if !ollamaStatus.cli_installed}
-                    <div class="status-hint">
-                      Ollama runs AI models locally on your machine. Download it from
-                      <button class="link-btn app-btn" type="button" onclick={() => openUrl("https://ollama.com/download")}>ollama.com</button>,
-                      install the app, and click "Check again".
-                    </div>
-                  {/if}
-                </div>
-
-                <div class="status-step">
-                  <div class="status-row">
-                    <span class="status-dot" class:ok={ollamaStatus.server_running} class:fail={ollamaStatus.cli_installed && !ollamaStatus.server_running} class:disabled={!ollamaStatus.cli_installed}></span>
-                    <span class="status-text" class:dimmed={!ollamaStatus.cli_installed}>
-                      {ollamaStatus.server_running ? "Server running" : "Server not running"}
-                    </span>
-                    {#if ollamaStatus.cli_installed && !ollamaStatus.server_running}
-                      <button class="status-action app-btn" type="button" disabled={ollamaLoading} onclick={handleStartServer}>
-                        {#if ollamaLoading}<span class="app-btn-spinner-icon app-btn-spinner-icon--sm app-btn-spinner-icon--success is-inline"></span> Starting...{:else}Start{/if}
-                      </button>
-                    {/if}
-                  </div>
-                  {#if ollamaStatus.cli_installed && !ollamaStatus.server_running}
-                    <div class="status-hint">
-                      Ollama server is not running. Click "Start" to launch it, or run
-                      <code>ollama serve</code> in your terminal.
-                    </div>
-                  {/if}
-                </div>
-
-                <div class="status-step">
-                  <div class="status-row">
-                    <span class="status-dot" class:ok={ollamaStatus.model_installed} class:fail={ollamaStatus.server_running && !ollamaStatus.model_installed} class:disabled={!ollamaStatus.server_running}></span>
-                    <span class="status-text" class:dimmed={!ollamaStatus.server_running}>
-                      {ollamaStatus.model_installed ? "Model ready" : "Model not installed"}
-                    </span>
-                    {#if ollamaStatus.server_running && !ollamaStatus.model_installed}
-                      <button class="status-action app-btn" type="button" disabled={ollamaLoading} onclick={handlePullModel}>
-                        {#if ollamaLoading}<span class="app-btn-spinner-icon app-btn-spinner-icon--sm app-btn-spinner-icon--success is-inline"></span> Pulling...{:else}Download{/if}
-                      </button>
-                    {/if}
-                    {#if ollamaStatus.model_installed}
-                      <button class="status-action app-btn" type="button" onclick={async () => { await unloadOllamaModel(); settingsNotice = "Model unloaded from memory"; }}>
-                        Unload
-                      </button>
-                    {/if}
-                  </div>
-                  {#if pullProgress}
-                    <div class="status-hint pull-progress">
-                      <span class="app-btn-spinner-icon app-btn-spinner-icon--sm app-btn-spinner-icon--success is-inline"></span> {pullProgress}
-                    </div>
-                  {:else if ollamaStatus.server_running && !ollamaStatus.model_installed}
-                    <div class="status-hint">
-                      Model <code>{ollamaStatus.model_name}</code> needs to be downloaded.
-                      Click "Download" or run <code>ollama pull {ollamaStatus.model_name}</code> in terminal.
-                      This may take a few minutes depending on your connection.
-                    </div>
-                  {:else if ollamaStatus.model_installed}
-                    <div class="status-hint ok">
-                      Using <code>{ollamaStatus.model_name}</code>
-                    </div>
-                  {/if}
-                </div>
-
-                <div class="status-step">
-                  <div class="status-row">
-                    <span class="status-dot" class:ok={taggingResult !== undefined && taggingResult !== null} class:fail={taggingResult === null} class:disabled={!ollamaStatus.model_installed}></span>
-                    <span class="status-text" class:dimmed={!ollamaStatus.model_installed}>
-                      {#if taggingResult === undefined}
-                        Tagging not tested
-                      {:else if taggingResult !== null}
-                        Tagging works
-                      {:else}
-                        Tagging failed
-                      {/if}
-                    </span>
-                    {#if ollamaStatus.model_installed}
-                      <button class="status-action app-btn" type="button" disabled={taggingLoading || modelDirty} onclick={handleTestTagging} title={modelDirty ? "Save settings first" : ""}>
-                        {#if taggingLoading}
-                          <span class="app-btn-spinner-icon app-btn-spinner-icon--sm app-btn-spinner-icon--success is-inline"></span> Testing...
-                        {:else}
-                          Test
-                        {/if}
-                      </button>
-                    {/if}
-                  </div>
-                  {#if modelDirty}
-                    <div class="status-hint fail">
-                      Model changed — save settings first, then test.
-                    </div>
-                  {:else if taggingLoading}
-                    <div class="status-hint">
-                      Sending test request... This can take up to 60 seconds on first run while the model loads into memory.
-                    </div>
-                  {:else if taggingResult !== undefined && taggingResult !== null}
-                    <div class="status-hint ok">
-                      Test result: {taggingResult.join(", ")}
-                    </div>
-                  {:else if taggingResult === null}
-                    <div class="status-hint fail">
-                      The model did not return tags. Try a different model or check Ollama logs.
-                    </div>
-                  {:else if ollamaStatus.model_installed}
-                    <div class="status-hint">
-                      Click "Test" to verify that the model can tag clipboard content.
-                    </div>
-                  {/if}
-                </div>
-              {/if}
-            </div>
-            {#if ollamaStatus !== null}
-              <div class="status-list-footer">
-                <button class="form-btn form-btn-ghost app-btn" type="button" disabled={ollamaLoading} onclick={refreshOllamaStatus}>
-                  Check again
-                </button>
-              </div>
-            {/if}
-          </div>
-
-          <div class="form-subsection-rule" role="separator"></div>
-
-          <div class="form-subsection">
-            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="ollama-model" />Ollama Model</div>
-            <div class="inset-list">
-              <div class="form-field">
-                <select
-                  class="form-select"
-                  aria-label="Ollama model"
-                  bind:value={selectedModelPreset}
-                  onchange={(e) => handleModelPresetChange((e.currentTarget as HTMLSelectElement).value)}
-                >
-                  {#each modelCatalog.options as option}
-                    <option value={option.value}>
-                      {option.label} · ~{option.memory_gb.toFixed(1)} GB · {option.fits ? "Fits" : "Too large"}{option.installed ? " · Installed" : ""}
-                    </option>
-                  {/each}
-                  <option value="__custom__">Custom model</option>
-                </select>
-              </div>
-              {#if selectedModelPreset === "__custom__"}
-                <div class="form-field">
-                  <label class="form-label" for="custom-ollama-model">Model name</label>
-                  <input
-                    id="custom-ollama-model"
-                    class="form-input"
-                    type="text"
-                    bind:value={settings.ollama_model}
-                    placeholder="qwen3:4b-instruct-2507-q4_K_M"
-                  />
-                  <div class="form-hint">Memory use cannot be estimated for custom models.</div>
-                </div>
-              {/if}
-            </div>
-          </div>
-
-          <div class="form-subsection-rule" role="separator"></div>
-
-          <div class="form-subsection">
-            <div class="form-subsection-title form-subsection-title--with-icon"><SectionIcon name="this-mac" />This Mac</div>
-            <dl class="form-meta inset-list" aria-label="Machine memory details">
-              <div class="form-meta-item">
-                <dt>Machine RAM</dt>
-                <dd>{modelCatalog.total_memory_gb.toFixed(1)} GB</dd>
-              </div>
-              <div class="form-meta-item">
-                <dt>Recommended Ollama budget</dt>
-                <dd>{modelCatalog.recommended_memory_gb.toFixed(1)} GB</dd>
-              </div>
-              {#if selectedModelMeta}
-                <div class="form-meta-item">
-                  <dt>{selectedModelMeta.label}</dt>
-                  <dd class:fits={selectedModelMeta.fits} class:tight={!selectedModelMeta.fits}>
-                    ~{selectedModelMeta.memory_gb.toFixed(1)} GB · {selectedModelMeta.fits ? "Fits" : "Too large"}
-                  </dd>
-                </div>
-              {/if}
-            </dl>
-          </div>
-        </fieldset>
       </section>
     {:else if activePane === "history"}
       <div class="pane-head">
@@ -2240,16 +1904,25 @@
     color: var(--color-success-text);
   }
 
+  .setup-notice {
+    display: flex;
+    align-items: center;
+    gap: var(--space-stack);
+    margin-bottom: var(--space-stack);
+    padding: 10px 12px;
+    border: 1px solid var(--border-accent-soft);
+    border-radius: var(--radius-control);
+    background: var(--surface-accent-muted);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-body);
+  }
+
+  .setup-notice-text {
+    flex: 1 1 auto;
+  }
+
   .form-hint.fail {
     color: var(--color-danger-text);
-  }
-
-  .form-meta-item dd.fits {
-    color: var(--color-success-text);
-  }
-
-  .form-meta-item dd.tight {
-    color: var(--color-warning-text);
   }
 
   .dirty-bar {

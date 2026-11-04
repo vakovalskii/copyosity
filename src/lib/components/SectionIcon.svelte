@@ -3,7 +3,7 @@
     | "permissions"
     | "ai-tagging"
     | "text-polish"
-    | "ollama-model"
+    | "model"
     | "this-mac"
     | "storage"
     | "privacy"
@@ -54,7 +54,7 @@
     <path d="M8 13h5M8 17h4" />
     <path d="m18 14 1 2 2 1-2 1-1 2-1-2-2-1 2-1z" />
     <path d="M15 20h2" />
-  {:else if name === "ollama-model"}
+  {:else if name === "model"}
     <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
     <path d="M3.29 7 12 12l8.71-5" />
     <path d="M12 22V12" />

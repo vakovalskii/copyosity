@@ -2,8 +2,6 @@ APP_DIR ?= $(CURDIR)
 SHELL := /bin/bash
 export PATH := $(HOME)/.cargo/bin:$(PATH)
 NPM := env -u npm_config_devdir npm
-OLLAMA_MODEL ?= qwen3:4b-instruct-2507-q4_K_M
-OLLAMA_DEBUG ?= 1
 TAURI_DIR := $(APP_DIR)/src-tauri
 RUST_RUN = bash "$(APP_DIR)/scripts/run-rust.sh"
 
@@ -50,10 +48,10 @@ help:
 # --- App lifecycle ---
 
 dev:
-	cd $(APP_DIR) && COPYOSITY_OLLAMA_MODEL='$(OLLAMA_MODEL)' COPYOSITY_DEBUG_OLLAMA='$(OLLAMA_DEBUG)' $(NPM) run tauri dev
+	cd $(APP_DIR) && $(NPM) run tauri dev
 
 build:
-	cd $(APP_DIR) && COPYOSITY_OLLAMA_MODEL='$(OLLAMA_MODEL)' COPYOSITY_DEBUG_OLLAMA='$(OLLAMA_DEBUG)' $(NPM) run tauri build
+	cd $(APP_DIR) && $(NPM) run tauri build
 
 install:
 	cd $(APP_DIR) && $(NPM) install

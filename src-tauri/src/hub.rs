@@ -3,7 +3,7 @@
 //! The hub exposes standard OpenAI routes (`/v1/models`, `/v1/chat/completions`,
 //! `/v1/audio/transcriptions`). Each user configures their own base URL + Bearer
 //! token in Settings. This module provides a connection test and chat-based
-//! clipboard tagging that mirrors the local Ollama tagging behaviour.
+//! clipboard tagging.
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -146,17 +146,22 @@ pub fn format_hub_error(e: ureq::Error) -> String {
 
 const TAG_SYSTEM_PROMPT: &str = "You classify clipboard text. Return strict JSON only in the shape {\"tags\":[\"tag1\",\"tag2\"]}. Use 2 to 5 short lowercase tags. Prefer practical tags like bash, ssh, docker, sql, json, url, ai, meeting, credentials, error, python, rust, javascript, html, api. If the text is just an opaque token, otp, code, short id, password, or random identifier with no semantic meaning, return {\"tags\":[]}. Do not explain.";
 
-/// Tag clipboard text via the hub chat API. Returns `None` on any failure so the
-/// caller can fall back to local tagging.
-pub fn tag_text(base_url: &str, token: &str, model: &str, text: &str) -> Option<Vec<String>> {
+/// Tag clipboard text via the hub chat API. `Ok(vec![])` means the model found
+/// nothing worth tagging; `Err` is a transient / configuration failure.
+pub fn tag_text(
+    base_url: &str,
+    token: &str,
+    model: &str,
+    text: &str,
+) -> Result<Vec<String>, String> {
     let base = normalize_base(base_url);
     if base.is_empty() || token.trim().is_empty() || model.trim().is_empty() {
-        return None;
+        return Err("Hub tagging is not configured".to_string());
     }
 
     let trimmed = text.trim();
     if trimmed.is_empty() {
-        return None;
+        return Ok(Vec::new());
     }
     let truncated = trimmed.chars().take(1200).collect::<String>();
 
@@ -182,21 +187,28 @@ pub fn tag_text(base_url: &str, token: &str, model: &str, text: &str) -> Option<
         .set("Authorization", &format!("Bearer {}", token.trim()))
         .set("Accept", "application/json")
         .send_json(request)
-        .ok()?;
+        .map_err(|e| e.to_string())?;
 
-    let chat: ChatResponse = response.into_json().ok()?;
-    let content = chat.choices.first()?.message.content.clone();
+    let chat: ChatResponse = response.into_json().map_err(|e| e.to_string())?;
+    let content = chat
+        .choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .ok_or_else(|| "Hub returned no choices".to_string())?;
 
+    parse_tag_content(&content)
+}
+
+/// Parse a tagging reply. Only a valid `{"tags":[…]}` object is `Ok` (possibly
+/// empty); prose, invalid JSON or a wrong schema is `Err` so the entry is
+/// retried instead of being marked `skipped` forever.
+fn parse_tag_content(content: &str) -> Result<Vec<String>, String> {
     // The model may wrap JSON in prose/code fences — extract the JSON object.
-    let json_slice = extract_json_object(&content)?;
-    let parsed: TagResponse = serde_json::from_str(json_slice).ok()?;
-
-    let tags = crate::ollama::normalize_tags(parsed.tags);
-    if tags.is_empty() {
-        None
-    } else {
-        Some(tags)
-    }
+    let json_slice = extract_json_object(content)
+        .ok_or_else(|| "Hub tagging reply has no JSON object".to_string())?;
+    let parsed: TagResponse = serde_json::from_str(json_slice)
+        .map_err(|e| format!("Hub tagging reply has an invalid schema: {e}"))?;
+    Ok(crate::tagging::normalize_tags(parsed.tags))
 }
 
 /// Web search via the hub Search API (`POST /v1/search/web`). Returns a
@@ -371,10 +383,7 @@ pub fn tag_image(base_url: &str, token: &str, model: &str, image_b64: &str) -> O
 
     let chat: ChatResponse = response.into_json().ok()?;
     let content = chat.choices.first()?.message.content.clone();
-    let json_slice = extract_json_object(&content)?;
-    let parsed: TagResponse = serde_json::from_str(json_slice).ok()?;
-
-    let tags = crate::ollama::normalize_tags(parsed.tags);
+    let tags = parse_tag_content(&content).ok()?;
     if tags.is_empty() {
         None
     } else {
@@ -612,4 +621,38 @@ fn extract_json_object(s: &str) -> Option<&str> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tag_parse_tests {
+    use super::parse_tag_content;
+
+    #[test]
+    fn valid_tags_parse() {
+        assert_eq!(
+            parse_tag_content("{\"tags\":[\"Rust\",\"api\"]}"),
+            Ok(vec!["rust".to_string(), "api".to_string()])
+        );
+    }
+
+    #[test]
+    fn fenced_json_parses() {
+        assert_eq!(
+            parse_tag_content("Sure:\n```json\n{\"tags\":[\"sql\"]}\n```"),
+            Ok(vec!["sql".to_string()])
+        );
+    }
+
+    #[test]
+    fn valid_empty_list_is_ok_empty() {
+        assert_eq!(parse_tag_content("{\"tags\":[]}"), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn malformed_replies_are_errors() {
+        assert!(parse_tag_content("I think this is about databases.").is_err());
+        assert!(parse_tag_content("{\"tags\": [\"a\",}").is_err());
+        assert!(parse_tag_content("{\"labels\":[\"a\"]}").is_err());
+        assert!(parse_tag_content("{\"tags\":\"a\"}").is_err());
+    }
 }

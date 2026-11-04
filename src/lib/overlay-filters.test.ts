@@ -555,10 +555,9 @@ describe("entryMatchesTag", () => {
 });
 
 describe("isSemanticTagUiEnabled", () => {
-  it("is true for hub tagging when local AI is off", () => {
+  it("is true when hub tagging is configured", () => {
     assert.equal(
       isSemanticTagUiEnabled({
-        ai_tagging_enabled: false,
         hub_enabled: true,
         hub_tagging_enabled: true,
         hub_token: "sk-test",
@@ -570,10 +569,28 @@ describe("isSemanticTagUiEnabled", () => {
   it("is false when hub master switch is off", () => {
     assert.equal(
       isSemanticTagUiEnabled({
-        ai_tagging_enabled: false,
         hub_enabled: false,
         hub_tagging_enabled: true,
         hub_token: "sk-test",
+      }),
+      false,
+    );
+  });
+
+  it("is false when hub tagging is off or the token is blank", () => {
+    assert.equal(
+      isSemanticTagUiEnabled({
+        hub_enabled: true,
+        hub_tagging_enabled: false,
+        hub_token: "sk-test",
+      }),
+      false,
+    );
+    assert.equal(
+      isSemanticTagUiEnabled({
+        hub_enabled: true,
+        hub_tagging_enabled: true,
+        hub_token: "   ",
       }),
       false,
     );

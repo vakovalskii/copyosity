@@ -1,12 +1,11 @@
 export const SETTINGS_PANE_IDS = [
+  "general",
   "hub",
   "voice",
   "quickmenu",
-  "ai",
   "history",
   "permissions",
   "updates",
-  "general",
 ] as const;
 
 export type SettingsPane = (typeof SETTINGS_PANE_IDS)[number];
@@ -32,7 +31,7 @@ export function resolveSettingsPaneUpdate(
 
 export function coerceSettingsPane(
   incoming: SettingsPane | null | undefined,
-  fallback: SettingsPane = "hub",
+  fallback: SettingsPane = "general",
 ): SettingsPane {
   return incoming ?? fallback;
 }

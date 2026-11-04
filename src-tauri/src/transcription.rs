@@ -1,31 +1,22 @@
-//! Voice transcription endpoint resolution (hub vs standalone Whisper).
+//! Voice transcription endpoint resolution (NeuralDeep hub only).
 
 use crate::db::AppSettings;
 
-/// Resolve hub or standalone Whisper transcription endpoint from settings.
+/// Resolve the hub transcription endpoint from settings.
 pub(crate) fn transcription_endpoint(settings: &AppSettings) -> Result<(String, String), String> {
-    let use_hub = settings.hub_enabled
-        && settings.hub_transcribe_enabled
-        && !settings.hub_token.is_empty()
-        && !settings.hub_url.trim().is_empty();
-    let (url, tok) = if use_hub {
-        (
-            format!(
-                "{}/v1/audio/transcriptions",
-                settings.hub_url.trim_end_matches('/')
-            ),
-            settings.hub_token.clone(),
-        )
-    } else {
-        (
-            settings.whisper_server_url.clone(),
-            settings.whisper_server_token.clone(),
-        )
-    };
-    if url.is_empty() {
+    if !settings.hub_enabled || !settings.hub_transcribe_enabled {
+        return Err(
+            "Voice transcription needs the NeuralDeep hub — enable it in Settings".to_string(),
+        );
+    }
+    let base = settings.hub_url.trim().trim_end_matches('/');
+    if base.is_empty() || settings.hub_token.trim().is_empty() {
         return Err("Transcription endpoint not configured".to_string());
     }
-    Ok((url, tok))
+    Ok((
+        format!("{base}/v1/audio/transcriptions"),
+        settings.hub_token.clone(),
+    ))
 }
 
 #[cfg(test)]
@@ -35,15 +26,11 @@ mod tests {
 
     fn base_settings() -> AppSettings {
         AppSettings {
-            ollama_model: String::new(),
             retention_days: 30,
-            whisper_server_url: "http://localhost:8080/v1/audio/transcriptions".into(),
-            whisper_server_token: String::new(),
             whisper_server_model: String::new(),
             voice_shortcut: String::new(),
             selected_microphone: String::new(),
             voice_transcription_enabled: false,
-            ai_tagging_enabled: false,
             overlay_shortcut_hints_enabled: true,
             hub_enabled: false,
             hub_url: String::new(),
@@ -59,15 +46,15 @@ mod tests {
             voice_dictionary: String::new(),
             voice_selected_text: false,
             board_vertical: false,
+            setup_notice_local_tagging_removed: false,
+            setup_notice_custom_whisper_removed: false,
         }
     }
 
     #[test]
-    fn uses_whisper_when_hub_transcribe_off() {
+    fn errors_when_hub_transcribe_off() {
         let s = base_settings();
-        let (url, tok) = transcription_endpoint(&s).unwrap();
-        assert_eq!(url, "http://localhost:8080/v1/audio/transcriptions");
-        assert!(tok.is_empty());
+        assert!(transcription_endpoint(&s).is_err());
     }
 
     #[test]
@@ -83,19 +70,20 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_whisper_when_hub_url_empty() {
+    fn errors_when_hub_url_empty() {
         let mut s = base_settings();
         s.hub_enabled = true;
         s.hub_transcribe_enabled = true;
         s.hub_token = "tok".into();
-        let (url, _) = transcription_endpoint(&s).unwrap();
-        assert_eq!(url, "http://localhost:8080/v1/audio/transcriptions");
+        assert!(transcription_endpoint(&s).is_err());
     }
 
     #[test]
-    fn errors_when_no_endpoint() {
+    fn errors_when_token_missing() {
         let mut s = base_settings();
-        s.whisper_server_url.clear();
+        s.hub_enabled = true;
+        s.hub_transcribe_enabled = true;
+        s.hub_url = "https://hub.example".into();
         assert!(transcription_endpoint(&s).is_err());
     }
 }
