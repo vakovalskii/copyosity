@@ -7,7 +7,7 @@ mod paste;
 
 pub use accessibility::{accessibility_trusted, open_accessibility_settings};
 #[cfg(target_os = "macos")]
-pub use paste::spawn_automated_paste;
+pub use paste::{automated_paste_blocking, spawn_automated_paste};
 
 #[cfg(target_os = "macos")]
 pub(crate) use accessibility::{
@@ -91,33 +91,27 @@ pub fn mark_own_clipboard_write(change_count: i64) {
 #[cfg(target_os = "macos")]
 pub fn should_ignore_capture(change_count: i64) -> bool {
     change_count == IGNORE_CAPTURE_AT.load(Ordering::SeqCst)
-        || CAPTURE_SUSPENDED.load(Ordering::SeqCst) > 0
 }
 
-/// While > 0 the clipboard monitor ignores every pasteboard change (internal multi-step
-/// clipboard round-trips such as reading the selection via Cmd+C).
+/// Serializes the clipboard monitor's whole tick (detect → read → store) against internal
+/// multi-step clipboard round-trips (reading the selection via Cmd+C). A plain "suspended"
+/// flag is not enough: the monitor may already be mid-read when the round-trip starts.
 #[cfg(target_os = "macos")]
-static CAPTURE_SUSPENDED: AtomicI32 = AtomicI32::new(0);
+static CAPTURE_GATE: Mutex<()> = Mutex::new(());
 
-/// RAII guard: history capture is suspended until it drops.
+/// Held by the monitor for one tick, and by a round-trip for its whole duration. The
+/// round-trip ends by marking its restore as an own write, so once the monitor gets the
+/// gate back it never observes the intermediate pasteboard states.
 #[cfg(target_os = "macos")]
-pub(crate) struct CaptureSuspension(());
-
-#[cfg(target_os = "macos")]
-impl Drop for CaptureSuspension {
-    fn drop(&mut self) {
-        CAPTURE_SUSPENDED.fetch_sub(1, Ordering::SeqCst);
-    }
+pub(crate) fn capture_gate() -> std::sync::MutexGuard<'static, ()> {
+    CAPTURE_GATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-#[cfg(target_os = "macos")]
-pub(crate) fn suspend_capture() -> CaptureSuspension {
-    CAPTURE_SUSPENDED.fetch_add(1, Ordering::SeqCst);
-    CaptureSuspension(())
-}
-
-/// Every item and every type on the general pasteboard — including nspasteboard.org privacy
-/// markers (Concealed/Transient), images and files — so a temporary write can be undone exactly.
+/// Every item on the general pasteboard with every type whose data is readable — including
+/// nspasteboard.org privacy markers, images and file URLs — so a temporary write can be undone.
+/// Lazily-promised types that fail to materialize are not preserved.
 #[cfg(target_os = "macos")]
 pub(crate) struct PasteboardSnapshot {
     items: Vec<Vec<(String, Vec<u8>)>>,

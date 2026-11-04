@@ -650,6 +650,10 @@ pub fn start_clipboard_monitor(app: AppHandle) {
             // Drain autoreleased NSPasteboard objects (NSData up to tens of MB) every tick:
             // this is a plain std::thread with no run loop, so nothing else would.
             with_autorelease_pool(|| {
+                // Whole tick under the gate: an internal clipboard round-trip (selection read)
+                // can neither start mid-read nor be observed half-way.
+                #[cfg(target_os = "macos")]
+                let _gate = crate::clipboard_macos::capture_gate();
                 #[cfg(target_os = "macos")]
                 let probe_hash = {
                     let change_count = crate::clipboard_macos::change_count();
@@ -664,10 +668,12 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                             cached_probe = None;
                             state.capture_pending = false;
                         } else {
+                            // Attribute the copy *before* the (possibly slow) payload read, so an
+                            // app switch during the read can't re-attribute excluded content.
+                            state.pending_source = crate::macos_app::frontmost_app_identity();
                             // Pasteboard genuinely changed — only now pay for the read + hash.
                             cached_probe = probe_clipboard_hash(&mut clipboard);
                             state.capture_pending = true;
-                            state.pending_source = crate::macos_app::frontmost_app_identity();
                         }
                     }
                     cached_probe.clone()
@@ -697,6 +703,12 @@ pub fn start_clipboard_monitor(app: AppHandle) {
                 };
                 let source = state.pending_source.clone();
                 state.attempt_capture(probe_hash, hash_in_db, || {
+                    // If the pasteboard changed again since detection, the payload no longer
+                    // belongs to `source`: let the next tick re-detect and re-attribute it.
+                    #[cfg(target_os = "macos")]
+                    if crate::clipboard_macos::change_count() != last_change_count {
+                        return CaptureOutcome::Retry;
+                    }
                     try_capture_from_clipboard(&mut clipboard, &ctx, source)
                 });
             });

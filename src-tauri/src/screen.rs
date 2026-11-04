@@ -25,7 +25,12 @@ pub fn capture_window_png(pid: i32) -> Option<Vec<u8>> {
 fn capture_by_window_id(window_id: u32) -> Option<Vec<u8>> {
     use std::process::Command;
 
-    let path = std::env::temp_dir().join(format!("copyosity_win_{}.png", std::process::id()));
+    // Unique per call: voice and palette captures can run concurrently, and a shared name let
+    // one call read (or delete) the other's window image.
+    static CAPTURE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = CAPTURE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path =
+        std::env::temp_dir().join(format!("copyosity_win_{}_{}.png", std::process::id(), seq));
     // -x: silent. -o: omit the window's drop shadow. -l<id>: capture that window.
     let status = Command::new("/usr/sbin/screencapture")
         .arg("-x")

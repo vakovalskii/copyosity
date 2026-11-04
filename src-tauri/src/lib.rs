@@ -1166,6 +1166,8 @@ fn maybe_polish(settings: &db::AppSettings, raw: &str) -> Result<String, String>
     let screenshot = VOICE_SCREENSHOT.lock().unwrap().take();
     let app_kind = std::mem::take(&mut *VOICE_APP_KIND.lock().unwrap());
     let selection = VOICE_SELECTION.lock().unwrap().take();
+    let selected_command =
+        settings.voice_polish_enabled && settings.voice_selected_text && selection.is_some();
 
     if !settings.hub_enabled
         || !settings.voice_polish_enabled
@@ -1173,6 +1175,9 @@ fn maybe_polish(settings: &db::AppSettings, raw: &str) -> Result<String, String>
         || settings.hub_url.trim().is_empty()
         || settings.voice_polish_model.trim().is_empty()
     {
+        if selected_command {
+            return Err("Voice commands on selected text need the NeuralDeep hub (URL, key and polish model). Your selection was left unchanged.".to_string());
+        }
         return Ok(raw.to_string());
     }
 
@@ -1464,7 +1469,14 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                                 if target_pid > 0 {
                                     clipboard_macos::remember_paste_target_for_pid(target_pid);
                                 }
-                                clipboard_macos::spawn_automated_paste(false);
+                                // Blocking: `_job` must stay alive until delivery finishes, or a
+                                // new dictation could overwrite the shared paste target mid-paste.
+                                if !clipboard_macos::automated_paste_blocking(false) {
+                                    emit_voice_error(
+                                        &app,
+                                        "Copyosity needs Accessibility permission to paste. The transcript is on the clipboard — press ⌘V.",
+                                    );
+                                }
                             }
                             #[cfg(not(target_os = "macos"))]
                             {
@@ -2136,7 +2148,7 @@ fn capture_selection(pid: i32) -> Option<String> {
         return None;
     }
 
-    let _suspended = clipboard_macos::suspend_capture();
+    let _gate = clipboard_macos::capture_gate();
     let snapshot = clipboard_macos::snapshot_pasteboard();
     // Sentinel lets us distinguish "copy did nothing" from "copied real text".
     let sentinel = "\u{0}copyosity-sel\u{0}";
