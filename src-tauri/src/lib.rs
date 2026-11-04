@@ -113,7 +113,9 @@ static VOICE_APP_KIND: std::sync::Mutex<String> = std::sync::Mutex::new(String::
 /// A channel owned by the current recording: the voice worker waits for the result
 /// (bounded) instead of racing the capture thread, and a late result can't leak into
 /// a later recording because each press installs a fresh receiver.
-static VOICE_SELECTION: std::sync::Mutex<Option<std::sync::mpsc::Receiver<Option<String>>>> =
+/// `Ok(None)` = confirmed nothing selected; `Err` = could not determine the selection.
+type SelectionResult = Result<Option<String>, String>;
+static VOICE_SELECTION: std::sync::Mutex<Option<std::sync::mpsc::Receiver<SelectionResult>>> =
     std::sync::Mutex::new(None);
 
 /// Upper bound for waiting on the selection capture (it may wait for the clipboard gate).
@@ -1180,7 +1182,14 @@ fn maybe_polish(settings: &db::AppSettings, raw: &str) -> Result<String, String>
     let app_kind = std::mem::take(&mut *VOICE_APP_KIND.lock().unwrap());
     let selection = match VOICE_SELECTION.lock().unwrap().take() {
         Some(rx) => match rx.recv_timeout(VOICE_SELECTION_WAIT) {
-            Ok(selection) => selection,
+            Ok(Ok(selection)) => selection,
+            // Unknown whether text was selected: pasting the spoken instruction could
+            // overwrite a selection, so fail safe.
+            Ok(Err(e)) => {
+                return Err(format!(
+                    "Could not read the selected text ({e}). Your selection was left unchanged."
+                ));
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 return Err("Could not read the selected text in time. Your selection was left unchanged — try again.".to_string());
             }
@@ -2162,15 +2171,15 @@ fn simulate_cmd_c(_target_pid: i32) {}
 /// never touches the clipboard. Falls back to Cmd+C with a full pasteboard snapshot/restore
 /// (all items, all types, privacy markers kept) and history capture suspended, so neither the
 /// sentinel, the selection nor the restored clipboard land in history. A concealed
-/// (password-manager) clipboard is never round-tripped. Returns None when nothing is selected.
+/// (password-manager) clipboard is never round-tripped. `Ok(None)` when nothing is selected,
+/// `Err` when the selection could not be determined.
 #[cfg(target_os = "macos")]
-fn capture_selection(pid: i32) -> Option<String> {
+fn capture_selection(pid: i32) -> SelectionResult {
     if let Some(text) = clipboard_macos::selected_text_for_pid(pid) {
-        return Some(text);
+        return Ok(Some(text));
     }
     if clipboard_macos::is_concealed() {
-        eprintln!("[voice] selection: clipboard holds a concealed item, skipping Cmd+C fallback");
-        return None;
+        return Err("the clipboard holds a password-manager item".to_string());
     }
 
     let _gate = clipboard_macos::capture_gate();
@@ -2182,7 +2191,7 @@ fn capture_selection(pid: i32) -> Option<String> {
         .is_err()
     {
         clipboard_macos::restore_pasteboard(&snapshot);
-        return None;
+        return Err("could not write to the clipboard".to_string());
     }
 
     simulate_cmd_c(pid);
@@ -2194,15 +2203,16 @@ fn capture_selection(pid: i32) -> Option<String> {
     clipboard_macos::restore_pasteboard(&snapshot);
 
     match after {
-        Some(t) if t != sentinel && !t.trim().is_empty() => Some(t),
-        _ => None,
+        Some(t) if t != sentinel && !t.trim().is_empty() => Ok(Some(t)),
+        Some(_) => Ok(None),
+        None => Err("could not read the clipboard".to_string()),
     }
 }
 
 #[cfg(not(target_os = "macos"))]
 #[allow(dead_code)]
-fn capture_selection(_pid: i32) -> Option<String> {
-    None
+fn capture_selection(_pid: i32) -> SelectionResult {
+    Ok(None)
 }
 
 /// The monitor the user is currently working on — the one containing the mouse
