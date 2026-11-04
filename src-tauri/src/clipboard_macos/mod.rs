@@ -12,7 +12,8 @@ pub use paste::spawn_automated_paste;
 #[cfg(target_os = "macos")]
 pub(crate) use accessibility::{
     capture_focus_for_pid, has_paste_focus, prefers_keyboard_paste, refresh_paste_focus_if_needed,
-    restore_focused_ui_element, store_focused_ui_element, try_ax_paste_for_pid,
+    restore_focused_ui_element, selected_text_for_pid, store_focused_ui_element,
+    try_ax_paste_for_pid,
 };
 #[cfg(target_os = "macos")]
 pub(crate) use paste::activate_pid;
@@ -25,7 +26,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSPasteboard, NSURLNSPasteboardSupport, NSWorkspace};
+use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSURLNSPasteboardSupport, NSWorkspace};
 #[cfg(target_os = "macos")]
 use objc2_foundation::{ns_string, NSArray, NSData, NSString, NSURL};
 #[cfg(target_os = "macos")]
@@ -90,6 +91,82 @@ pub fn mark_own_clipboard_write(change_count: i64) {
 #[cfg(target_os = "macos")]
 pub fn should_ignore_capture(change_count: i64) -> bool {
     change_count == IGNORE_CAPTURE_AT.load(Ordering::SeqCst)
+        || CAPTURE_SUSPENDED.load(Ordering::SeqCst) > 0
+}
+
+/// While > 0 the clipboard monitor ignores every pasteboard change (internal multi-step
+/// clipboard round-trips such as reading the selection via Cmd+C).
+#[cfg(target_os = "macos")]
+static CAPTURE_SUSPENDED: AtomicI32 = AtomicI32::new(0);
+
+/// RAII guard: history capture is suspended until it drops.
+#[cfg(target_os = "macos")]
+pub(crate) struct CaptureSuspension(());
+
+#[cfg(target_os = "macos")]
+impl Drop for CaptureSuspension {
+    fn drop(&mut self) {
+        CAPTURE_SUSPENDED.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn suspend_capture() -> CaptureSuspension {
+    CAPTURE_SUSPENDED.fetch_add(1, Ordering::SeqCst);
+    CaptureSuspension(())
+}
+
+/// Every item and every type on the general pasteboard — including nspasteboard.org privacy
+/// markers (Concealed/Transient), images and files — so a temporary write can be undone exactly.
+#[cfg(target_os = "macos")]
+pub(crate) struct PasteboardSnapshot {
+    items: Vec<Vec<(String, Vec<u8>)>>,
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn snapshot_pasteboard() -> PasteboardSnapshot {
+    let pasteboard = NSPasteboard::generalPasteboard();
+    let mut items = Vec::new();
+    if let Some(pb_items) = pasteboard.pasteboardItems() {
+        for item in pb_items.iter() {
+            let mut entries = Vec::new();
+            for ty in item.types().iter() {
+                if let Some(data) = item.dataForType(&ty) {
+                    entries.push((
+                        ty.to_string(),
+                        unsafe { data.as_bytes_unchecked() }.to_vec(),
+                    ));
+                }
+            }
+            items.push(entries);
+        }
+    }
+    PasteboardSnapshot { items }
+}
+
+/// Put a snapshot back and mark the write as our own so the monitor does not re-capture it.
+#[cfg(target_os = "macos")]
+pub(crate) fn restore_pasteboard(snapshot: &PasteboardSnapshot) {
+    use objc2::runtime::ProtocolObject;
+
+    let pasteboard = NSPasteboard::generalPasteboard();
+    pasteboard.clearContents();
+    let objects: Vec<_> = snapshot
+        .items
+        .iter()
+        .map(|entries| {
+            let item = NSPasteboardItem::new();
+            for (ty, bytes) in entries {
+                let data = NSData::with_bytes(bytes);
+                item.setData_forType(&data, &NSString::from_str(ty));
+            }
+            ProtocolObject::from_retained(item)
+        })
+        .collect();
+    if !objects.is_empty() {
+        pasteboard.writeObjects(&NSArray::from_retained_slice(&objects));
+    }
+    mark_own_clipboard_write(change_count());
 }
 
 /// Raw animated GIF bytes from the general pasteboard, if present.
