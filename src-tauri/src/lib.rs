@@ -68,6 +68,38 @@ static MAIN_OVERLAY_PANEL: AtomicBool = AtomicBool::new(false);
 /// Used to deliver the synthesized Cmd+V directly to that app instead of
 /// whatever is frontmost at paste time (which may be Copyosity itself).
 static VOICE_TARGET_PID: AtomicI32 = AtomicI32::new(0);
+/// A released dictation is still being transcribed / polished / pasted. New presses are ignored
+/// until it finishes: the voice context (target pid, screenshot, selection) is global, so an
+/// overlapping dictation would otherwise paste A's transcript into B's app.
+static VOICE_JOB_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+/// Ends a voice job on every exit path: clears the in-flight flag and hides the capsule
+/// (on the main thread — NSPanel.hide() off the main thread crashes).
+struct VoiceJobGuard {
+    app: tauri::AppHandle,
+}
+
+impl Drop for VoiceJobGuard {
+    fn drop(&mut self) {
+        // Hide and clear together on the main thread (where hotkey presses are handled):
+        // clearing first would let a new press show its capsule and start recording, and
+        // this queued hide would then hide the *new* capsule while the mic keeps running.
+        let hide_app = self.app.clone();
+        let queued = self.app.run_on_main_thread(move || {
+            hide_voice_overlay(&hide_app);
+            VOICE_JOB_IN_FLIGHT.store(false, Ordering::SeqCst);
+        });
+        if queued.is_err() {
+            VOICE_JOB_IN_FLIGHT.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+fn emit_voice_error(app: &tauri::AppHandle, message: impl Into<String>) {
+    let message = message.into();
+    eprintln!("[voice] ERROR: {message}");
+    let _ = app.emit("voice-error", message);
+}
 
 /// Base64 PNG screenshot of the target window captured at hotkey-press time,
 /// used as visual context when polishing the transcription.
@@ -78,7 +110,16 @@ static VOICE_APP_KIND: std::sync::Mutex<String> = std::sync::Mutex::new(String::
 
 /// Text selected in the target app at hotkey-press time (selected-text command
 /// mode): the spoken transcription becomes an instruction applied to this text.
-static VOICE_SELECTION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// A channel owned by the current recording: the voice worker waits for the result
+/// (bounded) instead of racing the capture thread, and a late result can't leak into
+/// a later recording because each press installs a fresh receiver.
+/// `Ok(None)` = confirmed nothing selected; `Err` = could not determine the selection.
+type SelectionResult = Result<Option<String>, String>;
+static VOICE_SELECTION: std::sync::Mutex<Option<std::sync::mpsc::Receiver<SelectionResult>>> =
+    std::sync::Mutex::new(None);
+
+/// Upper bound for waiting on the selection capture (it may wait for the clipboard gate).
+const VOICE_SELECTION_WAIT: std::time::Duration = std::time::Duration::from_secs(4);
 
 /// PID of the app that was frontmost when the command palette was opened, so the
 /// agent answer can be inserted back into it.
@@ -993,6 +1034,12 @@ pub(crate) fn prepare_for_quick_menu(app: &tauri::AppHandle) {
 }
 
 pub(crate) fn hide_command_palette(app: &tauri::AppHandle) {
+    // Hiding the palette (Esc, close, insert) discards any in-progress mic recording —
+    // otherwise the mic keeps running invisibly and the next stop uploads everything since.
+    if let Some(session) = palette_recording_mutex().lock().unwrap().take() {
+        eprintln!("[palette] hidden while recording — discarding voice session");
+        drop(session);
+    }
     #[cfg(target_os = "macos")]
     {
         use tauri_nspanel::ManagerExt;
@@ -1126,12 +1173,32 @@ fn handle_tray_menu_event(app: &tauri::AppHandle, id: &str) {
 }
 
 /// Run the transcription through the hub polish step when enabled, falling back
-/// to the raw transcription on any error. Consumes the screenshot/app-kind
-/// context captured at press time.
-fn maybe_polish(settings: &db::AppSettings, raw: &str) -> String {
+/// to the raw transcription on error. Consumes the screenshot/app-kind context
+/// captured at press time. In selected-text command mode a failure is an `Err`:
+/// the raw transcript is an *instruction* ("translate this"), and pasting it would
+/// overwrite the user's selection with it.
+fn maybe_polish(settings: &db::AppSettings, raw: &str) -> Result<String, String> {
     let screenshot = VOICE_SCREENSHOT.lock().unwrap().take();
     let app_kind = std::mem::take(&mut *VOICE_APP_KIND.lock().unwrap());
-    let selection = VOICE_SELECTION.lock().unwrap().take();
+    let selection = match VOICE_SELECTION.lock().unwrap().take() {
+        Some(rx) => match rx.recv_timeout(VOICE_SELECTION_WAIT) {
+            Ok(Ok(selection)) => selection,
+            // Unknown whether text was selected: pasting the spoken instruction could
+            // overwrite a selection, so fail safe.
+            Ok(Err(e)) => {
+                return Err(format!(
+                    "Could not read the selected text ({e}). Your selection was left unchanged."
+                ));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                return Err("Could not read the selected text in time. Your selection was left unchanged — try again.".to_string());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => None,
+        },
+        None => None,
+    };
+    let selected_command =
+        settings.voice_polish_enabled && settings.voice_selected_text && selection.is_some();
 
     if !settings.hub_enabled
         || !settings.voice_polish_enabled
@@ -1139,7 +1206,10 @@ fn maybe_polish(settings: &db::AppSettings, raw: &str) -> String {
         || settings.hub_url.trim().is_empty()
         || settings.voice_polish_model.trim().is_empty()
     {
-        return raw.to_string();
+        if selected_command {
+            return Err("Voice commands on selected text need the NeuralDeep hub (URL, key and polish model). Your selection was left unchanged.".to_string());
+        }
+        return Ok(raw.to_string());
     }
 
     let dictionary: Vec<String> = settings
@@ -1183,11 +1253,14 @@ fn maybe_polish(settings: &db::AppSettings, raw: &str) -> String {
     ) {
         Ok(polished) => {
             eprintln!("[voice] polished ({}): \"{}\"", kind, polished);
-            polished
+            Ok(polished)
         }
+        Err(e) if selected.is_some() => Err(format!(
+            "Could not apply the voice command to the selected text ({e}). Your selection was left unchanged."
+        )),
         Err(e) => {
             eprintln!("[voice] polish failed ({}), using raw transcription", e);
-            raw.to_string()
+            Ok(raw.to_string())
         }
     }
 }
@@ -1202,11 +1275,29 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
     );
     match state {
         ShortcutState::Pressed => {
+            if VOICE_JOB_IN_FLIGHT.load(Ordering::SeqCst) {
+                eprintln!("[voice] previous dictation still transcribing, ignoring press");
+                return;
+            }
+            if recording_mutex().lock().unwrap().is_none() {
+                // Validate the transcription endpoint *before* recording, so a fresh install
+                // without a configured hub gets a message instead of a stuck capsule.
+                let endpoint = app
+                    .try_state::<std::sync::Arc<db::Database>>()
+                    .ok_or_else(|| "database not ready".to_string())
+                    .and_then(|db| db.get_app_settings().map_err(|e| e.to_string()))
+                    .and_then(|s| transcription::transcription_endpoint(&s).map(|_| ()));
+                if let Err(e) = endpoint {
+                    emit_voice_error(app, e);
+                    return;
+                }
+            }
             // Capture the app that is frontmost right now, before we touch any
             // of our own windows — that's where the transcript must be pasted.
             // Reset any leftover context from a previous run.
             *VOICE_SCREENSHOT.lock().unwrap() = None;
             *VOICE_APP_KIND.lock().unwrap() = String::new();
+            *VOICE_SELECTION.lock().unwrap() = None;
 
             #[cfg(target_os = "macos")]
             if let Some(pid) = frontmost_app_pid() {
@@ -1235,8 +1326,8 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                             }
                             if s.voice_polish_screenshot {
                                 eprintln!("[voice] capturing target-window screenshot…");
-                                std::thread::spawn(|| {
-                                    if let Some(png) = screen::capture_context_png() {
+                                std::thread::spawn(move || {
+                                    if let Some(png) = screen::capture_window_png(pid) {
                                         let b64 = base64::Engine::encode(
                                             &base64::engine::general_purpose::STANDARD,
                                             &png,
@@ -1255,8 +1346,10 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                             // now (clipboard saved & restored) so the transcription
                             // can be applied to it as an instruction.
                             if s.voice_selected_text {
+                                let (tx, rx) = std::sync::mpsc::channel();
+                                *VOICE_SELECTION.lock().unwrap() = Some(rx);
                                 std::thread::spawn(move || {
-                                    *VOICE_SELECTION.lock().unwrap() = capture_selection(pid);
+                                    let _ = tx.send(capture_selection(pid));
                                 });
                             }
                         }
@@ -1296,7 +1389,7 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                         });
                         *rec = Some(session);
                     }
-                    Err(e) => eprintln!("[voice] FAILED to start recording: {}", e),
+                    Err(e) => emit_voice_error(app, format!("Could not start the microphone: {e}")),
                 }
             } else {
                 eprintln!("[voice] already recording, ignoring press");
@@ -1306,12 +1399,16 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
             let session = recording_mutex().lock().unwrap().take();
             if let Some(session) = session {
                 let app = app.clone();
+                VOICE_JOB_IN_FLIGHT.store(true, Ordering::SeqCst);
+                // Pin this dictation's paste target now; the global may be reused later.
+                let target_pid = VOICE_TARGET_PID.swap(0, Ordering::Relaxed);
                 // Keep the capsule visible in a "transcribing" state (spinner)
                 // until the transcript is delivered, instead of hiding immediately.
                 if let Some(win) = app.get_webview_window("voice_overlay") {
                     let _ = win.emit("voice-transcribing", ());
                 }
                 std::thread::spawn(move || {
+                    let _job = VoiceJobGuard { app: app.clone() };
                     let (samples, sample_rate) = session.finish();
                     eprintln!(
                         "[voice] stopped, {} samples at {}Hz ({:.1}s)",
@@ -1323,7 +1420,7 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                     let settings = match db.get_app_settings() {
                         Ok(s) => s,
                         Err(e) => {
-                            eprintln!("[voice] failed to load settings: {}", e);
+                            emit_voice_error(&app, format!("Failed to load settings: {e}"));
                             return;
                         }
                     };
@@ -1331,7 +1428,7 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                         match transcription::transcription_endpoint(&settings) {
                             Ok(pair) => pair,
                             Err(e) => {
-                                eprintln!("[voice] ERROR: {e}");
+                                emit_voice_error(&app, e);
                                 return;
                             }
                         };
@@ -1345,7 +1442,20 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                     ) {
                         Ok(text) if !text.is_empty() => {
                             eprintln!("[voice] transcription: \"{}\"", text);
-                            let final_text = maybe_polish(&settings, &text);
+                            let final_text = match maybe_polish(&settings, &text) {
+                                Ok(t) => t,
+                                Err(e) => {
+                                    // Keep the dictated instruction retrievable, but don't paste it.
+                                    clipboard_monitor::record_text_entry(
+                                        &app,
+                                        &db,
+                                        &text,
+                                        Some("Voice".to_owned()),
+                                    );
+                                    emit_voice_error(&app, e);
+                                    return;
+                                }
+                            };
 
                             // Always record the transcript in history so it is
                             // retrievable even if the paste into the target app
@@ -1379,39 +1489,40 @@ fn handle_voice_event(app: &tauri::AppHandle, state: ShortcutState) {
                                 std::thread::sleep(std::time::Duration::from_millis(80));
                             }
                             if !delivered {
-                                eprintln!(
-                                    "[voice] WARNING: transcript not written to clipboard after retries (still in history)"
+                                // Never send Cmd+V here: the target would receive whatever was
+                                // on the clipboard before (possibly a password).
+                                emit_voice_error(
+                                    &app,
+                                    "Could not put the transcript on the clipboard. It is saved in Copyosity history.",
                                 );
+                                return;
                             }
                             std::thread::sleep(std::time::Duration::from_millis(100));
                             #[cfg(target_os = "macos")]
                             {
-                                let voice_pid = VOICE_TARGET_PID.swap(0, Ordering::Relaxed);
-                                if voice_pid > 0 {
-                                    clipboard_macos::remember_paste_target_for_pid(voice_pid);
+                                if target_pid > 0 {
+                                    clipboard_macos::remember_paste_target_for_pid(target_pid);
                                 }
-                                clipboard_macos::spawn_automated_paste(false);
+                                // Blocking: `_job` must stay alive until delivery finishes, or a
+                                // new dictation could overwrite the shared paste target mid-paste.
+                                if !clipboard_macos::automated_paste_blocking(false) {
+                                    emit_voice_error(
+                                        &app,
+                                        "Copyosity needs Accessibility permission to paste. The transcript is on the clipboard — press ⌘V.",
+                                    );
+                                }
                             }
                             #[cfg(not(target_os = "macos"))]
                             {
-                                let target_pid = VOICE_TARGET_PID.swap(0, Ordering::Relaxed);
                                 simulate_cmd_v(target_pid);
                             }
                         }
                         Ok(_) => eprintln!("[voice] transcription returned empty text"),
-                        Err(e) => {
-                            eprintln!("[voice] transcription ERROR: {}", e);
-                            // Surface to the user (e.g. a hub 429 raise-tariff hint).
-                            let _ = app.emit("voice-error", e);
-                        }
+                        // Surface to the user (e.g. a hub 429 raise-tariff hint).
+                        Err(e) => emit_voice_error(&app, e),
                     }
-                    // hide_voice_overlay touches AppKit (NSPanel); this closure runs on a
-                    // worker thread, so hop to the main thread — calling NSPanel.hide() off
-                    // the main thread crashes the app after every transcription.
-                    let hide_app = app.clone();
-                    let _ = app.run_on_main_thread(move || {
-                        hide_voice_overlay(&hide_app);
-                    });
+                    // `_job` drops here (and on every early return above): clears the
+                    // in-flight flag and hides the capsule on the main thread.
                 });
             }
         }
@@ -1730,11 +1841,7 @@ fn palette_agent(
         #[cfg(target_os = "macos")]
         {
             let pid = PALETTE_TARGET_PID.load(Ordering::Relaxed);
-            let png = if pid > 0 {
-                screen::capture_window_png(pid)
-            } else {
-                screen::capture_context_png()
-            };
+            let png = screen::capture_window_png(pid);
             png.map(|b| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &b))
         }
         #[cfg(not(target_os = "macos"))]
@@ -1766,11 +1873,7 @@ fn agent_capture_active_window() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
         let pid = PALETTE_TARGET_PID.load(Ordering::Relaxed);
-        let png = if pid > 0 {
-            screen::capture_window_png(pid)
-        } else {
-            screen::capture_context_png()
-        };
+        let png = screen::capture_window_png(pid);
         png.map(|b| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &b))
     }
     #[cfg(not(target_os = "macos"))]
@@ -1983,15 +2086,20 @@ fn palette_hide(app: tauri::AppHandle) {
 
 /// Hide the palette and paste `text` into the app that was frontmost when it opened.
 #[tauri::command]
-fn palette_insert(app: tauri::AppHandle, text: String) {
+fn palette_insert(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    // Write first and paste only on success: on failure the target would receive the
+    // previous clipboard contents (possibly a password). Keep the palette open then.
+    arboard::Clipboard::new()
+        .map_err(|e| e.to_string())
+        .and_then(|mut clipboard| {
+            clipboard_write::write_text(
+                &mut clipboard,
+                text,
+                clipboard_write::ClipboardWriteMode::Paste,
+            )
+        })
+        .map_err(|e| format!("Could not put the answer on the clipboard: {e}"))?;
     let target_pid = PALETTE_TARGET_PID.swap(0, Ordering::Relaxed);
-    if let Ok(mut clipboard) = arboard::Clipboard::new() {
-        let _ = clipboard_write::write_text(
-            &mut clipboard,
-            text,
-            clipboard_write::ClipboardWriteMode::Paste,
-        );
-    }
     palette_hide(app);
     #[cfg(target_os = "macos")]
     {
@@ -2005,6 +2113,7 @@ fn palette_insert(app: tauri::AppHandle, text: String) {
         std::thread::sleep(std::time::Duration::from_millis(120));
         simulate_cmd_v(target_pid);
     }
+    Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -2058,36 +2167,52 @@ fn simulate_cmd_c(target_pid: i32) {
 #[allow(dead_code)]
 fn simulate_cmd_c(_target_pid: i32) {}
 
-/// Read the target app's current text selection via Cmd+C, preserving the user's
-/// clipboard. Returns None when nothing is selected.
+/// Read the target app's current text selection. Prefers Accessibility (`AXSelectedText`), which
+/// never touches the clipboard. Falls back to Cmd+C with a full pasteboard snapshot/restore
+/// (all items, all types, privacy markers kept) and history capture suspended, so neither the
+/// sentinel, the selection nor the restored clipboard land in history. A concealed
+/// (password-manager) clipboard is never round-tripped. `Ok(None)` when nothing is selected,
+/// `Err` when the selection could not be determined.
 #[cfg(target_os = "macos")]
-fn capture_selection(pid: i32) -> Option<String> {
-    let mut clipboard = arboard::Clipboard::new().ok()?;
-    let original = clipboard.get_text().ok();
+fn capture_selection(pid: i32) -> SelectionResult {
+    if let Some(text) = clipboard_macos::selected_text_for_pid(pid) {
+        return Ok(Some(text));
+    }
+    if clipboard_macos::is_concealed() {
+        return Err("the clipboard holds a password-manager item".to_string());
+    }
+
+    let _gate = clipboard_macos::capture_gate();
+    let snapshot = clipboard_macos::snapshot_pasteboard();
     // Sentinel lets us distinguish "copy did nothing" from "copied real text".
     let sentinel = "\u{0}copyosity-sel\u{0}";
-    let _ = clipboard.set_text(sentinel);
-    drop(clipboard);
+    if arboard::Clipboard::new()
+        .and_then(|mut clipboard| clipboard.set_text(sentinel))
+        .is_err()
+    {
+        clipboard_macos::restore_pasteboard(&snapshot);
+        return Err("could not write to the clipboard".to_string());
+    }
 
     simulate_cmd_c(pid);
     std::thread::sleep(std::time::Duration::from_millis(160));
 
-    let mut clipboard = arboard::Clipboard::new().ok()?;
-    let after = clipboard.get_text().ok();
-    if let Some(t) = &original {
-        let _ = clipboard.set_text(t);
-    }
+    let after = arboard::Clipboard::new()
+        .ok()
+        .and_then(|mut clipboard| clipboard.get_text().ok());
+    clipboard_macos::restore_pasteboard(&snapshot);
 
     match after {
-        Some(t) if t != sentinel && !t.trim().is_empty() => Some(t),
-        _ => None,
+        Some(t) if t != sentinel && !t.trim().is_empty() => Ok(Some(t)),
+        Some(_) => Ok(None),
+        None => Err("could not read the clipboard".to_string()),
     }
 }
 
 #[cfg(not(target_os = "macos"))]
 #[allow(dead_code)]
-fn capture_selection(_pid: i32) -> Option<String> {
-    None
+fn capture_selection(_pid: i32) -> SelectionResult {
+    Ok(None)
 }
 
 /// The monitor the user is currently working on — the one containing the mouse

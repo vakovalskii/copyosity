@@ -524,7 +524,11 @@
 
   async function insert() {
     if (!answerForActions) return;
-    await invoke("palette_insert", { text: answerForActions });
+    try {
+      await invoke("palette_insert", { text: answerForActions });
+    } catch (e) {
+      setInvokeFailure(e, "Could not insert the answer. Try again.");
+    }
   }
   async function copy() {
     if (!answerForActions) return;
@@ -579,6 +583,8 @@
         }
       }),
       listen("palette-hide", () => {
+        // The backend discards an in-progress recording on hide.
+        recording = false;
         resetFocusState();
       }),
       listen("hub-settings-changed", () => {

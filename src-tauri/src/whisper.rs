@@ -38,6 +38,10 @@ pub fn list_input_devices() -> Vec<AudioInputDevice> {
     devices
 }
 
+/// Hard cap on one recording. A session left running (e.g. a UI path that forgot to stop it)
+/// must not grow memory without bound or upload an arbitrarily long conversation.
+pub const MAX_RECORDING_SECS: usize = 10 * 60;
+
 pub struct RecordingSession {
     _stream: cpal::Stream,
     pub samples: Arc<Mutex<Vec<f32>>>,
@@ -81,6 +85,7 @@ impl RecordingSession {
         let level = Arc::new(AtomicU32::new(0));
         let samples_clone = samples.clone();
         let level_clone = level.clone();
+        let max_samples = sample_rate as usize * MAX_RECORDING_SECS;
 
         let stream = device
             .build_input_stream(
@@ -91,7 +96,9 @@ impl RecordingSession {
                     let mut count: usize = 0;
                     for chunk in data.chunks(channels) {
                         let mono = chunk.iter().sum::<f32>() / channels as f32;
-                        buf.push(mono);
+                        if buf.len() < max_samples {
+                            buf.push(mono);
+                        }
                         sum_sq += mono * mono;
                         count += 1;
                     }
@@ -203,7 +210,13 @@ pub fn transcribe_audio(
 
     let content_type = format!("multipart/form-data; boundary={}", boundary);
 
+    // Finite deadline so a server that accepts the connection and then stalls can't block the
+    // voice worker (and the capsule) forever. Scales with the clip: upload + transcription.
+    let clip_secs = (samples.len() as u64) / u64::from(sample_rate.max(1));
+    let deadline = std::time::Duration::from_secs((30 + clip_secs).min(300));
+
     let mut req = ureq::post(url)
+        .timeout(deadline)
         .set("Content-Type", &content_type)
         .set("Accept", "application/json");
 

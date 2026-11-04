@@ -7,12 +7,13 @@ mod paste;
 
 pub use accessibility::{accessibility_trusted, open_accessibility_settings};
 #[cfg(target_os = "macos")]
-pub use paste::spawn_automated_paste;
+pub use paste::{automated_paste_blocking, spawn_automated_paste};
 
 #[cfg(target_os = "macos")]
 pub(crate) use accessibility::{
     capture_focus_for_pid, has_paste_focus, prefers_keyboard_paste, refresh_paste_focus_if_needed,
-    restore_focused_ui_element, store_focused_ui_element, try_ax_paste_for_pid,
+    restore_focused_ui_element, selected_text_for_pid, store_focused_ui_element,
+    try_ax_paste_for_pid,
 };
 #[cfg(target_os = "macos")]
 pub(crate) use paste::activate_pid;
@@ -25,7 +26,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSPasteboard, NSURLNSPasteboardSupport, NSWorkspace};
+use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSURLNSPasteboardSupport, NSWorkspace};
 #[cfg(target_os = "macos")]
 use objc2_foundation::{ns_string, NSArray, NSData, NSString, NSURL};
 #[cfg(target_os = "macos")]
@@ -90,6 +91,76 @@ pub fn mark_own_clipboard_write(change_count: i64) {
 #[cfg(target_os = "macos")]
 pub fn should_ignore_capture(change_count: i64) -> bool {
     change_count == IGNORE_CAPTURE_AT.load(Ordering::SeqCst)
+}
+
+/// Serializes the clipboard monitor's whole tick (detect → read → store) against internal
+/// multi-step clipboard round-trips (reading the selection via Cmd+C). A plain "suspended"
+/// flag is not enough: the monitor may already be mid-read when the round-trip starts.
+#[cfg(target_os = "macos")]
+static CAPTURE_GATE: Mutex<()> = Mutex::new(());
+
+/// Held by the monitor for one tick, and by a round-trip for its whole duration. The
+/// round-trip ends by marking its restore as an own write, so once the monitor gets the
+/// gate back it never observes the intermediate pasteboard states.
+#[cfg(target_os = "macos")]
+pub(crate) fn capture_gate() -> std::sync::MutexGuard<'static, ()> {
+    CAPTURE_GATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Every item on the general pasteboard with every type whose data is readable — including
+/// nspasteboard.org privacy markers, images and file URLs — so a temporary write can be undone.
+/// Lazily-promised types that fail to materialize are not preserved.
+#[cfg(target_os = "macos")]
+pub(crate) struct PasteboardSnapshot {
+    items: Vec<Vec<(String, Vec<u8>)>>,
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn snapshot_pasteboard() -> PasteboardSnapshot {
+    let pasteboard = NSPasteboard::generalPasteboard();
+    let mut items = Vec::new();
+    if let Some(pb_items) = pasteboard.pasteboardItems() {
+        for item in pb_items.iter() {
+            let mut entries = Vec::new();
+            for ty in item.types().iter() {
+                if let Some(data) = item.dataForType(&ty) {
+                    entries.push((
+                        ty.to_string(),
+                        unsafe { data.as_bytes_unchecked() }.to_vec(),
+                    ));
+                }
+            }
+            items.push(entries);
+        }
+    }
+    PasteboardSnapshot { items }
+}
+
+/// Put a snapshot back and mark the write as our own so the monitor does not re-capture it.
+#[cfg(target_os = "macos")]
+pub(crate) fn restore_pasteboard(snapshot: &PasteboardSnapshot) {
+    use objc2::runtime::ProtocolObject;
+
+    let pasteboard = NSPasteboard::generalPasteboard();
+    pasteboard.clearContents();
+    let objects: Vec<_> = snapshot
+        .items
+        .iter()
+        .map(|entries| {
+            let item = NSPasteboardItem::new();
+            for (ty, bytes) in entries {
+                let data = NSData::with_bytes(bytes);
+                item.setData_forType(&data, &NSString::from_str(ty));
+            }
+            ProtocolObject::from_retained(item)
+        })
+        .collect();
+    if !objects.is_empty() {
+        pasteboard.writeObjects(&NSArray::from_retained_slice(&objects));
+    }
+    mark_own_clipboard_write(change_count());
 }
 
 /// Raw animated GIF bytes from the general pasteboard, if present.

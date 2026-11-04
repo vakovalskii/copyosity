@@ -19,19 +19,38 @@ pub(crate) fn cmd_v_uses_session_tap(pid: i32, frontmost: Option<i32>) -> bool {
     pid <= 0 || frontmost == Some(pid)
 }
 
-/// Spawn automated paste on a background thread after optional accessibility prompt.
 #[cfg(target_os = "macos")]
-pub fn spawn_automated_paste(prompt_if_needed: bool) {
+fn ensure_paste_trusted(prompt_if_needed: bool) -> bool {
     if !accessibility_trusted(false) {
         if prompt_if_needed {
             accessibility_trusted(true);
         }
         if !accessibility_trusted(false) {
             paste_log("skipped: accessibility not granted");
-            return;
+            return false;
         }
     }
-    std::thread::spawn(paste_into_target);
+    true
+}
+
+/// Spawn automated paste on a background thread after optional accessibility prompt.
+#[cfg(target_os = "macos")]
+pub fn spawn_automated_paste(prompt_if_needed: bool) {
+    if ensure_paste_trusted(prompt_if_needed) {
+        std::thread::spawn(paste_into_target);
+    }
+}
+
+/// Same as [`spawn_automated_paste`] but runs on the calling (worker) thread and returns once
+/// the paste attempt is finished, so the caller can keep ownership of the shared paste target
+/// until delivery completes. Returns false when Accessibility is not granted.
+#[cfg(target_os = "macos")]
+pub fn automated_paste_blocking(prompt_if_needed: bool) -> bool {
+    if !ensure_paste_trusted(prompt_if_needed) {
+        return false;
+    }
+    paste_into_target();
+    true
 }
 
 /// Restore the previous target and paste. Call from a background thread after the panel hides.

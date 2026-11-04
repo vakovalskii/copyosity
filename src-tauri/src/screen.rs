@@ -1,70 +1,36 @@
-//! Target-screen capture for context-aware voice polishing.
+//! Target-window capture for context-aware voice polishing and the palette agent.
 //!
-//! Grabs the current screen via the macOS `screencapture` CLI (requires the
-//! Screen Recording permission — degrades to `None` when not granted) and
-//! downscales it to a small PNG so it can be cheaply sent to a multimodal model
-//! as visual context for the polishing step.
+//! Captures only the target app's frontmost window via the macOS `screencapture` CLI
+//! (requires the Screen Recording permission — degrades to `None` when not granted) and
+//! downscales it to a small PNG for a multimodal model. Never falls back to a full-display
+//! capture: the setting promises "the target window", and the whole screen can expose
+//! unrelated sensitive windows to the cloud.
 
-#[cfg(target_os = "macos")]
-pub fn capture_context_png() -> Option<Vec<u8>> {
-    use std::process::Command;
-
-    let path = std::env::temp_dir().join(format!("copyosity_ctx_{}.png", std::process::id()));
-
-    // -x: silent (no shutter sound). -t png. Non-interactive capture of the
-    // main display. The voice overlay is tiny and we capture before it covers
-    // anything meaningful.
-    let status = Command::new("/usr/sbin/screencapture")
-        .arg("-x")
-        .arg("-t")
-        .arg("png")
-        .arg(&path)
-        .status();
-
-    match &status {
-        Ok(s) if s.success() => {}
-        Ok(s) => {
-            eprintln!("[screen] screencapture exited with {:?}", s.code());
-            let _ = std::fs::remove_file(&path);
-            return None;
-        }
-        Err(e) => {
-            eprintln!("[screen] failed to run screencapture: {}", e);
-            return None;
-        }
-    }
-
-    let bytes = std::fs::read(&path).ok();
-    let _ = std::fs::remove_file(&path);
-    match &bytes {
-        Some(b) => eprintln!("[screen] captured {} bytes (pre-downscale)", b.len()),
-        None => eprintln!("[screen] screencapture produced no readable file"),
-    }
-    let out = downscale_png(&bytes?);
-    match &out {
-        Some(o) => eprintln!("[screen] downscaled to {} bytes PNG", o.len()),
-        None => eprintln!("[screen] downscale failed"),
-    }
-    out
-}
-
-/// Capture just the frontmost on-screen window belonging to `pid` (the app that
-/// was frontmost when the palette opened), downscaled to a small PNG. Falls back
-/// to a full-screen capture when the window can't be resolved. Returns `None`
-/// when Screen Recording permission is missing.
+/// Capture just the frontmost on-screen window belonging to `pid`, downscaled to a
+/// small PNG. Returns `None` when the window can't be resolved or captured (including
+/// a missing Screen Recording permission) — callers then send no screenshot at all.
 #[cfg(target_os = "macos")]
 pub fn capture_window_png(pid: i32) -> Option<Vec<u8>> {
-    match frontmost_window_id_for_pid(pid) {
-        Some(window_id) => capture_by_window_id(window_id).or_else(capture_context_png),
-        None => capture_context_png(),
+    if pid <= 0 {
+        return None;
     }
+    let Some(window_id) = frontmost_window_id_for_pid(pid) else {
+        eprintln!("[screen] no on-screen window for pid {pid}; sending no screenshot");
+        return None;
+    };
+    capture_by_window_id(window_id)
 }
 
 #[cfg(target_os = "macos")]
 fn capture_by_window_id(window_id: u32) -> Option<Vec<u8>> {
     use std::process::Command;
 
-    let path = std::env::temp_dir().join(format!("copyosity_win_{}.png", std::process::id()));
+    // Unique per call: voice and palette captures can run concurrently, and a shared name let
+    // one call read (or delete) the other's window image.
+    static CAPTURE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = CAPTURE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path =
+        std::env::temp_dir().join(format!("copyosity_win_{}_{}.png", std::process::id(), seq));
     // -x: silent. -o: omit the window's drop shadow. -l<id>: capture that window.
     let status = Command::new("/usr/sbin/screencapture")
         .arg("-x")
