@@ -181,8 +181,22 @@ fn is_jwt_token(token: &str) -> bool {
         })
 }
 
-/// `Authorization: Bearer <token>` / `Basic <token>` / `token <token>` headers.
+/// `Authorization: Bearer <token>` / `Basic <token>` headers. With an explicit
+/// `Authorization` header any credential blocks, regardless of length or entropy
+/// (`Basic dXNlcjpwYXNz` is just `user:pass`). A bare `Bearer`/`Basic` word pair
+/// without the header blocks when the token is credential-shaped (≥ 16 token chars).
 fn contains_auth_header_token(text: &str) -> bool {
+    // Header syntax only (`Authorization: …`, `"Authorization": "…"`, `authorization=…`),
+    // not the word in prose ("sent in the Authorization header").
+    let lower = text.to_ascii_lowercase();
+    let explicit_header = [
+        "authorization:",
+        "authorization\":",
+        "authorization=",
+        "authorization':",
+    ]
+    .iter()
+    .any(|h| lower.contains(h));
     let words: Vec<&str> = text.split_whitespace().collect();
     words.windows(2).any(|pair| {
         let scheme = pair[0]
@@ -192,11 +206,11 @@ fn contains_auth_header_token(text: &str) -> bool {
             return false;
         }
         let token = pair[1].trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';'));
-        token.chars().count() >= 16
-            && token.chars().any(|c| c.is_ascii_digit())
+        let token_chars = !token.is_empty()
             && token.chars().all(|c| {
                 c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~' | '+' | '/' | '=')
-            })
+            });
+        token_chars && (explicit_header || token.chars().count() >= 16)
     })
 }
 
@@ -289,7 +303,9 @@ fn literal_value_follows(rest: &str, sep: u8, spaced: bool, looks_like_code: boo
     ) {
         return false;
     }
-    if is_code_expression(raw) {
+    // Member expressions only count as code in a code context or under a known env/config
+    // root — `DB_PASSWORD=correct.horse.battery.staple` in a .env file is a literal.
+    if is_code_expression(raw) && (looks_like_code || raw.contains('(') || has_code_root(raw)) {
         return false;
     }
     if sep == b':' {
@@ -314,6 +330,22 @@ fn is_identifier(s: &str) -> bool {
     let mut chars = s.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_' || c == '$')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
+/// `process.env.X`, `os.environ…`, `config.x` — references, not literal values.
+fn has_code_root(raw: &str) -> bool {
+    const ROOTS: &[&str] = &[
+        "process.env.",
+        "os.environ",
+        "env.",
+        "config.",
+        "settings.",
+        "self.",
+        "this.",
+        "import.meta.env.",
+    ];
+    let lower = raw.to_ascii_lowercase();
+    ROOTS.iter().any(|root| lower.starts_with(root))
 }
 
 /// Function calls and member expressions: `getToken(`, `process.env.API_TOKEN`.
@@ -589,7 +621,12 @@ pub fn tag_image(db: &Database, image_b64: &str, ocr: ImageOcr<'_>) -> Option<Ve
         image_b64,
         ocr,
         |s, b64| crate::hub::tag_image(&s.hub_url, &s.hub_token, HUB_IMAGE_TAG_MODEL, b64),
-        tag_text_outcome,
+        // The vision request can take a while: re-read settings before the OCR-text fallback
+        // so an opt-out (or cleared token) in the meantime stops the second upload.
+        |_, text| match db.get_app_settings() {
+            Ok(fresh) => tag_text_outcome(&fresh, text),
+            Err(_) => TagOutcome::Failed,
+        },
     )
 }
 
@@ -961,6 +998,17 @@ mod tests {
             "curl -H 'Authorization: Bearer q8Zt3Lp0Vx7Kc2Nw9Rb4Jm6Hd1Fs5Gy' https://api.example.com"
         ));
         assert!(blocked("Authorization: Basic dXNlcjpwYXNzd29yZDEyMw=="));
+        // Short / digit-free credentials under an explicit header.
+        assert!(blocked("Authorization: Basic dXNlcjpwYXNz"));
+        assert!(blocked("Authorization: Bearer abcdefghijklmnop"));
+        assert!(blocked("authorization: bearer abc"));
+    }
+
+    #[test]
+    fn guard_blocks_dotted_env_passwords() {
+        assert!(blocked("DB_PASSWORD=correct.horse.battery.staple"));
+        assert!(!blocked("const token = process.env.API_TOKEN;"));
+        assert!(!blocked("token = config.api.token"));
     }
 
     #[test]
