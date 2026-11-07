@@ -49,14 +49,23 @@ pub(crate) fn try_ax_paste_for_pid(pid: i32) -> bool {
 pub(crate) fn try_ax_paste() -> bool {
     const K_AX_ERROR_SUCCESS: i32 = 0;
 
-    let Some(FocusRef(element)) = *PASTE_TARGET_FOCUS.lock().unwrap() else {
-        return false;
+    // Take our own +1 reference while holding the lock: once the guard drops, a concurrent
+    // `store_focused_ui_element` may CFRelease the stored element (use-after-free otherwise).
+    let element = {
+        let guard = PASTE_TARGET_FOCUS.lock().unwrap();
+        let Some(FocusRef(element)) = *guard else {
+            return false;
+        };
+        unsafe { cf_retain(element) };
+        element
     };
 
     unsafe {
         let action = NSString::from_str("AXPaste");
-        ax_ui_element_perform_action(element, objc2::rc::Retained::as_ptr(&action).cast())
-            == K_AX_ERROR_SUCCESS
+        let ok = ax_ui_element_perform_action(element, objc2::rc::Retained::as_ptr(&action).cast())
+            == K_AX_ERROR_SUCCESS;
+        release_ax_element(element);
+        ok
     }
 }
 
@@ -103,9 +112,24 @@ pub(crate) fn capture_focus_for_pid(pid: i32) -> Option<*mut std::ffi::c_void> {
 fn copy_focused_ui_element_for_pid(pid: i32) -> Option<*mut std::ffi::c_void> {
     unsafe {
         let app = ax_create_application(pid)?;
-        let element = copy_attribute_as_element(app, "AXFocusedUIElement")?;
+        let element = copy_attribute_as_element(app, "AXFocusedUIElement");
         release_ax_element(app);
-        Some(element)
+        element
+    }
+}
+
+/// Selected text of the focused element in `pid`, read via Accessibility (`AXSelectedText`).
+/// Lets selected-text voice mode avoid a Cmd+C round-trip through the user's clipboard.
+#[cfg(target_os = "macos")]
+pub(crate) fn selected_text_for_pid(pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    unsafe {
+        let element = copy_focused_ui_element_for_pid(pid)?;
+        let text = copy_attribute_as_string(element, "AXSelectedText");
+        release_ax_element(element);
+        text.filter(|t| !t.trim().is_empty())
     }
 }
 
@@ -113,9 +137,9 @@ fn copy_focused_ui_element_for_pid(pid: i32) -> Option<*mut std::ffi::c_void> {
 fn copy_focused_ui_element_system() -> Option<*mut std::ffi::c_void> {
     unsafe {
         let system = ax_create_system_wide()?;
-        let element = copy_attribute_as_element(system, "AXFocusedUIElement")?;
+        let element = copy_attribute_as_element(system, "AXFocusedUIElement");
         release_ax_element(system);
-        Some(element)
+        element
     }
 }
 
@@ -134,18 +158,19 @@ fn find_editable_element_for_pid(pid: i32) -> Option<*mut std::ffi::c_void> {
         }
 
         if let Some(windows) = copy_attribute_as_element_array(app, "AXWindows") {
-            for (idx, window) in windows.iter().copied().enumerate() {
-                if let Some(found) = find_editable_element(window, 0) {
-                    for (other_idx, other) in windows.iter().copied().enumerate() {
-                        if other_idx != idx {
-                            release_ax_element(other);
-                        }
-                    }
-                    release_ax_element(window);
-                    release_ax_element(app);
-                    return Some(found);
+            // Each window in `windows` is owned (+1) exactly once and released exactly once,
+            // whether or not the search succeeds. (Previously windows searched before the hit
+            // were released in-loop and again in the success cleanup → double CFRelease.)
+            let mut found = None;
+            for window in windows.iter().copied() {
+                if found.is_none() {
+                    found = find_editable_element(window, 0);
                 }
                 release_ax_element(window);
+            }
+            if found.is_some() {
+                release_ax_element(app);
+                return found;
             }
         }
 
