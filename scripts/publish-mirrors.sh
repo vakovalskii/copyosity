@@ -5,9 +5,13 @@
 #   1. https://vkovalskii.com/copyosity/latest.json   <- this mirror
 #   2. https://github.com/.../releases/latest/download/latest.json  (fallback)
 #
-# The mirror is served by the `vkovalskii-nginx` container on the live origin
-# (DNS vkovalskii.com -> Yandex Cloud box, ssh alias `srv-rnd-demos-mcp`), from
-# a `location /copyosity/` alias into the certbot-webroot docker volume.
+# The mirror is served by the shared front proxy `nginx_container` on the live
+# origin (DNS vkovalskii.com -> 212.113.120.198, ssh alias `srv-nginx-proxy-main`,
+# root) from a `location ^~ /copyosity/` alias into the certbot webroot
+# (/srv/nginx/data/certbot/www/copyosity on the host). That block must stay
+# above `location /` in the vkovalskii.com server: without it the site answers
+# every path with its HTML page and HTTP 200, and tauri-plugin-updater aborts
+# the whole check on the JSON parse error instead of falling back to GitHub.
 #
 # This script takes a release directory that already contains the dual-arch
 # updater tarballs + minisign sigs and the GitHub latest.json, rewrites the
@@ -24,10 +28,10 @@ REL="${1:?usage: publish-mirrors.sh <release-dir>}"
 [ -d "$REL" ] || { echo "ERROR: release dir not found: $REL" >&2; exit 1; }
 
 # --- mirror target -----------------------------------------------------------
-MIRROR_SSH="${MIRROR_SSH:-srv-rnd-demos-mcp}"          # live origin (ssh alias)
+MIRROR_SSH="${MIRROR_SSH:-srv-nginx-proxy-main}"       # live origin (ssh alias, root)
 MIRROR_BASE_URL="${MIRROR_BASE_URL:-https://vkovalskii.com/copyosity}"
-NGINX_CONTAINER="${NGINX_CONTAINER:-vkovalskii-nginx}"
-VOL="${VOL:-/var/lib/docker/volumes/vkovalskii-site_certbot-webroot/_data/copyosity}"
+NGINX_CONTAINER="${NGINX_CONTAINER:-nginx_container}"
+VOL="${VOL:-/srv/nginx/data/certbot/www/copyosity}"
 STAGING="${STAGING:-copyosity-mirror}"                 # ~/<STAGING> on the origin
 
 AARCH_TGZ="Copyosity_aarch64.app.tar.gz"
@@ -59,15 +63,20 @@ scp -o ConnectTimeout=25 \
   "$MIRROR_SSH:~/$STAGING/"
 scp -o ConnectTimeout=25 "$REL/latest.mirror.json" "$MIRROR_SSH:~/$STAGING/latest.json"
 
-echo ">> installing into volume + reloading nginx"
-# SIGHUP reload avoids `docker exec` (the origin's /run tmpfs can be full).
+echo ">> installing into the webroot"
+# Static files need no nginx reload; copy the manifest last so it never points
+# at tarballs that are not there yet.
 ssh -o ConnectTimeout=25 "$MIRROR_SSH" bash -s -- "$VOL" "$STAGING" "$NGINX_CONTAINER" <<'REMOTE'
 set -euo pipefail
 VOL="$1"; STAGING="$2"; NGINX="$3"
-sudo -n mkdir -p "$VOL"
-for f in "$HOME/$STAGING"/*; do sudo -n cp "$f" "$VOL/"; done
-sudo -n sh -c "chmod 755 '$VOL' && chmod 644 '$VOL'/*"
-docker kill -s HUP "$NGINX" >/dev/null && echo "nginx reloaded (SIGHUP)"
+SUDO=""; [ "$(id -u)" = 0 ] || SUDO="sudo -n"
+$SUDO mkdir -p "$VOL"
+for f in "$HOME/$STAGING"/*; do
+  [ "$(basename "$f")" = latest.json ] || $SUDO cp "$f" "$VOL/"
+done
+$SUDO cp "$HOME/$STAGING/latest.json" "$VOL/latest.json"
+$SUDO sh -c "chmod 755 '$VOL' && chmod 644 '$VOL'/*"
+docker inspect "$NGINX" >/dev/null && echo "installed into $VOL (served by $NGINX)"
 REMOTE
 
 # --- verify ------------------------------------------------------------------

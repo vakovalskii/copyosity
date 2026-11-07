@@ -12,7 +12,7 @@
 #   - notarytool keychain profile "copyosity" (override KEYCHAIN_PROFILE)
 #   - `gh` authenticated; GitHub reachable (gh's HTTPS API needs HTTPS_PROXY set
 #     in your shell on this network — export it before running)
-#   - ssh alias srv-rnd-demos-mcp reachable for the mirror (publish-mirrors.sh)
+#   - ssh alias srv-nginx-proxy-main reachable for the mirror (publish-mirrors.sh)
 #   - run via the Bash tool with dangerouslyDisableSandbox (hdiutil/notarytool)
 #
 # Idempotent-ish: re-running re-tags (-f) and `gh release create` will fail if the
@@ -38,8 +38,10 @@ targets = [
 ]
 for path, pat in targets:
     s = open(path).read()
-    s2 = re.sub(pat, lambda m: m.group(1) + v + m.group(2), s, count=1, flags=re.M)
-    assert s2 != s, f"version not found/updated in {path}"
+    m = re.search(pat, s, flags=re.M)
+    assert m, f"version field not found in {path}"
+    # Re-running after a failed release finds the version already bumped: fine.
+    s2 = s[:m.start()] + m.group(1) + v + m.group(2) + s[m.end():]
     open(path, "w").write(s2)
 print("bumped tauri.conf.json, package.json, Cargo.toml")
 PY

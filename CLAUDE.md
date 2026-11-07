@@ -70,8 +70,15 @@ Windows/Linux are inert stubs — do not ship them. "Notarization" is Apple-only
 **Updater delivery.** `tauri.conf.json → plugins.updater.endpoints` is tried in
 order: (1) `https://vkovalskii.com/copyosity/latest.json` (mirror, static, no
 redirects), (2) GitHub `releases/latest/download/latest.json` (fallback). The
-mirror origin is ssh `srv-rnd-demos-mcp` (DNS → Yandex Cloud, **not** the Hetzner
-box); reload its nginx with `docker kill -s HUP vkovalskii-nginx`.
+mirror origin is ssh `srv-nginx-proxy-main` (212.113.120.198, root): the shared
+front proxy `nginx_container` serves `location ^~ /copyosity/` from
+`/srv/nginx/data/certbot/www/copyosity` (config `/srv/nginx/nginx.conf`, always
+`nginx -t` before `nginx -s reload` — other sites share it).
+
+**The mirror must never answer 200 with HTML.** tauri-plugin-updater only falls
+back to the next endpoint on network errors and non-2xx; a 200 that is not JSON
+aborts the whole check, so every installed copy silently stops updating. If
+vkovalskii.com moves hosts again, re-create the `/copyosity/` block first.
 
 **Hard-won updater invariants (do not regress):**
 
