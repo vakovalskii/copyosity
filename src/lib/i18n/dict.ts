@@ -10,7 +10,6 @@ const en: Dict = {
   "nav.hub": "NeuralDeep",
   "nav.voice": "Voice",
   "nav.quickmenu": "Quick Menu",
-  "nav.ai": "Local AI",
   "nav.history": "History",
   "nav.permissions": "Permissions",
   "nav.updates": "Updates",
@@ -70,7 +69,6 @@ const en: Dict = {
 const ru: Dict = {
   "nav.voice": "Голос",
   "nav.quickmenu": "Быстрое меню",
-  "nav.ai": "Локальный ИИ",
   "nav.history": "История",
   "nav.permissions": "Доступы",
   "nav.updates": "Обновления",
@@ -124,7 +122,6 @@ const ru: Dict = {
 const es: Dict = {
   "nav.voice": "Voz",
   "nav.quickmenu": "Menú rápido",
-  "nav.ai": "IA local",
   "nav.history": "Historial",
   "nav.permissions": "Permisos",
   "nav.updates": "Actualizaciones",
@@ -179,7 +176,6 @@ const es: Dict = {
 const zh: Dict = {
   "nav.voice": "语音",
   "nav.quickmenu": "快捷菜单",
-  "nav.ai": "本地 AI",
   "nav.history": "历史",
   "nav.permissions": "权限",
   "nav.updates": "更新",
@@ -233,7 +229,6 @@ const zh: Dict = {
 const de: Dict = {
   "nav.voice": "Sprache",
   "nav.quickmenu": "Schnellmenü",
-  "nav.ai": "Lokale KI",
   "nav.history": "Verlauf",
   "nav.permissions": "Berechtigungen",
   "nav.updates": "Updates",
@@ -288,7 +283,6 @@ const de: Dict = {
 const fr: Dict = {
   "nav.voice": "Voix",
   "nav.quickmenu": "Menu rapide",
-  "nav.ai": "IA locale",
   "nav.history": "Historique",
   "nav.permissions": "Autorisations",
   "nav.updates": "Mises à jour",
@@ -343,7 +337,6 @@ const fr: Dict = {
 const ja: Dict = {
   "nav.voice": "音声",
   "nav.quickmenu": "クイックメニュー",
-  "nav.ai": "ローカルAI",
   "nav.history": "履歴",
   "nav.permissions": "権限",
   "nav.updates": "アップデート",

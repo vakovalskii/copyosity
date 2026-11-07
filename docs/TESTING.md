@@ -1,7 +1,7 @@
 # Copyosity — Pre-release Test Plan
 
-Full functional coverage for every shipping feature **except the Local AI (Ollama)
-onboarding**, which is out of scope for this pass.
+Full functional coverage for every shipping feature. AI features are cloud-only
+(NeuralDeep Hub); local Ollama tagging and the custom Whisper server were removed.
 
 Each area lists:
 
@@ -83,8 +83,15 @@ Legend: ✅ automated · 👁 manual only (native / OS-integration).
 
 ## 7. Automatic tagging (hub)
 
-- ✅ backend `agent`, hub error/no-think helpers.
-- 👁 With the hub enabled, a new entry gets short tags shortly after capture.
+- ✅ backend `agent`, hub error/no-think helpers, `tagging` upload guard (API keys,
+  JWT, PEM, `password=`, OTPs blocked; sentences / URLs / code allowed), backfill
+  eligibility, cloud-only settings migration.
+- 👁 With the hub enabled and **Auto-tag clipboard items** on, a new entry gets
+  short tags shortly after capture.
+- 👁 Copy `482917` or an `sk-…` key: it gets a local tag (`otp`) or none, and no
+  hub request is made.
+- 👁 Turning **Auto-tag clipboard items** on tags older untagged text entries
+  in the background.
 - 👁 **Retag** re-runs tagging on an entry.
 
 ## 8. Command / agent palette ⚠️ new features
@@ -158,7 +165,9 @@ Legend: ✅ automated · 👁 manual only (native / OS-integration).
 - 👁 **Icon + persistence fix:** opening Settings switches the app to `Regular`
   activation → a Dock icon appears and the window no longer vanishes when focus
   changes; closing Settings reverts to `Accessory` (menu-bar-only, no Dock icon).
-- 👁 Every pane loads: NeuralDeep, Voice, Quick Menu, Local AI, History, Permissions, Updates.
+- 👁 Every pane loads: General, NeuralDeep, Voice, Quick Menu, History, Permissions, Updates.
+- 👁 Upgrading from a build with Local AI / custom Whisper enabled shows a
+  dismissible notice in the NeuralDeep pane; cloud tagging stays off until enabled.
 
 ## 16. Updates / auto-update ⚠️ regression-fixed area
 

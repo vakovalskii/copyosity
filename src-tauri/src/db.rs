@@ -5,12 +5,14 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+const SETUP_NOTICE_LOCAL_TAGGING_REMOVED: &str = "setup_notice_local_tagging_removed";
+const SETUP_NOTICE_CUSTOM_WHISPER_REMOVED: &str = "setup_notice_custom_whisper_removed";
+const CLOUD_ONLY_MIGRATION_MARKER: &str = "migration_cloud_only_done";
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppSettings {
-    pub ollama_model: String,
     pub retention_days: i64,
-    pub whisper_server_url: String,
-    pub whisper_server_token: String,
+    /// Transcription model id passed to the hub (`/v1/audio/transcriptions`).
     pub whisper_server_model: String,
     /// e.g. "option+space", "cmd+space", "ctrl+alt+space"
     pub voice_shortcut: String,
@@ -18,8 +20,6 @@ pub struct AppSettings {
     pub selected_microphone: String,
     /// When false, voice shortcut is not registered (default off).
     pub voice_transcription_enabled: bool,
-    /// When false, clipboard entries are not auto-tagged (default off).
-    pub ai_tagging_enabled: bool,
     /// When false, hide the footer shortcut strip on the clipboard overlay (default on).
     pub overlay_shortcut_hints_enabled: bool,
     // --- NeuralDeep hub integration ---
@@ -31,7 +31,7 @@ pub struct AppSettings {
     pub hub_token: String,
     /// Chat model id used for tagging via the hub.
     pub hub_chat_model: String,
-    /// Use the hub (instead of local Ollama) for clipboard tagging.
+    /// Auto-tag clipboard items via the hub.
     pub hub_tagging_enabled: bool,
     /// Use the hub for voice transcription.
     pub hub_transcribe_enabled: bool,
@@ -54,22 +54,10 @@ pub struct AppSettings {
     /// Render the clipboard board vertically (a tall mini-clipboard docked to the
     /// screen edge) instead of the default horizontal bottom bar.
     pub board_vertical: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ModelOption {
-    pub value: String,
-    pub label: String,
-    pub memory_gb: f64,
-    pub fits: bool,
-    pub installed: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ModelCatalog {
-    pub total_memory_gb: f64,
-    pub recommended_memory_gb: f64,
-    pub options: Vec<ModelOption>,
+    /// One-time notice: local (Ollama) tagging was removed in the cloud-only release.
+    pub setup_notice_local_tagging_removed: bool,
+    /// One-time notice: the custom Whisper server option was removed.
+    pub setup_notice_custom_whisper_removed: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -370,6 +358,15 @@ pub struct Database {
     settings_cache: Mutex<Option<HashMap<String, String>>>,
 }
 
+fn entry_untagged_without_state(conn: &Connection, entry_id: i64) -> Result<bool, rusqlite::Error> {
+    conn.query_row(
+        "SELECT NOT EXISTS (SELECT 1 FROM clipboard_tags WHERE entry_id = ?1)
+            AND NOT EXISTS (SELECT 1 FROM clipboard_tag_state WHERE entry_id = ?1)",
+        params![entry_id],
+        |row| row.get(0),
+    )
+}
+
 impl Database {
     /// Wrap an already-open connection (tests use in-memory SQLite).
     #[cfg(test)]
@@ -474,10 +471,15 @@ impl Database {
         #[cfg(target_os = "macos")]
         crate::macos_app::migrate_legacy_excluded_app_names(&conn)?;
 
-        Ok(Self {
+        let db = Self {
             settings_cache: Mutex::new(None),
             conn: Mutex::new(conn),
-        })
+        };
+        // Before any settings consumer / worker starts.
+        if let Err(e) = db.migrate_cloud_only_if_needed() {
+            eprintln!("copyosity: cloud-only settings migration failed: {e}");
+        }
+        Ok(db)
     }
 
     /// Versioned schema migrations via PRAGMA user_version.
@@ -551,6 +553,67 @@ impl Database {
             )?;
         }
 
+        Ok(())
+    }
+
+    /// One-time cloud-only migration: local Ollama tagging and the custom Whisper
+    /// server were removed. Never turns on cloud uploads — it only records
+    /// notices for the Settings UI, deletes the legacy keys, and re-opens text
+    /// entries a broken old backfill marked `done`/`skipped` without tags.
+    /// Atomic (one transaction) and idempotent via [`CLOUD_ONLY_MIGRATION_MARKER`].
+    pub(crate) fn migrate_cloud_only_if_needed(&self) -> Result<(), rusqlite::Error> {
+        {
+            let mut conn = self.conn.lock().unwrap();
+            let tx = conn.transaction()?;
+            let done: Option<String> = tx
+                .query_row(
+                    "SELECT value FROM settings WHERE key = ?1",
+                    params![CLOUD_ONLY_MIGRATION_MARKER],
+                    |row| row.get(0),
+                )
+                .ok();
+            if done.is_some() {
+                return Ok(());
+            }
+            let legacy = |key: &str| -> Option<String> {
+                tx.query_row(
+                    "SELECT value FROM settings WHERE key = ?1",
+                    params![key],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .ok()
+                .flatten()
+            };
+            let local_tagging = legacy("ai_tagging_enabled")
+                .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
+                .unwrap_or(false);
+            let custom_whisper = legacy("whisper_server_url")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false);
+            let upsert = "INSERT INTO settings (key, value) VALUES (?1, 'true')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value";
+            if local_tagging {
+                tx.execute(upsert, params![SETUP_NOTICE_LOCAL_TAGGING_REMOVED])?;
+            }
+            if custom_whisper {
+                tx.execute(upsert, params![SETUP_NOTICE_CUSTOM_WHISPER_REMOVED])?;
+            }
+            tx.execute(
+                "DELETE FROM settings WHERE key IN
+                 ('ollama_model', 'ai_tagging_enabled', 'whisper_server_url', 'whisper_server_token')",
+                [],
+            )?;
+            tx.execute(
+                "DELETE FROM clipboard_tag_state
+                 WHERE status IN ('done', 'skipped')
+                   AND NOT EXISTS (SELECT 1 FROM clipboard_tags
+                                   WHERE clipboard_tags.entry_id = clipboard_tag_state.entry_id)",
+                [],
+            )?;
+            tx.execute(upsert, params![CLOUD_ONLY_MIGRATION_MARKER])?;
+            tx.commit()?;
+        }
+        *self.settings_cache.lock().unwrap() = None;
         Ok(())
     }
 
@@ -655,27 +718,14 @@ impl Database {
         Ok(())
     }
 
-    pub fn is_ai_tagging_enabled(&self) -> bool {
-        self.get_app_settings()
-            .map(|s| s.ai_tagging_enabled)
-            .unwrap_or(false)
-    }
-
     pub fn get_app_settings(&self) -> Result<AppSettings, rusqlite::Error> {
         self.migrate_hub_enabled_if_needed()?;
-        let ollama_model = self
-            .get_setting("ollama_model")?
-            .unwrap_or_else(|| "qwen3:4b-instruct-2507-q4_K_M".to_string());
         let retention_days = self
             .get_setting("retention_days")?
             .and_then(|value| value.parse::<i64>().ok())
             .filter(|days| matches!(*days, 1 | 7 | 30 | 180))
             .unwrap_or(30);
 
-        let whisper_server_url = self.get_setting("whisper_server_url")?.unwrap_or_default();
-        let whisper_server_token = self
-            .get_setting("whisper_server_token")?
-            .unwrap_or_default();
         let whisper_server_model = self
             .get_setting("whisper_server_model")?
             .unwrap_or_else(|| "whisper-1".to_string());
@@ -686,10 +736,6 @@ impl Database {
         let selected_microphone = self.get_setting("selected_microphone")?.unwrap_or_default();
         let voice_transcription_enabled = self
             .get_setting("voice_transcription_enabled")?
-            .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
-            .unwrap_or(false);
-        let ai_tagging_enabled = self
-            .get_setting("ai_tagging_enabled")?
             .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
             .unwrap_or(false);
         let overlay_shortcut_hints_enabled = self
@@ -742,17 +788,21 @@ impl Database {
             .get_setting("board_vertical")?
             .map(|v| v == "true")
             .unwrap_or(false);
+        let setup_notice_local_tagging_removed = self
+            .get_setting(SETUP_NOTICE_LOCAL_TAGGING_REMOVED)?
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let setup_notice_custom_whisper_removed = self
+            .get_setting(SETUP_NOTICE_CUSTOM_WHISPER_REMOVED)?
+            .map(|v| v == "true")
+            .unwrap_or(false);
 
         Ok(AppSettings {
-            ollama_model,
             retention_days,
-            whisper_server_url,
-            whisper_server_token,
             whisper_server_model,
             voice_shortcut,
             selected_microphone,
             voice_transcription_enabled,
-            ai_tagging_enabled,
             overlay_shortcut_hints_enabled,
             hub_enabled,
             hub_url,
@@ -768,21 +818,19 @@ impl Database {
             voice_dictionary,
             voice_selected_text,
             board_vertical,
+            setup_notice_local_tagging_removed,
+            setup_notice_custom_whisper_removed,
         })
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn update_app_settings(
         &self,
-        ollama_model: Option<&str>,
         retention_days: Option<i64>,
-        whisper_server_url: Option<&str>,
-        whisper_server_token: Option<&str>,
         whisper_server_model: Option<&str>,
         voice_shortcut: Option<&str>,
         selected_microphone: Option<&str>,
         voice_transcription_enabled: Option<bool>,
-        ai_tagging_enabled: Option<bool>,
         overlay_shortcut_hints_enabled: Option<bool>,
         hub_enabled: Option<bool>,
         hub_url: Option<&str>,
@@ -798,18 +846,11 @@ impl Database {
         voice_dictionary: Option<&str>,
         voice_selected_text: Option<bool>,
         board_vertical: Option<bool>,
+        setup_notice_local_tagging_removed: Option<bool>,
+        setup_notice_custom_whisper_removed: Option<bool>,
     ) -> Result<AppSettings, rusqlite::Error> {
-        if let Some(model) = ollama_model {
-            self.set_setting("ollama_model", model.trim())?;
-        }
         if let Some(days) = retention_days {
             self.set_setting("retention_days", &days.to_string())?;
-        }
-        if let Some(url) = whisper_server_url {
-            self.set_setting("whisper_server_url", url.trim())?;
-        }
-        if let Some(token) = whisper_server_token {
-            self.set_setting("whisper_server_token", token.trim())?;
         }
         if let Some(model) = whisper_server_model {
             self.set_setting("whisper_server_model", model.trim())?;
@@ -825,9 +866,6 @@ impl Database {
                 "voice_transcription_enabled",
                 if enabled { "true" } else { "false" },
             )?;
-        }
-        if let Some(enabled) = ai_tagging_enabled {
-            self.set_setting("ai_tagging_enabled", if enabled { "true" } else { "false" })?;
         }
         if let Some(enabled) = overlay_shortcut_hints_enabled {
             self.set_setting(
@@ -891,6 +929,18 @@ impl Database {
         }
         if let Some(enabled) = board_vertical {
             self.set_setting("board_vertical", if enabled { "true" } else { "false" })?;
+        }
+        if let Some(shown) = setup_notice_local_tagging_removed {
+            self.set_setting(
+                SETUP_NOTICE_LOCAL_TAGGING_REMOVED,
+                if shown { "true" } else { "false" },
+            )?;
+        }
+        if let Some(shown) = setup_notice_custom_whisper_removed {
+            self.set_setting(
+                SETUP_NOTICE_CUSTOM_WHISPER_REMOVED,
+                if shown { "true" } else { "false" },
+            )?;
         }
 
         self.get_app_settings()
@@ -1533,6 +1583,61 @@ impl Database {
         Ok(())
     }
 
+    /// Backfill write: save `tags` only if the entry still has no tags and no
+    /// tag state (a manual Retag may have landed meanwhile). Returns whether
+    /// the tags were written. Check and write happen in one transaction.
+    pub fn set_entry_tags_if_untagged(
+        &self,
+        entry_id: i64,
+        tags: &[String],
+    ) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        if !entry_untagged_without_state(&tx, entry_id)? {
+            return Ok(false);
+        }
+        for tag in tags {
+            tx.execute(
+                "INSERT OR IGNORE INTO clipboard_tags (entry_id, tag) VALUES (?1, ?2)",
+                params![entry_id, tag],
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO clipboard_tag_state (entry_id, status) VALUES (?1, 'done')",
+            params![entry_id],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// Backfill pre-upload check: the entry still exists (not deleted / history not cleared)
+    /// and is still untagged without state. Called right before each hub request so a batch
+    /// loaded earlier never uploads entries the user has since removed.
+    pub fn is_entry_backfill_eligible(&self, entry_id: i64) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM clipboard_entries WHERE id = ?1)",
+            params![entry_id],
+            |row| row.get(0),
+        )?;
+        Ok(exists && entry_untagged_without_state(&conn, entry_id)?)
+    }
+
+    /// Backfill write: mark `skipped` only if the entry is still untouched.
+    pub fn mark_entry_skipped_if_untagged(&self, entry_id: i64) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        if !entry_untagged_without_state(&tx, entry_id)? {
+            return Ok(false);
+        }
+        tx.execute(
+            "INSERT INTO clipboard_tag_state (entry_id, status) VALUES (?1, 'skipped')",
+            params![entry_id],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
     pub fn set_entry_tag_state(&self, entry_id: i64, status: &str) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -1543,63 +1648,34 @@ impl Database {
         Ok(())
     }
 
+    /// Text entries eligible for backfill tagging, newest first (by id), strictly
+    /// below `before_id` when given: no tags and no tag state. (Rows an old
+    /// backfill wrongly marked `done`/`skipped` are re-opened by the cloud-only
+    /// migration.)
     pub fn get_untagged_text_entries(
         &self,
         limit: i64,
+        before_id: Option<i64>,
     ) -> Result<Vec<(i64, String)>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT clipboard_entries.id, clipboard_entries.text_content
              FROM clipboard_entries
-             LEFT JOIN clipboard_tags ON clipboard_tags.entry_id = clipboard_entries.id
              LEFT JOIN clipboard_tag_state ON clipboard_tag_state.entry_id = clipboard_entries.id
              WHERE clipboard_entries.content_type = 'text'
                AND clipboard_entries.text_content IS NOT NULL
                AND TRIM(clipboard_entries.text_content) != ''
-               AND clipboard_tags.entry_id IS NULL
+               AND NOT EXISTS (SELECT 1 FROM clipboard_tags
+                               WHERE clipboard_tags.entry_id = clipboard_entries.id)
                AND clipboard_tag_state.entry_id IS NULL
-             ORDER BY clipboard_entries.created_at DESC
+               AND (?2 IS NULL OR clipboard_entries.id < ?2)
+             ORDER BY clipboard_entries.id DESC
              LIMIT ?1",
         )?;
 
         let entries = stmt
-            .query_map(params![limit], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(entries)
-    }
-
-    pub fn get_text_entries_for_retag(
-        &self,
-        limit: i64,
-        offset: i64,
-    ) -> Result<Vec<(i64, String, Vec<String>)>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT clipboard_entries.id,
-                    clipboard_entries.text_content,
-                    COALESCE((SELECT GROUP_CONCAT(tag, '|')
-                              FROM clipboard_tags
-                              WHERE entry_id = clipboard_entries.id), '') AS tags
-             FROM clipboard_entries
-             WHERE clipboard_entries.content_type = 'text'
-               AND clipboard_entries.text_content IS NOT NULL
-               AND TRIM(clipboard_entries.text_content) != ''
-             ORDER BY clipboard_entries.created_at DESC
-             LIMIT ?1 OFFSET ?2",
-        )?;
-
-        let entries = stmt
-            .query_map(params![limit, offset], |row| {
-                let tags = row.get::<_, String>(2)?;
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    tags.split('|')
-                        .filter(|tag| !tag.is_empty())
-                        .map(|tag| tag.to_string())
-                        .collect(),
-                ))
+            .query_map(params![limit, before_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -1826,10 +1902,10 @@ impl Database {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn test_db() -> Database {
+    pub(crate) fn test_db() -> Database {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "
@@ -1907,6 +1983,11 @@ mod tests {
             image_height: None,
             image_byte_size: None,
         }
+    }
+
+    /// Insert a text entry and return its id.
+    pub(crate) fn insert_text(db: &Database, text: &str, hash: &str) -> i64 {
+        db.insert_entry(&make_entry(text, hash)).unwrap().0
     }
 
     // --- Insert & Dedup ---
@@ -2078,9 +2159,68 @@ mod tests {
         let (id2, _) = db.insert_entry(&make_entry("has tags", "h2")).unwrap();
         db.set_entry_tags(id2, &["tagged".to_string()]).unwrap();
 
-        let untagged = db.get_untagged_text_entries(50).unwrap();
+        let untagged = db.get_untagged_text_entries(50, None).unwrap();
         assert_eq!(untagged.len(), 1);
         assert_eq!(untagged[0].1, "no tags");
+    }
+
+    #[test]
+    fn conditional_backfill_writes_respect_existing_state() {
+        let db = test_db();
+        let id = insert_text(&db, "plain", "h1");
+        assert!(db
+            .set_entry_tags_if_untagged(id, &["a".to_string()])
+            .unwrap());
+        assert!(!db
+            .set_entry_tags_if_untagged(id, &["b".to_string()])
+            .unwrap());
+        assert!(!db.mark_entry_skipped_if_untagged(id).unwrap());
+        assert_eq!(
+            db.get_entry_by_id(id).unwrap().unwrap().tags,
+            vec!["a".to_string()]
+        );
+
+        let skipped = insert_text(&db, "skip me", "h2");
+        db.set_entry_tag_state(skipped, "skipped").unwrap();
+        assert!(!db
+            .set_entry_tags_if_untagged(skipped, &["x".to_string()])
+            .unwrap());
+        assert!(db
+            .get_entry_by_id(skipped)
+            .unwrap()
+            .unwrap()
+            .tags
+            .is_empty());
+    }
+
+    #[test]
+    fn untagged_entries_eligibility_by_tag_state() {
+        let db = test_db();
+        let fresh = insert_text(&db, "fresh", "h1");
+        let wrongly_done = insert_text(&db, "old done", "h2");
+        db.set_entry_tag_state(wrongly_done, "done").unwrap();
+        let skipped = insert_text(&db, "skipped", "h3");
+        db.set_entry_tag_state(skipped, "skipped").unwrap();
+        let tagged = insert_text(&db, "tagged", "h4");
+        db.set_entry_tags(tagged, &["rust".to_string()]).unwrap();
+
+        let ids: Vec<i64> = db
+            .get_untagged_text_entries(50, None)
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        // `done` without tags is re-opened by the migration, not by the query.
+        assert_eq!(ids, vec![fresh]);
+        let fresh2 = insert_text(&db, "fresh 2", "h5");
+
+        let below: Vec<i64> = db
+            .get_untagged_text_entries(50, Some(fresh2))
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(below, vec![fresh]);
     }
 
     // --- Settings ---
@@ -2089,17 +2229,19 @@ mod tests {
     fn default_settings() {
         let db = test_db();
         let s = db.get_app_settings().unwrap();
-        assert_eq!(s.ollama_model, "qwen3:4b-instruct-2507-q4_K_M");
         assert_eq!(s.retention_days, 30);
+        assert_eq!(s.whisper_server_model, "whisper-1");
         assert!(!s.hub_enabled);
+        assert!(!s.setup_notice_local_tagging_removed);
+        assert!(!s.setup_notice_custom_whisper_removed);
     }
 
     #[test]
     fn update_settings() {
         let db = test_db();
         db.update_app_settings(
-            Some("custom-model"),
             Some(7),
+            Some("whisper-large"),
             None,
             None,
             None,
@@ -2118,15 +2260,15 @@ mod tests {
             None,
             None,
             None,
-            None,
-            None,
-            None,
+            Some(true),
             None,
         )
         .unwrap();
         let s = db.get_app_settings().unwrap();
-        assert_eq!(s.ollama_model, "custom-model");
         assert_eq!(s.retention_days, 7);
+        assert_eq!(s.whisper_server_model, "whisper-large");
+        assert!(s.setup_notice_local_tagging_removed);
+        assert!(!s.setup_notice_custom_whisper_removed);
     }
 
     #[test]
@@ -2138,7 +2280,7 @@ mod tests {
     }
 
     #[test]
-    fn hub_tagging_config_enables_retag_without_ollama() {
+    fn hub_tagging_config_enables_retag() {
         let db = test_db();
         db.set_setting("hub_enabled", "true").unwrap();
         db.set_setting("hub_tagging_enabled", "true").unwrap();
@@ -2149,7 +2291,6 @@ mod tests {
     #[test]
     fn hub_text_auto_tag_requires_chat_model() {
         let db = test_db();
-        db.set_setting("ai_tagging_enabled", "false").unwrap();
         db.set_setting("hub_enabled", "true").unwrap();
         db.set_setting("hub_tagging_enabled", "true").unwrap();
         db.set_setting("hub_token", "secret").unwrap();
@@ -2163,6 +2304,124 @@ mod tests {
     fn retag_not_ready_when_tagging_disabled_everywhere() {
         let db = test_db();
         assert!(!crate::tagging::is_retag_ready(&db));
+    }
+
+    // --- Cloud-only migration ---
+
+    fn raw_setting(db: &Database, key: &str) -> Option<String> {
+        let conn = db.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        )
+        .ok()
+    }
+
+    #[test]
+    fn cloud_only_migration_fresh_user_enables_nothing() {
+        let db = test_db();
+        db.migrate_cloud_only_if_needed().unwrap();
+        let s = db.get_app_settings().unwrap();
+        assert!(!s.hub_enabled);
+        assert!(!s.hub_tagging_enabled);
+        assert!(!s.hub_transcribe_enabled);
+        assert!(!s.setup_notice_local_tagging_removed);
+        assert!(!s.setup_notice_custom_whisper_removed);
+        assert_eq!(
+            raw_setting(&db, CLOUD_ONLY_MIGRATION_MARKER).as_deref(),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn cloud_only_migration_local_tagging_user_keeps_hub_tagging_off() {
+        let db = test_db();
+        db.set_setting("ai_tagging_enabled", "true").unwrap();
+        db.set_setting("ollama_model", "qwen3:4b").unwrap();
+        db.set_setting("hub_enabled", "true").unwrap();
+        db.set_setting("hub_token", "secret").unwrap();
+        db.set_setting("hub_tagging_enabled", "false").unwrap();
+        // Warm the cache so the migration must refresh it.
+        let _ = db.get_app_settings().unwrap();
+
+        db.migrate_cloud_only_if_needed().unwrap();
+
+        let s = db.get_app_settings().unwrap();
+        assert!(s.setup_notice_local_tagging_removed);
+        assert!(!s.setup_notice_custom_whisper_removed);
+        assert!(s.hub_enabled);
+        assert!(!s.hub_tagging_enabled);
+        assert_eq!(s.hub_token, "secret");
+        assert_eq!(raw_setting(&db, "ai_tagging_enabled"), None);
+        assert_eq!(raw_setting(&db, "ollama_model"), None);
+        assert_eq!(db.get_setting("ai_tagging_enabled").unwrap(), None);
+    }
+
+    #[test]
+    fn cloud_only_migration_custom_whisper_user_gets_notice() {
+        let db = test_db();
+        db.set_setting(
+            "whisper_server_url",
+            "http://localhost:8080/v1/audio/transcriptions",
+        )
+        .unwrap();
+        db.set_setting("whisper_server_token", "tok").unwrap();
+        db.set_setting("whisper_server_model", "large-v3").unwrap();
+
+        db.migrate_cloud_only_if_needed().unwrap();
+
+        let s = db.get_app_settings().unwrap();
+        assert!(s.setup_notice_custom_whisper_removed);
+        assert!(!s.setup_notice_local_tagging_removed);
+        assert!(!s.hub_transcribe_enabled);
+        assert_eq!(s.whisper_server_model, "large-v3");
+        assert_eq!(raw_setting(&db, "whisper_server_url"), None);
+        assert_eq!(raw_setting(&db, "whisper_server_token"), None);
+    }
+
+    #[test]
+    fn cloud_only_migration_reopens_untagged_done_rows_only() {
+        let db = test_db();
+        let done_empty = insert_text(&db, "plain", "h1");
+        db.set_entry_tag_state(done_empty, "done").unwrap();
+        let skipped_empty = insert_text(&db, "plain 2", "h2");
+        db.set_entry_tag_state(skipped_empty, "skipped").unwrap();
+        let tagged = insert_text(&db, "tagged", "h3");
+        db.set_entry_tags(tagged, &["rust".to_string()]).unwrap();
+
+        db.migrate_cloud_only_if_needed().unwrap();
+
+        let ids: Vec<i64> = db
+            .get_untagged_text_entries(50, None)
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(ids, vec![skipped_empty, done_empty]);
+        assert_eq!(
+            db.get_entry_by_id(tagged).unwrap().unwrap().tags,
+            vec!["rust".to_string()]
+        );
+    }
+
+    #[test]
+    fn cloud_only_migration_rerun_is_noop() {
+        let db = test_db();
+        db.set_setting("ai_tagging_enabled", "true").unwrap();
+        db.migrate_cloud_only_if_needed().unwrap();
+        // User dismisses the notice; a legacy key reappearing must not re-trigger it.
+        db.set_setting(SETUP_NOTICE_LOCAL_TAGGING_REMOVED, "false")
+            .unwrap();
+        db.set_setting("ai_tagging_enabled", "true").unwrap();
+        let skipped = insert_text(&db, "plain", "h1");
+        db.set_entry_tag_state(skipped, "skipped").unwrap();
+
+        db.migrate_cloud_only_if_needed().unwrap();
+
+        let s = db.get_app_settings().unwrap();
+        assert!(!s.setup_notice_local_tagging_removed);
+        assert!(db.get_untagged_text_entries(50, None).unwrap().is_empty());
     }
 
     // --- Collections ---
@@ -2575,11 +2834,9 @@ mod tests {
             None,
             None,
             None,
-            None,
-            None,
-            None,
-            None,
             Some(true),
+            None,
+            None,
             None,
             None,
             None,
@@ -2603,11 +2860,9 @@ mod tests {
             None,
             None,
             None,
-            None,
-            None,
-            None,
-            None,
             Some(false),
+            None,
+            None,
             None,
             None,
             None,

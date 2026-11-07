@@ -59,10 +59,7 @@ export interface OverlayTagCounts {
 }
 
 export interface AppSettings {
-  ollama_model: string;
   retention_days: number;
-  whisper_server_url: string;
-  whisper_server_token: string;
   whisper_server_model: string;
   voice_shortcut: string;
   selected_microphone: string;
@@ -81,27 +78,14 @@ export interface AppSettings {
   voice_selected_text: boolean;
   board_vertical: boolean;
   voice_transcription_enabled: boolean;
-  ai_tagging_enabled: boolean;
   overlay_shortcut_hints_enabled: boolean;
+  setup_notice_local_tagging_removed: boolean;
+  setup_notice_custom_whisper_removed: boolean;
 }
 
 export interface AudioInputDevice {
   name: string;
   is_default: boolean;
-}
-
-export interface ModelOption {
-  value: string;
-  label: string;
-  memory_gb: number;
-  fits: boolean;
-  installed: boolean;
-}
-
-export interface ModelCatalog {
-  total_memory_gb: number;
-  recommended_memory_gb: number;
-  options: ModelOption[];
 }
 
 /** `entry-tagged` Tauri event payload (Rust: `db::EntryTaggedPayload`). */

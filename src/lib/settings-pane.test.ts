@@ -25,6 +25,14 @@ describe("parseSettingsPaneFromQuery", () => {
     assert.equal(parseSettingsPaneFromQuery("?pane=QuickMenu"), null);
   });
 
+  it("rejects the removed Local AI pane", () => {
+    assert.equal(parseSettingsPaneFromQuery("?pane=ai"), null);
+  });
+
+  it("lists General first", () => {
+    assert.equal(SETTINGS_PANE_IDS[0], "general");
+  });
+
   it("ignores unrelated query params", () => {
     assert.equal(parseSettingsPaneFromQuery("?pane=voice&foo=bar"), "voice");
   });
@@ -44,9 +52,9 @@ describe("resolveSettingsPaneUpdate", () => {
 });
 
 describe("coerceSettingsPane", () => {
-  it("defaults missing values to hub", () => {
-    assert.equal(coerceSettingsPane(null), "hub");
-    assert.equal(coerceSettingsPane(undefined), "hub");
+  it("defaults missing values to general", () => {
+    assert.equal(coerceSettingsPane(null), "general");
+    assert.equal(coerceSettingsPane(undefined), "general");
   });
 
   it("returns a provided pane", () => {
