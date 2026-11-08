@@ -87,7 +87,11 @@ vkovalskii.com moves hosts again, re-create the `/copyosity/` block first.
   Verify with `python3 -c "import tarfile;..."` — `tar tzf` hides them.
 - Install must run with `TMPDIR` on the **app's own volume** or `rename()` fails
   with EXDEV (os error 18) across volumes — the `install_update` Rust command
-  handles this; the Settings button uses it.
+  handles this. Every install goes through it: the Settings button
+  (`restart` default true) and the main window's background check on launch +
+  every 6 h (`restart: false`, applies on next launch). It holds a one-install
+  lock and remembers the version already staged on disk, so periodic checks
+  don't re-download it.
 - The menu-bar exit guard only prevents code-less `ExitRequested` so the updater
   relaunch (which carries `RESTART_EXIT_CODE`) can restart the app.
 - The fix ships in the _installing_ build, so each of these required one manual

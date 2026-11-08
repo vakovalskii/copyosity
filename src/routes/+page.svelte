@@ -19,7 +19,7 @@
     excludeFromHistoryLabel,
     invokeErrorMessage,
   } from "$lib/exclusion-label";
-  import { autoUpdateOnLaunch, notify } from "$lib/updater";
+  import { notify, startBackgroundUpdates } from "$lib/updater";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
   import QuickLookPanel from "$lib/components/QuickLookPanel.svelte";
   import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
@@ -728,8 +728,9 @@
     void loadLayout();
     loadCollections();
 
-    // Background: check for updates on launch, auto-install, and notify.
-    void autoUpdateOnLaunch();
+    // Background: check for updates on launch and every few hours, install
+    // without restarting, and notify once per version.
+    const stopBackgroundUpdates = startBackgroundUpdates();
 
     let reloadTimer: ReturnType<typeof setTimeout>;
     function scheduleReload() {
@@ -982,6 +983,7 @@
     window.addEventListener("keydown", handleKeydown, true);
 
     return () => {
+      stopBackgroundUpdates();
       clearHideTimer();
       clearHideTransitionHandler();
       clearRevealTimer();

@@ -1872,7 +1872,63 @@ fn agent_capture_active_window() -> Option<String> {
     }
 }
 
-/// Install the pending update, then relaunch.
+/// Set while an update is being downloaded/installed. The background check in
+/// the main window and the Settings button share one install path, and two
+/// concurrent installs would race on the same bundle rename.
+static UPDATE_INSTALLING: AtomicBool = AtomicBool::new(false);
+
+/// Version already written to disk by this process. The running binary is still
+/// the old one until a restart, so the updater keeps offering the same version;
+/// remembering it avoids downloading and replacing the bundle again every check.
+static UPDATE_STAGED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+struct UpdateInstallGuard;
+
+impl UpdateInstallGuard {
+    fn acquire() -> Result<Self, String> {
+        if UPDATE_INSTALLING.swap(true, Ordering::SeqCst) {
+            return Err("An update is already being installed. Try again in a moment.".to_string());
+        }
+        Ok(Self)
+    }
+}
+
+impl Drop for UpdateInstallGuard {
+    fn drop(&mut self) {
+        UPDATE_INSTALLING.store(false, Ordering::SeqCst);
+    }
+}
+
+fn staged_update_version() -> Option<String> {
+    UPDATE_STAGED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+/// What an install call should do with a version the updater offers, given the
+/// version already staged on disk by this process.
+#[derive(Debug, PartialEq, Eq)]
+enum UpdateAction {
+    /// Nothing newer than the running app and nothing staged.
+    UpToDate,
+    /// The offered version is already on disk; only a restart is missing.
+    AlreadyStaged(String),
+    /// Download and install this version.
+    Install,
+}
+
+fn plan_update(offered: Option<&str>, staged: Option<&str>) -> UpdateAction {
+    match (offered, staged) {
+        (Some(o), Some(s)) if o == s => UpdateAction::AlreadyStaged(s.to_string()),
+        (Some(_), _) => UpdateAction::Install,
+        (None, Some(s)) => UpdateAction::AlreadyStaged(s.to_string()),
+        (None, None) => UpdateAction::UpToDate,
+    }
+}
+
+/// Point the updater's temp dir at the app's own volume and refuse locations
+/// where self-update cannot work.
 ///
 /// The updater plugin extracts the new bundle into `$TMPDIR` (usually
 /// `/var/folders/...`) and `rename()`s it over the running app. When the app and
@@ -1883,10 +1939,7 @@ fn agent_capture_active_window() -> Option<String> {
 /// read-only quarantine mount) or a read-only volume (a mounted `.dmg`, which
 /// lives under `/Volumes/…`) where self-update is impossible — in either case
 /// the user must drag Copyosity into /Applications first.
-#[tauri::command]
-async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri_plugin_updater::UpdaterExt;
-
+fn prepare_update_location() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -1928,14 +1981,50 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         }
         std::env::set_var("TMPDIR", parent);
     }
+    Ok(())
+}
+
+/// Check for an update and install it through the same-volume path.
+///
+/// `restart` (default `true`, the Settings button) relaunches into the new
+/// version. The background check passes `false`: the bundle is replaced on
+/// disk and the new version applies on the next launch.
+///
+/// Returns the version that is now installed but not yet running, or `None`
+/// when the app is up to date.
+#[tauri::command]
+async fn install_update(
+    app: tauri::AppHandle,
+    restart: Option<bool>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let restart = restart.unwrap_or(true);
+    let guard = UpdateInstallGuard::acquire()?;
+    prepare_update_location()?;
 
     let update = app
         .updater()
         .map_err(|e| e.to_string())?
         .check()
         .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "No update available".to_string())?;
+        .map_err(|e| e.to_string())?;
+
+    let staged = staged_update_version();
+    let update = match plan_update(
+        update.as_ref().map(|u| u.version.as_str()),
+        staged.as_deref(),
+    ) {
+        UpdateAction::UpToDate => return Ok(None),
+        UpdateAction::AlreadyStaged(version) => {
+            if restart {
+                drop(guard);
+                app.restart();
+            }
+            return Ok(Some(version));
+        }
+        UpdateAction::Install => update.expect("plan_update returns Install only for Some"),
+    };
 
     let progress_app = app.clone();
     let mut downloaded: u64 = 0;
@@ -1953,8 +2042,14 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
 
+    let version = update.version.clone();
+    *UPDATE_STAGED.lock().unwrap_or_else(|e| e.into_inner()) = Some(version.clone());
     let _ = app.emit("update-progress", Some(100u32));
-    app.restart();
+    if restart {
+        drop(guard);
+        app.restart();
+    }
+    Ok(Some(version))
 }
 
 /// Snap the palette window to the nearest screen work-area edge when the user
@@ -2516,5 +2611,49 @@ mod overlay_width_tests {
         assert_eq!(resolve_vertical_win_width(5000.0, 1.0, 2560), 720);
         // A narrow work area wins over the preferred width but not below the minimum.
         assert_eq!(resolve_vertical_win_width(600.0, 1.0, 200), 360);
+    }
+}
+
+#[cfg(test)]
+mod update_install_tests {
+    use super::*;
+
+    #[test]
+    fn plan_update_installs_a_new_version() {
+        assert_eq!(plan_update(Some("1.2.0"), None), UpdateAction::Install);
+    }
+
+    #[test]
+    fn plan_update_skips_a_version_already_on_disk() {
+        assert_eq!(
+            plan_update(Some("1.2.0"), Some("1.2.0")),
+            UpdateAction::AlreadyStaged("1.2.0".to_string())
+        );
+    }
+
+    #[test]
+    fn plan_update_installs_a_newer_release_over_a_staged_one() {
+        assert_eq!(
+            plan_update(Some("1.3.0"), Some("1.2.0")),
+            UpdateAction::Install
+        );
+    }
+
+    #[test]
+    fn plan_update_reports_staged_version_when_nothing_newer() {
+        assert_eq!(
+            plan_update(None, Some("1.2.0")),
+            UpdateAction::AlreadyStaged("1.2.0".to_string())
+        );
+        assert_eq!(plan_update(None, None), UpdateAction::UpToDate);
+    }
+
+    #[test]
+    fn install_guard_rejects_a_second_install_until_released() {
+        let first = UpdateInstallGuard::acquire().expect("first install starts");
+        assert!(UpdateInstallGuard::acquire().is_err());
+        drop(first);
+        let again = UpdateInstallGuard::acquire().expect("lock released on drop");
+        drop(again);
     }
 }

@@ -18,6 +18,8 @@ commands.allow = [
   "resize_main_window",
   "open_settings_window",
   "copy_entry",
+  # Background update check (launch + every few hours); same guarded install path as Settings.
+  "install_update",
   "activate_entry",
   "paste_entry",
   "retag_entry",

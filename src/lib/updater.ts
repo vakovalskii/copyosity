@@ -1,4 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 import {
   isPermissionGranted,
   requestPermission,
@@ -31,31 +32,48 @@ export async function notify(title: string, body: string): Promise<void> {
   }
 }
 
+/** How often the menu-bar app re-checks while it keeps running. */
+export const BACKGROUND_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+let notifiedVersion: string | null = null;
+
 /**
- * On launch: check for an update and, if one is available, download + install it
- * silently, then notify the user. The new version applies on the next launch
- * (no forced restart mid-session). Best-effort — never throws.
+ * Check for an update and, if one is available, install it silently through
+ * the Rust `install_update` command (temp dir on the app's own volume, one
+ * install at a time) without restarting. The new version applies on the next
+ * launch; the user is notified once per version. Best-effort — never throws.
  */
-export async function autoUpdateOnLaunch(): Promise<void> {
+export async function backgroundUpdate(reason: "launch" | "periodic"): Promise<void> {
   try {
-    appendUpdateLog(`launch: running ${await getVersion()}, checking for updates…`);
-    const update = await check();
-    if (!update) {
-      appendUpdateLog("launch: already up to date");
+    appendUpdateLog(`${reason}: running ${await getVersion()}, checking for updates…`);
+    const installed = await invoke<string | null>("install_update", { restart: false });
+    if (!installed) {
+      appendUpdateLog(`${reason}: already up to date`);
       return;
     }
-    appendUpdateLog(`launch: update ${update.version} found — downloading + installing…`);
-    await notify("Copyosity update available", `Downloading version ${update.version}…`);
-    await update.downloadAndInstall();
-    appendUpdateLog(`launch: installed ${update.version} — restart to apply`);
-    await notify(
-      "Copyosity updated",
-      `Version ${update.version} installed — restart Copyosity to apply.`,
-    );
+    appendUpdateLog(`${reason}: ${installed} installed — restart to apply`);
+    if (notifiedVersion !== installed) {
+      notifiedVersion = installed;
+      await notify(
+        "Copyosity updated",
+        `Version ${installed} installed — restart Copyosity to apply.`,
+      );
+    }
   } catch (e) {
-    // Offline / transient failure — the Settings → Updates pane can retry.
-    appendUpdateLog(`launch: ERROR — ${errorToString(e)}`);
+    // Offline / transient failure — the next periodic check or the
+    // Settings → Updates pane retries.
+    appendUpdateLog(`${reason}: ERROR — ${errorToString(e)}`);
   }
+}
+
+/**
+ * Check on launch, then every {@link BACKGROUND_UPDATE_INTERVAL_MS} while the
+ * app stays in the menu bar. Returns a function that stops the periodic checks.
+ */
+export function startBackgroundUpdates(): () => void {
+  void backgroundUpdate("launch");
+  const timer = setInterval(() => void backgroundUpdate("periodic"), BACKGROUND_UPDATE_INTERVAL_MS);
+  return () => clearInterval(timer);
 }
 
 /** Current running app version (from tauri.conf.json). */
