@@ -1882,6 +1882,11 @@ static UPDATE_INSTALLING: AtomicBool = AtomicBool::new(false);
 /// remembering it avoids downloading and replacing the bundle again every check.
 static UPDATE_STAGED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+/// Whole-request limit for reading `latest.json` from each endpoint.
+const UPDATE_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Whole-request limit for the ~6 MB updater tarball, generous for slow links.
+const UPDATE_DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 struct UpdateInstallGuard;
 
 impl UpdateInstallGuard {
@@ -1918,9 +1923,24 @@ enum UpdateAction {
     Install,
 }
 
+/// `true` when `offered` is a strictly newer semver than `staged`. Unparseable
+/// versions never count as newer, so bad metadata can't replace a staged build.
+fn is_newer_version(offered: &str, staged: &str) -> bool {
+    match (
+        semver::Version::parse(offered),
+        semver::Version::parse(staged),
+    ) {
+        (Ok(o), Ok(s)) => o > s,
+        _ => false,
+    }
+}
+
+/// Endpoints are compared against the *running* version, so a stale mirror can
+/// still offer something older than the build already staged on disk; only a
+/// strictly newer release may replace it.
 fn plan_update(offered: Option<&str>, staged: Option<&str>) -> UpdateAction {
     match (offered, staged) {
-        (Some(o), Some(s)) if o == s => UpdateAction::AlreadyStaged(s.to_string()),
+        (Some(o), Some(s)) if !is_newer_version(o, s) => UpdateAction::AlreadyStaged(s.to_string()),
         (Some(_), _) => UpdateAction::Install,
         (None, Some(s)) => UpdateAction::AlreadyStaged(s.to_string()),
         (None, None) => UpdateAction::UpToDate,
@@ -2003,8 +2023,12 @@ async fn install_update(
     let guard = UpdateInstallGuard::acquire()?;
     prepare_update_location()?;
 
+    // Bounded so a stalled endpoint can't hold the install lock forever and
+    // block the Settings button and every later periodic check.
     let update = app
-        .updater()
+        .updater_builder()
+        .timeout(UPDATE_CHECK_TIMEOUT)
+        .build()
         .map_err(|e| e.to_string())?
         .check()
         .await
@@ -2025,6 +2049,8 @@ async fn install_update(
         }
         UpdateAction::Install => update.expect("plan_update returns Install only for Some"),
     };
+    let mut update = update;
+    update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
 
     let progress_app = app.clone();
     let mut downloaded: u64 = 0;
@@ -2636,6 +2662,19 @@ mod update_install_tests {
         assert_eq!(
             plan_update(Some("1.3.0"), Some("1.2.0")),
             UpdateAction::Install
+        );
+    }
+
+    #[test]
+    fn plan_update_never_downgrades_a_staged_version() {
+        // Stale mirror offers 1.2.0 after 1.3.0 was staged from GitHub.
+        assert_eq!(
+            plan_update(Some("1.2.0"), Some("1.3.0")),
+            UpdateAction::AlreadyStaged("1.3.0".to_string())
+        );
+        assert_eq!(
+            plan_update(Some("not-a-version"), Some("1.3.0")),
+            UpdateAction::AlreadyStaged("1.3.0".to_string())
         );
     }
 

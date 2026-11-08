@@ -44,6 +44,7 @@ tauri-plugin-process = "2"
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+semver = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 arboard = "3"
 chrono = { version = "0.4", features = ["serde"] }
