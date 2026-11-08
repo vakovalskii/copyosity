@@ -517,8 +517,9 @@ fn now_ms() -> u64 {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Capture the real temp dir before anything can redirect TMPDIR.
-    let _ = app_temp_dir();
+    // Capture the real per-user temp dir before anything can redirect TMPDIR,
+    // and undo a TMPDIR inherited from an older installer's restart.
+    normalize_temp_dir();
     let builder = {
         let b = tauri::Builder::default()
             .plugin(tauri_plugin_opener::init())
@@ -1894,7 +1895,54 @@ static UPDATE_STAGED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(N
 static APP_TEMP_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
 pub(crate) fn app_temp_dir() -> std::path::PathBuf {
-    APP_TEMP_DIR.get_or_init(std::env::temp_dir).clone()
+    APP_TEMP_DIR
+        .get_or_init(|| user_temp_dir().unwrap_or_else(std::env::temp_dir))
+        .clone()
+}
+
+/// The per-user private temp dir macOS assigns (`/var/folders/…/T/`, 0700),
+/// read from the system rather than from `TMPDIR`.
+///
+/// `TMPDIR` is inherited across `app.restart()`: 1.1.0's Settings installer set
+/// it to the bundle's folder (`/Applications`, world-readable) right before
+/// relaunching, so the next version would start with clipboard temp files
+/// pointed there.
+fn user_temp_dir() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStringExt;
+
+        let mut buf = vec![0u8; 1024];
+        // SAFETY: confstr writes at most buf.len() bytes (NUL-terminated) and
+        // returns the length it needs including the NUL, or 0 on error.
+        let needed = unsafe {
+            libc::confstr(
+                libc::_CS_DARWIN_USER_TEMP_DIR,
+                buf.as_mut_ptr().cast::<libc::c_char>(),
+                buf.len(),
+            )
+        };
+        if needed == 0 || needed > buf.len() {
+            return None;
+        }
+        buf.truncate(needed - 1);
+        let path = std::path::PathBuf::from(std::ffi::OsString::from_vec(buf));
+        path.is_dir().then_some(path)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// Pin [`app_temp_dir`] and reset an inherited `TMPDIR` to it, so libraries
+/// and child processes also stop using a shared folder left by an older
+/// installer. Call first thing in `run()`, before other threads start.
+fn normalize_temp_dir() {
+    let dir = app_temp_dir();
+    if std::env::var_os("TMPDIR").as_deref() != Some(dir.as_os_str()) {
+        std::env::set_var("TMPDIR", &dir);
+    }
 }
 
 /// First background check after launch; leaves startup (tray, panels) alone.
@@ -2868,6 +2916,23 @@ mod update_install_tests {
             Err(e) => e,
         };
         assert!(err.contains("Applications folder"), "{err}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_temp_dir_is_the_private_per_user_folder_not_tmpdir() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let dir = user_temp_dir().expect("macOS assigns a per-user temp dir");
+        assert!(dir.starts_with("/var/folders") || dir.starts_with("/private/var/folders"));
+        let meta = std::fs::metadata(&dir).unwrap();
+        assert_eq!(
+            meta.permissions().mode() & 0o077,
+            0,
+            "not readable by others"
+        );
+        assert_eq!(meta.uid(), unsafe { libc::getuid() });
+        assert_eq!(app_temp_dir(), dir);
     }
 
     #[test]

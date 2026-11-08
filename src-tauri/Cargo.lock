@@ -603,6 +603,7 @@ dependencies = [
  "hex",
  "hound",
  "image",
+ "libc",
  "objc",
  "objc2",
  "objc2-app-kit",
