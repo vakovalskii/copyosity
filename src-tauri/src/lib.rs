@@ -558,6 +558,7 @@ pub fn run() {
                 .expect("Failed to get app data dir");
             let db = Arc::new(Database::new(app_dir).expect("Failed to initialize database"));
             app.manage(db.clone());
+            spawn_background_updates(app.handle().clone());
 
             // --- TRAY STARTUP ---
             // Agent guardrail: docs/architecture/macos-tray-menu.md — read before editing.
@@ -1896,6 +1897,79 @@ pub(crate) fn app_temp_dir() -> std::path::PathBuf {
     APP_TEMP_DIR.get_or_init(std::env::temp_dir).clone()
 }
 
+/// First background check after launch; leaves startup (tray, panels) alone.
+const BACKGROUND_UPDATE_FIRST_DELAY: std::time::Duration = std::time::Duration::from_secs(20);
+/// Re-check interval while the menu-bar app keeps running.
+const BACKGROUND_UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+/// Last version the user was notified about, so each version notifies once.
+static BACKGROUND_UPDATE_NOTIFIED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Check and silently install updates on launch and every
+/// [`BACKGROUND_UPDATE_INTERVAL`], for the whole process lifetime.
+///
+/// Runs in Rust, not in the main webview: that window is hidden almost all
+/// the time, and WebKit may suspend timers in hidden views, so a JS interval
+/// would stop firing until the panel is shown. Release builds only — a dev
+/// binary is not inside an app bundle.
+fn spawn_background_updates(app: tauri::AppHandle) {
+    if cfg!(debug_assertions) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(BACKGROUND_UPDATE_FIRST_DELAY).await;
+        let mut reason = "launch";
+        loop {
+            background_update_once(&app, reason).await;
+            reason = "periodic";
+            tokio::time::sleep(BACKGROUND_UPDATE_INTERVAL).await;
+        }
+    });
+}
+
+/// Append a line to the user-visible update log (Settings → Updates). The main
+/// window persists it; the line also goes to stderr for Console.app.
+fn emit_update_log(app: &tauri::AppHandle, line: String) {
+    eprintln!("[updater] {line}");
+    let _ = app.emit("update-log", line);
+}
+
+async fn background_update_once(app: &tauri::AppHandle, reason: &str) {
+    let running = app.package_info().version.to_string();
+    emit_update_log(
+        app,
+        format!("{reason}: running {running}, checking for updates…"),
+    );
+    match run_update_install(app.clone(), false).await {
+        Ok(None) => emit_update_log(app, format!("{reason}: already up to date")),
+        Ok(Some(version)) => {
+            emit_update_log(
+                app,
+                format!("{reason}: {version} installed — restart to apply"),
+            );
+            let first_time = {
+                let mut notified = BACKGROUND_UPDATE_NOTIFIED
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let first = notified.as_deref() != Some(version.as_str());
+                *notified = Some(version.clone());
+                first
+            };
+            if first_time {
+                use tauri_plugin_notification::NotificationExt;
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("Copyosity updated")
+                    .body(format!(
+                        "Version {version} installed — restart Copyosity to apply."
+                    ))
+                    .show();
+            }
+        }
+        Err(e) => emit_update_log(app, format!("{reason}: ERROR — {e}")),
+    }
+}
+
 /// Whole-request limit for reading `latest.json` from each endpoint.
 const UPDATE_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// Whole-request limit for the ~6 MB updater tarball, generous for slow links.
@@ -2064,9 +2138,15 @@ async fn install_update(
     app: tauri::AppHandle,
     restart: Option<bool>,
 ) -> Result<Option<String>, String> {
+    run_update_install(app, restart.unwrap_or(true)).await
+}
+
+async fn run_update_install(
+    app: tauri::AppHandle,
+    restart: bool,
+) -> Result<Option<String>, String> {
     use tauri_plugin_updater::UpdaterExt;
 
-    let restart = restart.unwrap_or(true);
     let guard = UpdateInstallGuard::acquire()?;
     let bundle_parent = update_bundle_parent()?;
 

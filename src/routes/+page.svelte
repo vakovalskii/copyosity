@@ -19,7 +19,8 @@
     excludeFromHistoryLabel,
     invokeErrorMessage,
   } from "$lib/exclusion-label";
-  import { notify, startBackgroundUpdates } from "$lib/updater";
+  import { notify } from "$lib/updater";
+  import { appendUpdateLog } from "$lib/update-log";
   import ClipboardCard from "$lib/components/ClipboardCard.svelte";
   import QuickLookPanel from "$lib/components/QuickLookPanel.svelte";
   import KeyboardHints, { type KeyboardHint } from "$lib/components/KeyboardHints.svelte";
@@ -728,9 +729,9 @@
     void loadLayout();
     loadCollections();
 
-    // Background: check for updates on launch and every few hours, install
-    // without restarting, and notify once per version.
-    const stopBackgroundUpdates = startBackgroundUpdates();
+    // Updates are checked and installed in Rust (launch + every 6 h); persist
+    // its log lines so Settings → Updates can show them.
+    const unlistenUpdateLog = listen<string>("update-log", (e) => appendUpdateLog(e.payload));
 
     let reloadTimer: ReturnType<typeof setTimeout>;
     function scheduleReload() {
@@ -983,7 +984,7 @@
     window.addEventListener("keydown", handleKeydown, true);
 
     return () => {
-      stopBackgroundUpdates();
+      unlistenUpdateLog.then((fn) => fn());
       clearHideTimer();
       clearHideTransitionHandler();
       clearRevealTimer();
