@@ -21,7 +21,7 @@ const GIF_TEMP_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[cfg(target_os = "macos")]
 pub fn gif_temp_dir() -> PathBuf {
-    std::env::temp_dir().join("copyosity-gif-paste")
+    crate::app_temp_dir().join("copyosity-gif-paste")
 }
 
 /// How a clipboard write should be treated for history and pasteboard semantics.

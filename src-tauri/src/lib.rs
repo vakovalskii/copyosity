@@ -517,6 +517,8 @@ fn now_ms() -> u64 {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Capture the real temp dir before anything can redirect TMPDIR.
+    let _ = app_temp_dir();
     let builder = {
         let b = tauri::Builder::default()
             .plugin(tauri_plugin_opener::init())
@@ -1882,6 +1884,18 @@ static UPDATE_INSTALLING: AtomicBool = AtomicBool::new(false);
 /// remembering it avoids downloading and replacing the bundle again every check.
 static UPDATE_STAGED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+/// The system temp dir as it was before any update could redirect `TMPDIR`.
+///
+/// `UpdateTmpDir` points `TMPDIR` at an install-only folder and deletes it
+/// afterwards; app temp files (GIF paste, window screenshots) must never land
+/// there, or a paste in flight loses its file. Everything except the updater
+/// uses this instead of `std::env::temp_dir()`.
+static APP_TEMP_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+pub(crate) fn app_temp_dir() -> std::path::PathBuf {
+    APP_TEMP_DIR.get_or_init(std::env::temp_dir).clone()
+}
+
 /// Whole-request limit for reading `latest.json` from each endpoint.
 const UPDATE_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// Whole-request limit for the ~6 MB updater tarball, generous for slow links.
@@ -1994,6 +2008,8 @@ struct UpdateTmpDir {
 
 impl UpdateTmpDir {
     fn enter(parent: &std::path::Path) -> Result<Self, String> {
+        // Pin the real temp dir for the rest of the app before redirecting.
+        let _ = app_temp_dir();
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
@@ -2747,6 +2763,10 @@ mod update_install_tests {
         let tmp = UpdateTmpDir::enter(&parent).expect("writable parent");
         let dir = tmp.dir.clone();
         assert_eq!(std::env::var_os("TMPDIR").as_deref(), Some(dir.as_os_str()));
+        // App temp files never follow the redirect into the install folder,
+        // which is deleted when the install ends.
+        assert!(!app_temp_dir().starts_with(&dir));
+        assert!(!crate::clipboard_write::gif_temp_dir().starts_with(&dir));
         assert!(dir.starts_with(&parent));
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
         assert_eq!(
