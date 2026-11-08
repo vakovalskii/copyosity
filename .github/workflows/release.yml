@@ -46,7 +46,7 @@ jobs:
   build:
     name: Build (${{ matrix.arch }})
     needs: audit
-    runs-on: macos-14 # Apple Silicon runner (cross-compiles x86_64 when needed)
+    runs-on: macos-15 # Apple Silicon runner (cross-compiles x86_64 when needed)
     strategy:
       fail-fast: false
       matrix:

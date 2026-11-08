@@ -517,6 +517,9 @@ fn now_ms() -> u64 {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Capture the real per-user temp dir before anything can redirect TMPDIR,
+    // and undo a TMPDIR inherited from an older installer's restart.
+    normalize_temp_dir();
     let builder = {
         let b = tauri::Builder::default()
             .plugin(tauri_plugin_opener::init())
@@ -556,6 +559,7 @@ pub fn run() {
                 .expect("Failed to get app data dir");
             let db = Arc::new(Database::new(app_dir).expect("Failed to initialize database"));
             app.manage(db.clone());
+            spawn_background_updates(app.handle().clone());
 
             // --- TRAY STARTUP ---
             // Agent guardrail: docs/architecture/macos-tray-menu.md — read before editing.
@@ -1872,26 +1876,222 @@ fn agent_capture_active_window() -> Option<String> {
     }
 }
 
-/// Install the pending update, then relaunch.
-///
-/// The updater plugin extracts the new bundle into `$TMPDIR` (usually
-/// `/var/folders/...`) and `rename()`s it over the running app. When the app and
-/// `$TMPDIR` live on different volumes that rename fails with EXDEV ("Cross-device
-/// link", os error 18) — the download succeeds but the install never applies.
-/// Pointing `TMPDIR` at the app bundle's own directory keeps every rename
-/// intra-volume. Also refuses to run from an App Translocation sandbox (a
-/// read-only quarantine mount) or a read-only volume (a mounted `.dmg`, which
-/// lives under `/Volumes/…`) where self-update is impossible — in either case
-/// the user must drag Copyosity into /Applications first.
-#[tauri::command]
-async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri_plugin_updater::UpdaterExt;
+/// Set while an update is being downloaded/installed. The background check in
+/// the main window and the Settings button share one install path, and two
+/// concurrent installs would race on the same bundle rename.
+static UPDATE_INSTALLING: AtomicBool = AtomicBool::new(false);
 
+/// Version already written to disk by this process. The running binary is still
+/// the old one until a restart, so the updater keeps offering the same version;
+/// remembering it avoids downloading and replacing the bundle again every check.
+static UPDATE_STAGED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The system temp dir as it was before any update could redirect `TMPDIR`.
+///
+/// `UpdateTmpDir` points `TMPDIR` at an install-only folder and deletes it
+/// afterwards; app temp files (GIF paste, window screenshots) must never land
+/// there, or a paste in flight loses its file. Everything except the updater
+/// uses this instead of `std::env::temp_dir()`.
+static APP_TEMP_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+pub(crate) fn app_temp_dir() -> std::path::PathBuf {
+    APP_TEMP_DIR
+        .get_or_init(|| user_temp_dir().unwrap_or_else(std::env::temp_dir))
+        .clone()
+}
+
+/// The per-user private temp dir macOS assigns (`/var/folders/…/T/`, 0700),
+/// read from the system rather than from `TMPDIR`.
+///
+/// `TMPDIR` is inherited across `app.restart()`: 1.1.0's Settings installer set
+/// it to the bundle's folder (`/Applications`, world-readable) right before
+/// relaunching, so the next version would start with clipboard temp files
+/// pointed there.
+fn user_temp_dir() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStringExt;
+
+        let mut buf = vec![0u8; 1024];
+        // SAFETY: confstr writes at most buf.len() bytes (NUL-terminated) and
+        // returns the length it needs including the NUL, or 0 on error.
+        let needed = unsafe {
+            libc::confstr(
+                libc::_CS_DARWIN_USER_TEMP_DIR,
+                buf.as_mut_ptr().cast::<libc::c_char>(),
+                buf.len(),
+            )
+        };
+        if needed == 0 || needed > buf.len() {
+            return None;
+        }
+        buf.truncate(needed - 1);
+        let path = std::path::PathBuf::from(std::ffi::OsString::from_vec(buf));
+        path.is_dir().then_some(path)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// Pin [`app_temp_dir`] and reset an inherited `TMPDIR` to it, so libraries
+/// and child processes also stop using a shared folder left by an older
+/// installer. Call first thing in `run()`, before other threads start.
+fn normalize_temp_dir() {
+    let dir = app_temp_dir();
+    if std::env::var_os("TMPDIR").as_deref() != Some(dir.as_os_str()) {
+        std::env::set_var("TMPDIR", &dir);
+    }
+}
+
+/// First background check after launch; leaves startup (tray, panels) alone.
+const BACKGROUND_UPDATE_FIRST_DELAY: std::time::Duration = std::time::Duration::from_secs(20);
+/// Re-check interval while the menu-bar app keeps running.
+const BACKGROUND_UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+/// Last version the user was notified about, so each version notifies once.
+static BACKGROUND_UPDATE_NOTIFIED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Check and silently install updates on launch and every
+/// [`BACKGROUND_UPDATE_INTERVAL`], for the whole process lifetime.
+///
+/// Runs in Rust, not in the main webview: that window is hidden almost all
+/// the time, and WebKit may suspend timers in hidden views, so a JS interval
+/// would stop firing until the panel is shown. Release builds only — a dev
+/// binary is not inside an app bundle.
+fn spawn_background_updates(app: tauri::AppHandle) {
+    if cfg!(debug_assertions) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(BACKGROUND_UPDATE_FIRST_DELAY).await;
+        let mut reason = "launch";
+        loop {
+            background_update_once(&app, reason).await;
+            reason = "periodic";
+            tokio::time::sleep(BACKGROUND_UPDATE_INTERVAL).await;
+        }
+    });
+}
+
+/// Append a line to the user-visible update log (Settings → Updates). The main
+/// window persists it; the line also goes to stderr for Console.app.
+fn emit_update_log(app: &tauri::AppHandle, line: String) {
+    eprintln!("[updater] {line}");
+    let _ = app.emit("update-log", line);
+}
+
+async fn background_update_once(app: &tauri::AppHandle, reason: &str) {
+    let running = app.package_info().version.to_string();
+    emit_update_log(
+        app,
+        format!("{reason}: running {running}, checking for updates…"),
+    );
+    match run_update_install(app.clone(), false).await {
+        Ok(None) => emit_update_log(app, format!("{reason}: already up to date")),
+        Ok(Some(version)) => {
+            emit_update_log(
+                app,
+                format!("{reason}: {version} installed — restart to apply"),
+            );
+            let first_time = {
+                let mut notified = BACKGROUND_UPDATE_NOTIFIED
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let first = notified.as_deref() != Some(version.as_str());
+                *notified = Some(version.clone());
+                first
+            };
+            if first_time {
+                use tauri_plugin_notification::NotificationExt;
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("Copyosity updated")
+                    .body(format!(
+                        "Version {version} installed — restart Copyosity to apply."
+                    ))
+                    .show();
+            }
+        }
+        Err(e) => emit_update_log(app, format!("{reason}: ERROR — {e}")),
+    }
+}
+
+/// Whole-request limit for reading `latest.json` from each endpoint.
+const UPDATE_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Whole-request limit for the ~6 MB updater tarball, generous for slow links.
+const UPDATE_DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+struct UpdateInstallGuard;
+
+impl UpdateInstallGuard {
+    fn acquire() -> Result<Self, String> {
+        if UPDATE_INSTALLING.swap(true, Ordering::SeqCst) {
+            return Err("An update is already being installed. Try again in a moment.".to_string());
+        }
+        Ok(Self)
+    }
+}
+
+impl Drop for UpdateInstallGuard {
+    fn drop(&mut self) {
+        UPDATE_INSTALLING.store(false, Ordering::SeqCst);
+    }
+}
+
+fn staged_update_version() -> Option<String> {
+    UPDATE_STAGED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+/// What an install call should do with a version the updater offers, given the
+/// version already staged on disk by this process.
+#[derive(Debug, PartialEq, Eq)]
+enum UpdateAction {
+    /// Nothing newer than the running app and nothing staged.
+    UpToDate,
+    /// The offered version is already on disk; only a restart is missing.
+    AlreadyStaged(String),
+    /// Download and install this version.
+    Install,
+}
+
+/// `true` when `offered` is a strictly newer semver than `staged`. Unparseable
+/// versions never count as newer, so bad metadata can't replace a staged build.
+fn is_newer_version(offered: &str, staged: &str) -> bool {
+    match (
+        semver::Version::parse(offered),
+        semver::Version::parse(staged),
+    ) {
+        (Ok(o), Ok(s)) => o > s,
+        _ => false,
+    }
+}
+
+/// Endpoints are compared against the *running* version, so a stale mirror can
+/// still offer something older than the build already staged on disk; only a
+/// strictly newer release may replace it.
+fn plan_update(offered: Option<&str>, staged: Option<&str>) -> UpdateAction {
+    match (offered, staged) {
+        (Some(o), Some(s)) if !is_newer_version(o, s) => UpdateAction::AlreadyStaged(s.to_string()),
+        (Some(_), _) => UpdateAction::Install,
+        (None, Some(s)) => UpdateAction::AlreadyStaged(s.to_string()),
+        (None, None) => UpdateAction::UpToDate,
+    }
+}
+
+/// Folder that holds the app bundle, after refusing locations where
+/// self-update cannot work: an App Translocation sandbox (a read-only quarantine
+/// mount) — the user must move Copyosity into /Applications first. Returns
+/// `None` off macOS.
+fn update_bundle_parent() -> Result<Option<std::path::PathBuf>, String> {
     #[cfg(target_os = "macos")]
     {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let p = exe.to_string_lossy().to_string();
-        if p.contains("/AppTranslocation/") {
+        if exe.to_string_lossy().contains("/AppTranslocation/") {
             return Err(
                 "Copyosity is running from a quarantine sandbox (App Translocation). \
                  Move Copyosity to /Applications, reopen it, then update."
@@ -1904,38 +2104,140 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
             .nth(3)
             .and_then(|b| b.parent())
             .ok_or_else(|| "Could not locate the Copyosity app bundle.".to_string())?;
+        Ok(Some(parent.to_path_buf()))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(None)
+    }
+}
 
-        // The updater extracts the new bundle next to the app and renames it into
-        // place. If that folder isn't writable — the classic case being the app
-        // still running from the read-only mounted disk image (/Volumes/…) — the
-        // install dies with a cryptic "Read-only file system (os error 30)".
-        // Probe for writability up front and return an actionable message instead.
-        let probe = parent.join(".copyosity-update-probe");
-        match std::fs::create_dir(&probe) {
-            Ok(()) => {
-                let _ = std::fs::remove_dir(&probe);
-            }
-            Err(e) => {
-                return Err(format!(
-                    "Copyosity can't update itself from “{}” ({}). It looks like you're \
-                     running Copyosity straight from the disk image (a read-only location). \
-                     Quit Copyosity, drag it onto the Applications folder, then open it from \
-                     Applications and update again.",
-                    parent.display(),
-                    e
-                ));
-            }
+/// `TMPDIR` pointed at a private (0700) folder next to the app bundle for the
+/// duration of one install, restored and removed on drop.
+///
+/// The updater plugin extracts the new bundle into `$TMPDIR` (usually
+/// `/var/folders/...`) and `rename()`s it over the running app. When the app and
+/// `$TMPDIR` live on different volumes that rename fails with EXDEV ("Cross-device
+/// link", os error 18) — the download succeeds but the install never applies.
+/// A folder beside the bundle keeps every rename intra-volume. It is private
+/// and scoped to the install because `TMPDIR` is process-wide: leaving it at
+/// `/Applications` would put clipboard temp files (GIF paste, screenshots) in
+/// a world-readable shared folder.
+struct UpdateTmpDir {
+    dir: std::path::PathBuf,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl UpdateTmpDir {
+    fn enter(parent: &std::path::Path) -> Result<Self, String> {
+        // Pin the real temp dir for the rest of the app before redirecting.
+        let _ = app_temp_dir();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = parent.join(format!(".copyosity-update-{}-{nanos}", std::process::id()));
+        // Creating the folder doubles as the writability probe. The classic
+        // failure is the app still running from the read-only mounted disk image
+        // (/Volumes/…), which would otherwise die with a cryptic
+        // "Read-only file system (os error 30)".
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
         }
-        std::env::set_var("TMPDIR", parent);
+        if let Err(e) = builder.create(&dir) {
+            return Err(format!(
+                "Copyosity can't update itself from “{}” ({}). It looks like you're \
+                 running Copyosity straight from the disk image (a read-only location). \
+                 Quit Copyosity, drag it onto the Applications folder, then open it from \
+                 Applications and update again.",
+                parent.display(),
+                e
+            ));
+        }
+        let previous = std::env::var_os("TMPDIR");
+        std::env::set_var("TMPDIR", &dir);
+        Ok(Self { dir, previous })
+    }
+}
+
+impl Drop for UpdateTmpDir {
+    fn drop(&mut self) {
+        match self.previous.take() {
+            Some(v) => std::env::set_var("TMPDIR", v),
+            None => std::env::remove_var("TMPDIR"),
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// Check for an update and install it through the same-volume path.
+///
+/// `restart` (default `true`, the Settings button) relaunches into the new
+/// version. The background check passes `false`: the bundle is replaced on
+/// disk and the new version applies on the next launch.
+///
+/// Returns the version that is now installed but not yet running, or `None`
+/// when the app is up to date.
+#[tauri::command]
+async fn install_update(
+    app: tauri::AppHandle,
+    restart: Option<bool>,
+) -> Result<Option<String>, String> {
+    run_update_install(app, restart.unwrap_or(true)).await
+}
+
+async fn run_update_install(
+    app: tauri::AppHandle,
+    restart: bool,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let guard = UpdateInstallGuard::acquire()?;
+    let bundle_parent = update_bundle_parent()?;
+
+    // A build is already on disk and the user asked to apply it: restart now,
+    // without needing the network. A newer release is picked up by the next
+    // background check after the restart.
+    if restart && staged_update_version().is_some() {
+        drop(guard);
+        app.restart();
     }
 
+    // Bounded so a stalled endpoint can't hold the install lock forever and
+    // block the Settings button and every later periodic check.
     let update = app
-        .updater()
+        .updater_builder()
+        .timeout(UPDATE_CHECK_TIMEOUT)
+        .build()
         .map_err(|e| e.to_string())?
         .check()
         .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "No update available".to_string())?;
+        .map_err(|e| e.to_string())?;
+
+    let staged = staged_update_version();
+    let update = match plan_update(
+        update.as_ref().map(|u| u.version.as_str()),
+        staged.as_deref(),
+    ) {
+        UpdateAction::UpToDate => return Ok(None),
+        UpdateAction::AlreadyStaged(version) => {
+            if restart {
+                drop(guard);
+                app.restart();
+            }
+            return Ok(Some(version));
+        }
+        UpdateAction::Install => update.expect("plan_update returns Install only for Some"),
+    };
+    let mut update = update;
+    update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
+    let tmp = match bundle_parent.as_deref() {
+        Some(parent) => Some(UpdateTmpDir::enter(parent)?),
+        None => None,
+    };
 
     let progress_app = app.clone();
     let mut downloaded: u64 = 0;
@@ -1953,8 +2255,16 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
 
+    drop(tmp);
+
+    let version = update.version.clone();
+    *UPDATE_STAGED.lock().unwrap_or_else(|e| e.into_inner()) = Some(version.clone());
     let _ = app.emit("update-progress", Some(100u32));
-    app.restart();
+    if restart {
+        drop(guard);
+        app.restart();
+    }
+    Ok(Some(version))
 }
 
 /// Snap the palette window to the nearest screen work-area edge when the user
@@ -2516,5 +2826,121 @@ mod overlay_width_tests {
         assert_eq!(resolve_vertical_win_width(5000.0, 1.0, 2560), 720);
         // A narrow work area wins over the preferred width but not below the minimum.
         assert_eq!(resolve_vertical_win_width(600.0, 1.0, 200), 360);
+    }
+}
+
+#[cfg(test)]
+mod update_install_tests {
+    use super::*;
+
+    #[test]
+    fn plan_update_installs_a_new_version() {
+        assert_eq!(plan_update(Some("1.2.0"), None), UpdateAction::Install);
+    }
+
+    #[test]
+    fn plan_update_skips_a_version_already_on_disk() {
+        assert_eq!(
+            plan_update(Some("1.2.0"), Some("1.2.0")),
+            UpdateAction::AlreadyStaged("1.2.0".to_string())
+        );
+    }
+
+    #[test]
+    fn plan_update_installs_a_newer_release_over_a_staged_one() {
+        assert_eq!(
+            plan_update(Some("1.3.0"), Some("1.2.0")),
+            UpdateAction::Install
+        );
+    }
+
+    #[test]
+    fn plan_update_never_downgrades_a_staged_version() {
+        // Stale mirror offers 1.2.0 after 1.3.0 was staged from GitHub.
+        assert_eq!(
+            plan_update(Some("1.2.0"), Some("1.3.0")),
+            UpdateAction::AlreadyStaged("1.3.0".to_string())
+        );
+        assert_eq!(
+            plan_update(Some("not-a-version"), Some("1.3.0")),
+            UpdateAction::AlreadyStaged("1.3.0".to_string())
+        );
+    }
+
+    #[test]
+    fn plan_update_reports_staged_version_when_nothing_newer() {
+        assert_eq!(
+            plan_update(None, Some("1.2.0")),
+            UpdateAction::AlreadyStaged("1.2.0".to_string())
+        );
+        assert_eq!(plan_update(None, None), UpdateAction::UpToDate);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn update_tmpdir_is_private_scoped_and_restored() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let parent = std::env::temp_dir().join(format!(
+            "copyosity-update-tmpdir-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&parent).unwrap();
+        let before = std::env::var_os("TMPDIR");
+
+        let tmp = UpdateTmpDir::enter(&parent).expect("writable parent");
+        let dir = tmp.dir.clone();
+        assert_eq!(std::env::var_os("TMPDIR").as_deref(), Some(dir.as_os_str()));
+        // App temp files never follow the redirect into the install folder,
+        // which is deleted when the install ends.
+        assert!(!app_temp_dir().starts_with(&dir));
+        assert!(!crate::clipboard_write::gif_temp_dir().starts_with(&dir));
+        assert!(dir.starts_with(&parent));
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o700,
+            "extraction folder must not be readable by others"
+        );
+        drop(tmp);
+
+        assert_eq!(std::env::var_os("TMPDIR"), before);
+        assert!(!dir.exists(), "folder removed after the install");
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    #[test]
+    fn update_tmpdir_reports_read_only_location() {
+        let missing = std::path::Path::new("/nonexistent-copyosity-volume/Applications");
+        let err = match UpdateTmpDir::enter(missing) {
+            Ok(_) => panic!("must fail for an unwritable folder"),
+            Err(e) => e,
+        };
+        assert!(err.contains("Applications folder"), "{err}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_temp_dir_is_the_private_per_user_folder_not_tmpdir() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let dir = user_temp_dir().expect("macOS assigns a per-user temp dir");
+        assert!(dir.starts_with("/var/folders") || dir.starts_with("/private/var/folders"));
+        let meta = std::fs::metadata(&dir).unwrap();
+        assert_eq!(
+            meta.permissions().mode() & 0o077,
+            0,
+            "not readable by others"
+        );
+        assert_eq!(meta.uid(), unsafe { libc::getuid() });
+        assert_eq!(app_temp_dir(), dir);
+    }
+
+    #[test]
+    fn install_guard_rejects_a_second_install_until_released() {
+        let first = UpdateInstallGuard::acquire().expect("first install starts");
+        assert!(UpdateInstallGuard::acquire().is_err());
+        drop(first);
+        let again = UpdateInstallGuard::acquire().expect("lock released on drop");
+        drop(again);
     }
 }

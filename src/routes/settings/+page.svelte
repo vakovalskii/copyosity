@@ -821,10 +821,20 @@
     });
     try {
       // Runs the whole install in Rust: temp dirs on the app's own volume
-      // (avoids EXDEV), then relaunch. On success the process restarts and this
-      // never returns; any thrown value is the real, actionable error.
-      await invoke("install_update");
-      appendUpdateLog("install: bundle replaced OK — relaunching…");
+      // (avoids EXDEV), then relaunch. When an update is installed the process
+      // restarts and this never resolves; any thrown value is the real,
+      // actionable error.
+      const installed = await invoke<string | null>("install_update");
+      if (installed === null) {
+        // The install-time recheck found nothing newer (e.g. an endpoint
+        // served older metadata than the check that showed the button).
+        update = null;
+        updateInstalling = false;
+        updateMessage = "You're on the latest version.";
+        appendUpdateLog("install: no update available at install time");
+      } else {
+        appendUpdateLog(`install: ${installed} installed — relaunching…`);
+      }
     } catch (e) {
       updateMessage = `Install failed: ${errorToString(e)}`;
       appendUpdateLog(`install: ERROR — ${errorToString(e)}`);
