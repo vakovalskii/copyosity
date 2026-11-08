@@ -1947,24 +1947,15 @@ fn plan_update(offered: Option<&str>, staged: Option<&str>) -> UpdateAction {
     }
 }
 
-/// Point the updater's temp dir at the app's own volume and refuse locations
-/// where self-update cannot work.
-///
-/// The updater plugin extracts the new bundle into `$TMPDIR` (usually
-/// `/var/folders/...`) and `rename()`s it over the running app. When the app and
-/// `$TMPDIR` live on different volumes that rename fails with EXDEV ("Cross-device
-/// link", os error 18) — the download succeeds but the install never applies.
-/// Pointing `TMPDIR` at the app bundle's own directory keeps every rename
-/// intra-volume. Also refuses to run from an App Translocation sandbox (a
-/// read-only quarantine mount) or a read-only volume (a mounted `.dmg`, which
-/// lives under `/Volumes/…`) where self-update is impossible — in either case
-/// the user must drag Copyosity into /Applications first.
-fn prepare_update_location() -> Result<(), String> {
+/// Folder that holds the app bundle, after refusing locations where
+/// self-update cannot work: an App Translocation sandbox (a read-only quarantine
+/// mount) — the user must move Copyosity into /Applications first. Returns
+/// `None` off macOS.
+fn update_bundle_parent() -> Result<Option<std::path::PathBuf>, String> {
     #[cfg(target_os = "macos")]
     {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let p = exe.to_string_lossy().to_string();
-        if p.contains("/AppTranslocation/") {
+        if exe.to_string_lossy().contains("/AppTranslocation/") {
             return Err(
                 "Copyosity is running from a quarantine sandbox (App Translocation). \
                  Move Copyosity to /Applications, reopen it, then update."
@@ -1977,31 +1968,71 @@ fn prepare_update_location() -> Result<(), String> {
             .nth(3)
             .and_then(|b| b.parent())
             .ok_or_else(|| "Could not locate the Copyosity app bundle.".to_string())?;
-
-        // The updater extracts the new bundle next to the app and renames it into
-        // place. If that folder isn't writable — the classic case being the app
-        // still running from the read-only mounted disk image (/Volumes/…) — the
-        // install dies with a cryptic "Read-only file system (os error 30)".
-        // Probe for writability up front and return an actionable message instead.
-        let probe = parent.join(".copyosity-update-probe");
-        match std::fs::create_dir(&probe) {
-            Ok(()) => {
-                let _ = std::fs::remove_dir(&probe);
-            }
-            Err(e) => {
-                return Err(format!(
-                    "Copyosity can't update itself from “{}” ({}). It looks like you're \
-                     running Copyosity straight from the disk image (a read-only location). \
-                     Quit Copyosity, drag it onto the Applications folder, then open it from \
-                     Applications and update again.",
-                    parent.display(),
-                    e
-                ));
-            }
-        }
-        std::env::set_var("TMPDIR", parent);
+        Ok(Some(parent.to_path_buf()))
     }
-    Ok(())
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(None)
+    }
+}
+
+/// `TMPDIR` pointed at a private (0700) folder next to the app bundle for the
+/// duration of one install, restored and removed on drop.
+///
+/// The updater plugin extracts the new bundle into `$TMPDIR` (usually
+/// `/var/folders/...`) and `rename()`s it over the running app. When the app and
+/// `$TMPDIR` live on different volumes that rename fails with EXDEV ("Cross-device
+/// link", os error 18) — the download succeeds but the install never applies.
+/// A folder beside the bundle keeps every rename intra-volume. It is private
+/// and scoped to the install because `TMPDIR` is process-wide: leaving it at
+/// `/Applications` would put clipboard temp files (GIF paste, screenshots) in
+/// a world-readable shared folder.
+struct UpdateTmpDir {
+    dir: std::path::PathBuf,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl UpdateTmpDir {
+    fn enter(parent: &std::path::Path) -> Result<Self, String> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = parent.join(format!(".copyosity-update-{}-{nanos}", std::process::id()));
+        // Creating the folder doubles as the writability probe. The classic
+        // failure is the app still running from the read-only mounted disk image
+        // (/Volumes/…), which would otherwise die with a cryptic
+        // "Read-only file system (os error 30)".
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        if let Err(e) = builder.create(&dir) {
+            return Err(format!(
+                "Copyosity can't update itself from “{}” ({}). It looks like you're \
+                 running Copyosity straight from the disk image (a read-only location). \
+                 Quit Copyosity, drag it onto the Applications folder, then open it from \
+                 Applications and update again.",
+                parent.display(),
+                e
+            ));
+        }
+        let previous = std::env::var_os("TMPDIR");
+        std::env::set_var("TMPDIR", &dir);
+        Ok(Self { dir, previous })
+    }
+}
+
+impl Drop for UpdateTmpDir {
+    fn drop(&mut self) {
+        match self.previous.take() {
+            Some(v) => std::env::set_var("TMPDIR", v),
+            None => std::env::remove_var("TMPDIR"),
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
 }
 
 /// Check for an update and install it through the same-volume path.
@@ -2021,7 +2052,15 @@ async fn install_update(
 
     let restart = restart.unwrap_or(true);
     let guard = UpdateInstallGuard::acquire()?;
-    prepare_update_location()?;
+    let bundle_parent = update_bundle_parent()?;
+
+    // A build is already on disk and the user asked to apply it: restart now,
+    // without needing the network. A newer release is picked up by the next
+    // background check after the restart.
+    if restart && staged_update_version().is_some() {
+        drop(guard);
+        app.restart();
+    }
 
     // Bounded so a stalled endpoint can't hold the install lock forever and
     // block the Settings button and every later periodic check.
@@ -2051,6 +2090,10 @@ async fn install_update(
     };
     let mut update = update;
     update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
+    let tmp = match bundle_parent.as_deref() {
+        Some(parent) => Some(UpdateTmpDir::enter(parent)?),
+        None => None,
+    };
 
     let progress_app = app.clone();
     let mut downloaded: u64 = 0;
@@ -2067,6 +2110,8 @@ async fn install_update(
         )
         .await
         .map_err(|e| e.to_string())?;
+
+    drop(tmp);
 
     let version = update.version.clone();
     *UPDATE_STAGED.lock().unwrap_or_else(|e| e.into_inner()) = Some(version.clone());
@@ -2685,6 +2730,44 @@ mod update_install_tests {
             UpdateAction::AlreadyStaged("1.2.0".to_string())
         );
         assert_eq!(plan_update(None, None), UpdateAction::UpToDate);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn update_tmpdir_is_private_scoped_and_restored() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let parent = std::env::temp_dir().join(format!(
+            "copyosity-update-tmpdir-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&parent).unwrap();
+        let before = std::env::var_os("TMPDIR");
+
+        let tmp = UpdateTmpDir::enter(&parent).expect("writable parent");
+        let dir = tmp.dir.clone();
+        assert_eq!(std::env::var_os("TMPDIR").as_deref(), Some(dir.as_os_str()));
+        assert!(dir.starts_with(&parent));
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o700,
+            "extraction folder must not be readable by others"
+        );
+        drop(tmp);
+
+        assert_eq!(std::env::var_os("TMPDIR"), before);
+        assert!(!dir.exists(), "folder removed after the install");
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    #[test]
+    fn update_tmpdir_reports_read_only_location() {
+        let missing = std::path::Path::new("/nonexistent-copyosity-volume/Applications");
+        let err = match UpdateTmpDir::enter(missing) {
+            Ok(_) => panic!("must fail for an unwritable folder"),
+            Err(e) => e,
+        };
+        assert!(err.contains("Applications folder"), "{err}");
     }
 
     #[test]
